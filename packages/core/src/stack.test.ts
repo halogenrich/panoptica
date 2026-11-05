@@ -8,7 +8,14 @@ describe('stack geometry', () => {
   });
   it('stacks layers bottom to top', () => {
     const g = pattern('1.2 × 1.2 cm');
-    const s = stackSlabs('1.2 × 1.2 cm', [{ n: 'Perovskite', kind: 'film', mat: 'x', nm: 500 }, { n: 'Metal contact', kind: 'metal', mat: 'Ag', nm: 100, rects: g.metal }], g.scrape[0]);
+    const s = stackSlabs(
+      '1.2 × 1.2 cm',
+      [
+        { n: 'Perovskite', kind: 'film', mat: 'x', nm: 500 },
+        { n: 'Metal contact', kind: 'metal', mat: 'Ag', nm: 100, rects: g.metal },
+      ],
+      g.scrape[0],
+    );
     expect(s.map((x) => x.kind)).toEqual(['glass', 'ito', 'film', 'metal']);
     expect(s[3].y0).toBeCloseTo(s[2].y0 + s[2].h, 9);
     expect(s[3].rects).toHaveLength(4);

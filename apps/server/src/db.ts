@@ -14,7 +14,14 @@ db.exec('PRAGMA busy_timeout = 5000');
 /** Runs fn in one transaction (all or nothing). */
 export function tx<T>(fn: () => T): T {
   db.exec('BEGIN');
-  try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
+  try {
+    const r = fn();
+    db.exec('COMMIT');
+    return r;
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 }
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(
@@ -43,11 +50,13 @@ CREATE TABLE IF NOT EXISTS run_data(
 
 // migrations for databases created by earlier versions
 const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
-if (!cols('presets').includes('parent_id')) db.exec('ALTER TABLE presets ADD COLUMN parent_id INTEGER REFERENCES presets(id) ON DELETE SET NULL');
+if (!cols('presets').includes('parent_id'))
+  db.exec('ALTER TABLE presets ADD COLUMN parent_id INTEGER REFERENCES presets(id) ON DELETE SET NULL');
 // deleted users stay as rows (their presets, batches and measurements keep an owner), shown as "username (former)"
 if (!cols('users').includes('deleted')) db.exec('ALTER TABLE users ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0');
 // 0.18: forced password change, trash (soft delete), comments with reactions, notifications, app settings
-if (!cols('users').includes('must_change')) db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
+if (!cols('users').includes('must_change'))
+  db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
 if (!cols('presets').includes('deleted_at')) db.exec('ALTER TABLE presets ADD COLUMN deleted_at TEXT');
 if (!cols('batches').includes('deleted_at')) db.exec('ALTER TABLE batches ADD COLUMN deleted_at TEXT');
 db.exec(`
@@ -70,7 +79,8 @@ if (!cols('users').includes('photo')) db.exec('ALTER TABLE users ADD COLUMN phot
 if (!cols('users').includes('photo_v')) db.exec('ALTER TABLE users ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
 if (!cols('users').includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen TEXT');
 if (!cols('users').includes('online_since')) db.exec('ALTER TABLE users ADD COLUMN online_since TEXT');
-if (!cols('comments').includes('private')) db.exec('ALTER TABLE comments ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
+if (!cols('comments').includes('private'))
+  db.exec('ALTER TABLE comments ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
 db.exec(`
 CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, color TEXT NOT NULL DEFAULT '#6b7280',
   kind TEXT NOT NULL DEFAULT 'label' CHECK(kind IN ('label','professor','manager','inventory')), pos INTEGER NOT NULL DEFAULT 0);
@@ -79,14 +89,35 @@ CREATE TABLE IF NOT EXISTS user_tags(user_id INTEGER NOT NULL REFERENCES users(i
 `);
 if (!db.prepare('SELECT 1 FROM tags LIMIT 1').get()) {
   const ins = db.prepare('INSERT INTO tags(name,color,kind,pos) VALUES(?,?,?,?)');
-  ([['Professor', '#7c3aed', 'professor'], ['Manager', '#0f766e', 'manager'], ['Inventory', '#b45309', 'inventory'],
-    ["Master's", '#2563eb', 'label'], ['PhD', '#1d4ed8', 'label'], ['Post-doc', '#0369a1', 'label'], ['Visitor', '#6b7280', 'label']] as const)
-    .forEach(([n, c, k], i) => ins.run(n, c, k, i));
+  (
+    [
+      ['Professor', '#7c3aed', 'professor'],
+      ['Manager', '#0f766e', 'manager'],
+      ['Inventory', '#b45309', 'inventory'],
+      ["Master's", '#2563eb', 'label'],
+      ['PhD', '#1d4ed8', 'label'],
+      ['Post-doc', '#0369a1', 'label'],
+      ['Visitor', '#6b7280', 'label'],
+    ] as const
+  ).forEach(([n, c, k], i) => ins.run(n, c, k, i));
 }
 
 /** Access a user's tags give: Professor sees everything and can comment privately; Manager and Inventory open their pages. */
 export function perms(uid: number) {
-  const kinds = (db.prepare('SELECT DISTINCT t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=?').all(uid) as { kind: string }[]).map((r) => r.kind);
-  return { professor: kinds.includes('professor'), manager: kinds.includes('manager'), inventory: kinds.includes('inventory') };
+  const kinds = (
+    db
+      .prepare('SELECT DISTINCT t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=?')
+      .all(uid) as { kind: string }[]
+  ).map((r) => r.kind);
+  return {
+    professor: kinds.includes('professor'),
+    manager: kinds.includes('manager'),
+    inventory: kinds.includes('inventory'),
+  };
 }
-export const tagsOf = (uid: number) => db.prepare('SELECT t.id,t.name,t.color,t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=? ORDER BY t.pos,t.name').all(uid);
+export const tagsOf = (uid: number) =>
+  db
+    .prepare(
+      'SELECT t.id,t.name,t.color,t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=? ORDER BY t.pos,t.name',
+    )
+    .all(uid);
