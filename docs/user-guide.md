@@ -9,6 +9,8 @@ Perovskite Lab keeps the lab's fabrication procedures as reusable presets, assem
 3. A **stack** lists the layers of a device, each pointing to its recipes.
 4. A **batch** is one fabrication run of a stack. It keeps a frozen copy of the stack and its recipes, a checklist, notes and the run data.
 
+The side menu follows the same order: **Fabrication** (stacks, batches, calendar), **Measurements**, **Recipes**, **Designs**, and **Lab** (inventory) at the bottom.
+
 Typical order: make the substrate and mask designs once; make or reuse recipes; build the stack; start a batch from the stack; print the sheet; enter run data afterwards.
 
 ## Library screens
@@ -19,6 +21,7 @@ Every design, recipe and stack page has the same layout:
 - **New …** opens an empty editor. Click a card to open it.
 - An open preset has three tabs: **Recipe** (the computed output), **Run data** (entries from real runs) and **History** (versions).
 - **Edit** shows inputs on the left and the live output on the right. On a phone, switch between **Inputs** and **Output**.
+- Saving needs a name. If the name at the top is still empty, the button reads **Name and save** and asks for the name in a small box; Enter saves.
 - **Duplicate** copies a preset under your name. **Private** presets are visible only to you; **Shared** presets are visible to everyone (only the owner edits them).
 
 ### Versions
@@ -109,7 +112,7 @@ A batch freezes the stack, its recipes and the chemical list at the moment it is
 - **People**: a card per person with what they did in the period. Open a person for their page: best cell so far, progress measurement by measurement, recent batches and measurements; equipment time and setbacks are folded below.
 - **Equipment**: booked hours per equipment and how busy it was (share of weekday working hours, 08:00–18:00), with who booked it.
 
-**Export slide** gives a 1920 × 1080 image (PNG or SVG) with the group logo for a group meeting; on Summary choose the summary or the highlights slide. A cell counts with its best working pixel; stability follow-ups are left out.
+**Export for a presentation** (Summary) shows a preview of a 16:9 slide with efficiency over time, the J–V curve of the period's best cell and the box plots (Jsc, FF, Voc, PCE) of that cell's batch, with the group logo. Download the full slide, or each figure on its own to build your own slide, as PNG (PowerPoint, Google Slides) or SVG (sharp at any size, editable). The highlights slide (record, batches, best cells in words) is there too. People and Equipment have **Export slide** for their own 16:9 slide. A cell counts with its best working pixel; stability follow-ups are left out.
 
 ## Comparing pixels
 
@@ -171,7 +174,7 @@ Metal evaporation asks, per stage (each rate), for the power and the pressure re
 
 ## Phones and tablets
 
-The app works in a phone browser on the same network as the lab PC. Start the PC with **start-network** (start-network.bat on Windows, start-network.command on Mac, start-network.sh on Linux), then open the profile menu (your initial, top right) › **Invite a phone (QR code)** and scan the code with the phone camera; the link opens the app in the phone's browser. The start window also prints the address. University networks such as eduroam may keep devices from reaching each other; a lab router or a phone hotspot works. The bottom bar has **Stacks** (stacks and batches), **Electric measurements**, **Recipes** (all recipe kinds) and the menu (☰) for designs, the inventory, search, help and your profile. Inside Stacks and Recipes, the chips at the top switch between their sections, and each tab reopens the section you used last. Phones are best for ticking batch layers and entering run data; drawing designs is easier on a computer.
+The app works in a phone browser on the same network as the lab PC. Start the PC with **start-network** (start-network.bat on Windows, start-network.command on Mac, start-network.sh on Linux), then open the profile menu (your initial, top right) › **Invite a phone (QR code)** and scan the code with the phone camera; the link opens the app in the phone's browser. The start window also prints the address. University networks such as eduroam may keep devices from reaching each other; a lab router or a phone hotspot works. The bottom bar has **Fabrication** (stacks, batches, calendar), **Measurements**, **Recipes** (all recipe kinds) and the menu (☰) for designs, the inventory, search, help and your profile. Inside Fabrication and Recipes, the chips at the top switch between their sections, and each tab reopens the section you used last. Phones are best for ticking batch layers and entering run data; drawing designs is easier on a computer.
 
 ## Account
 

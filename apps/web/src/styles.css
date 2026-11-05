@@ -6110,3 +6110,75 @@ body.dragging-block * {
   word-break: break-all;
   user-select: all;
 }
+
+/* overview: export for a presentation */
+.pe {
+  display: grid;
+  gap: 14px;
+}
+.pe-preview {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px var(--sep),
+    0 6px 20px rgba(0, 0, 0, 0.08);
+  background: #fff;
+}
+.pe-preview > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.pe-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.pe-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sep);
+}
+.pe-row:last-child {
+  border-bottom: 0;
+}
+.pe-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pe-row .mut {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Name and save": a small box above the button when the preset has no name yet */
+.name-save {
+  position: relative;
+}
+.name-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: min(380px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--sep);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  animation: rise 0.15s var(--ease);
+}
+.name-pop label {
+  font-weight: 600;
+}
+.name-pop input {
+  width: 100%;
+}
