@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { makeShape, outline, polys, polyArea, unionArea, overlapArea, isConvex, shapeIssues, stripResistance, fitShape, moveShape, pieces, type Shape } from './geom';
+import {
+  makeShape,
+  outline,
+  polys,
+  polyArea,
+  unionArea,
+  overlapArea,
+  isConvex,
+  shapeIssues,
+  stripResistance,
+  fitShape,
+  moveShape,
+  pieces,
+  type Shape,
+} from './geom';
 
-const rect = (x: number, y: number, w: number, h: number, extra: Partial<Shape> = {}): Shape => ({ id: 'r', kind: 'rect', x, y, w, h, ...extra } as Shape);
+const rect = (x: number, y: number, w: number, h: number, extra: Partial<Shape> = {}): Shape =>
+  ({ id: 'r', kind: 'rect', x, y, w, h, ...extra }) as Shape;
 
 describe('geometry', () => {
   it('areas of each shape kind', () => {
@@ -21,14 +36,28 @@ describe('geometry', () => {
     expect(unionArea(polys(r))).toBeCloseTo(48, 9);
   });
   it('checks convexity and bounds', () => {
-    expect(isConvex([[0, 0], [4, 0], [4, 4], [0, 4]])).toBe(true);
-    expect(isConvex([[0, 0], [4, 0], [1, 1], [0, 4]])).toBe(false);
+    expect(
+      isConvex([
+        [0, 0],
+        [4, 0],
+        [4, 4],
+        [0, 4],
+      ]),
+    ).toBe(true);
+    expect(
+      isConvex([
+        [0, 0],
+        [4, 0],
+        [1, 1],
+        [0, 4],
+      ]),
+    ).toBe(false);
     expect(shapeIssues(rect(10, 0, 4, 4), 12, 12)).toContain('extends beyond the glass');
     expect(shapeIssues(rect(0, 0, 4, 4), 12, 12)).toEqual([]);
   });
   it('strip resistance R = Rs L / W', () => {
     const r = stripResistance(rect(2, 0, 8, 12), 15);
-    expect(r.ohm).toBeCloseTo(15 * 12 / 8, 9);
+    expect(r.ohm).toBeCloseTo((15 * 12) / 8, 9);
     expect(r.axis).toBe('y');
   });
   it('move and fit keep the shape kind', () => {

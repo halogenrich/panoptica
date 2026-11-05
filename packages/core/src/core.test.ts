@@ -14,13 +14,22 @@ describe('core parity with the HTML prototype', () => {
     expect(2 * p.PbI2 + p.FAI + p.MAI).toBeCloseTo(3, 6);
   });
   it('spin total time is the sum of step times', () => {
-    const t = spinTimeline([{ t: 1, rpm: 1000, n2: false, final: false }, { t: 9, rpm: 1000, n2: false, final: false }, { t: 1, rpm: 5000, n2: false, final: false }, { t: 39, rpm: 5000, n2: true, final: true }]);
+    const t = spinTimeline([
+      { t: 1, rpm: 1000, n2: false, final: false },
+      { t: 9, rpm: 1000, n2: false, final: false },
+      { t: 1, rpm: 5000, n2: false, final: false },
+      { t: 39, rpm: 5000, n2: true, final: true },
+    ]);
     expect(t.total).toBe(50);
     expect(t.rows[3].from).toBe(39);
     expect(t.finalOk).toBe(true);
   });
   it('metal stages at 0.1 / 0.2 / 1.0 A/s take 1850 s', () => {
-    const m = metalStages([{ until: 5, rate: 0.1 }, { until: 15, rate: 0.2 }, { until: 100, rate: 1 }]);
+    const m = metalStages([
+      { until: 5, rate: 0.1 },
+      { until: 15, rate: 0.2 },
+      { until: 100, rate: 1 },
+    ]);
     expect(m.total).toBeCloseTo(1850, 6);
     expect(m.rows[0].kA).toBeCloseTo(0.05, 6);
   });

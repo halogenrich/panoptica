@@ -1,0 +1,9 @@
+node_modules
+dist
+package-lock.json
+*.md
+*.db
+backups
+config
+updates
+packages/core/test-data

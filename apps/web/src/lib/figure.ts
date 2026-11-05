@@ -10,12 +10,21 @@ const load = () => (cache ??= api<FigureSettings>('/settings/figure').catch(() =
 
 export function useFigureSettings(): FigureSettings {
   const [f, setF] = useState<FigureSettings>({});
-  useEffect(() => { let on = true; load().then((x) => on && setF(x)); subs.add(setF); return () => { on = false; subs.delete(setF); }; }, []);
+  useEffect(() => {
+    let on = true;
+    load().then((x) => on && setF(x));
+    subs.add(setF);
+    return () => {
+      on = false;
+      subs.delete(setF);
+    };
+  }, []);
   return f;
 }
 export async function saveFigureSettings(p: FigureSettings) {
   const d = await api<FigureSettings>('/settings/figure', 'PUT', p);
-  cache = Promise.resolve(d); subs.forEach((s) => s(d));
+  cache = Promise.resolve(d);
+  subs.forEach((s) => s(d));
   return d;
 }
 

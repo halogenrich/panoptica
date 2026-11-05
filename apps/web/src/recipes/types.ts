@@ -4,15 +4,35 @@ import type { Chemical } from '../views/common';
 
 /** Data every recipe screen can read: the chemical table and the names of saved solutions (spin dispense sources). */
 /** A saved design (substrate or metal mask) that recipes and other designs can reference. */
-export interface Design { id: number; name: string; segment: 'sub' | 'mask'; data: any }
+export interface Design {
+  id: number;
+  name: string;
+  segment: 'sub' | 'mask';
+  data: any;
+}
 
 /** Any saved preset, as listed by the server. */
-export interface Rec { id: number; segment: string; name: string; visibility: 'private' | 'shared'; data: any; owner_id: number; parent_id: number | null; owner: string; updated_at: string; mine: number; used: number }
+export interface Rec {
+  id: number;
+  segment: string;
+  name: string;
+  visibility: 'private' | 'shared';
+  data: any;
+  owner_id: number;
+  parent_id: number | null;
+  owner: string;
+  updated_at: string;
+  mine: number;
+  used: number;
+}
 
 export interface Ctx {
-  chems: Chemical[]; cl: Chem[]; solutions: string[]; designs: Design[];
-  all: Rec[];                      // every preset visible to the user
-  refresh: () => void;             // reload presets after creating one inside another editor
+  chems: Chemical[];
+  cl: Chem[];
+  solutions: string[];
+  designs: Design[];
+  all: Rec[]; // every preset visible to the user
+  refresh: () => void; // reload presets after creating one inside another editor
   openBatch?: (id: number) => void;
 }
 
@@ -21,7 +41,15 @@ export interface Ctx {
  * 'pct' a percentage with one decimal (e.g. the sensor life, T.V). Fields with `stage` are shown in a grid, one row per stage and one
  * column per `col`; the kind's runStages gives the row labels.
  */
-export interface RunField { key: string; label: string; expected?: string; unit?: string; input?: 'sci' | 'pct'; stage?: number; col?: string }
+export interface RunField {
+  key: string;
+  label: string;
+  expected?: string;
+  unit?: string;
+  input?: 'sci' | 'pct';
+  stage?: number;
+  col?: string;
+}
 
 /**
  * One recipe type. The library screen is generic; each recipe only supplies its defaults, form, output and card art.
@@ -29,8 +57,8 @@ export interface RunField { key: string; label: string; expected?: string; unit?
  */
 export interface Kind<T = any> {
   segment: 's0' | 's1' | 's2' | 's3' | 's4' | 'sub' | 'mask' | 'stk';
-  title: string;            // "Solutions"
-  noun: string;             // "solution"
+  title: string; // "Solutions"
+  noun: string; // "solution"
   defaults: () => T;
   Editor: (p: { d: T; set: (p: Partial<T>) => void; ctx: Ctx }) => ReactNode;
   /** Read-only output. `blanks` adds write-in columns for printed run sheets. */
@@ -58,4 +86,4 @@ export interface Kind<T = any> {
   runResult?: (d: T, values: Record<string, string>, ctx: Ctx) => ReactNode;
 }
 
-export const norm = <T,>(k: Kind<T>, d: unknown): T => ({ ...k.defaults(), ...(d as object) });
+export const norm = <T>(k: Kind<T>, d: unknown): T => ({ ...k.defaults(), ...(d as object) });
