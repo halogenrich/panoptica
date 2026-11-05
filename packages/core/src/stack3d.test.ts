@@ -24,9 +24,10 @@ describe('stack geometry', () => {
     expect(top(htl) - top(ito)).toBeCloseTo(VIS.min, 9);
   });
   it('the first film sits on ITO and fills down to the glass where there is no ITO', () => {
-    const onIto = htl.parts.find((p) => p.y0 === top(ito))!, onGlass = htl.parts.find((p) => p.y0 === VIS.glass)!;
-    expect(area(onIto.region)).toBeCloseTo(96 - 18, 6);           // ITO minus the scrape strip
-    expect(area(onGlass.region)).toBeCloseTo(144 - 96, 6);        // ITO-free glass
+    const onIto = htl.parts.find((p) => p.y0 === top(ito))!,
+      onGlass = htl.parts.find((p) => p.y0 === VIS.glass)!;
+    expect(area(onIto.region)).toBeCloseTo(96 - 18, 6); // ITO minus the scrape strip
+    expect(area(onGlass.region)).toBeCloseTo(144 - 96, 6); // ITO-free glass
     expect(htl.parts.every((p) => p.y0 >= VIS.glass)).toBe(true); // never inside the glass or the ITO
   });
   it('later films have a single part with a flat top', () => {
@@ -39,10 +40,13 @@ describe('stack geometry', () => {
   });
   it('metal over the scrape area fills down to the exposed ITO', () => {
     const ce = buildStack(sub, { ...mask, conn: [...mask.conn, R('ce', 1, 8, 2, 3)] }, [
-      { key: 'pvk', name: 'Perovskite', kind: 'film', mat: 'x', nm: 500 }, { key: 'm', name: 'Metal', kind: 'metal', mat: 'Ag', nm: 100 }]);
-    const metal = ce.slabs[3], ito2 = ce.slabs[1];
+      { key: 'pvk', name: 'Perovskite', kind: 'film', mat: 'x', nm: 500 },
+      { key: 'm', name: 'Metal', kind: 'metal', mat: 'Ag', nm: 100 },
+    ]);
+    const metal = ce.slabs[3],
+      ito2 = ce.slabs[1];
     const bottoms = metal.parts.map((p) => p.y0).sort((a, b) => a - b);
-    expect(bottoms[0]).toBeCloseTo(top(ito2), 9);              // x 2..3: down onto the exposed ITO in the scrape strip
+    expect(bottoms[0]).toBeCloseTo(top(ito2), 9); // x 2..3: down onto the exposed ITO in the scrape strip
     expect(bottoms[bottoms.length - 1]).toBeCloseTo(top(ce.slabs[2]), 9); // elsewhere on top of the film (x 1..2 is covered by film)
     expect(top(metal)).toBeCloseTo(top(ce.slabs[2]) + 0.1, 9);
     // evaporated metal follows the surface: the counter electrode on the ITO is as thick as the metal on top of the stack
