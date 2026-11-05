@@ -1,11 +1,20 @@
 @echo off
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+set "ROOTDIR=%PSC_ROOT%"
+if not defined ROOTDIR set "ROOTDIR=%~dp0"
+cd /d "%ROOTDIR%"
 title Perovskite Lab - update
 
+rem update.bat [zip] [restart] [lan]   restart: started by the app (Admin settings > Updates); waits for it to stop, then starts it again
 set ZIP=%~1
+set MODE=%~2
+set NET=%~3
 if "%ZIP%"=="" (
-  for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-ChildItem ($env:USERPROFILE + '\Downloads\perovskite-lab*.zip') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"`) do set ZIP=%%f
+  for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-ChildItem @('updates\perovskite-lab*.zip', ($env:USERPROFILE + '\Downloads\perovskite-lab*.zip')) -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"`) do set ZIP=%%f
+)
+if /i "%MODE%"=="restart" (
+  echo Waiting for the app to stop...
+  powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ if(-not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue)){exit 0}; Start-Sleep 1 }"
 )
 if "%ZIP%"=="" (
   echo No perovskite-lab*.zip found in Downloads.
@@ -39,7 +48,7 @@ powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIP%' -Destination
 if errorlevel 1 ( echo Could not read the zip. & pause & exit /b 1 )
 if not exist "%TMPD%\perovskite-lab" ( echo This zip is not a Perovskite Lab update. & pause & exit /b 1 )
 
-robocopy "%TMPD%\perovskite-lab" "%CD%" /E /XD node_modules backups /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
+robocopy "%TMPD%\perovskite-lab" "%CD%" /E /XD node_modules backups config updates /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 ( echo Copy failed. & pause & exit /b 1 )
 rem source folders are mirrored so files removed in a release are removed here too
 for %%d in (apps\web\src apps\server\src packages\core\src packages\schema\src) do robocopy "%TMPD%\perovskite-lab\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
@@ -47,5 +56,6 @@ rmdir /s /q "%TMPD%"
 
 for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v
 echo Updated: %OLD% -^> %NEW%
+if exist updates\restarting del updates\restarting
 echo Starting...
-call start.bat
+call start.bat %NET%

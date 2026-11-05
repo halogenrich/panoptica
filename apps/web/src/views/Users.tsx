@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Badge } from '../lib/ui';
+import { Badge, Seg } from '../lib/ui';
+import { Activity, Security, Updates } from './AdminSecurity';
 import { saveFigureSettings, useFigureSettings } from '../lib/figure';
 import Avatar from '../lib/Avatar';
 import type { Tag } from '../ctx';
@@ -9,7 +10,26 @@ type U = { id: number; username: string; name: string; role: 'admin' | 'member';
 const KIND_NOTE: Record<Tag['kind'], string> = { label: '', professor: 'sees everything, private comments', manager: 'student pages, digests, equipment use', inventory: 'edits the inventory' };
 const blank = { username: '', name: '', role: 'member', password: '' };
 
-export default function Users({ meId }: { meId: number }) {
+type Tab = 'users' | 'backups' | 'security' | 'activity' | 'updates' | 'figures';
+const TABS: [Tab, string][] = [['users', 'Users'], ['backups', 'Backups'], ['security', 'Security'], ['activity', 'Activity log'], ['updates', 'Updates'], ['figures', 'Figures']];
+
+/** Admin settings: one tab per job, the last one used reopens. A new version shows as a strip above the tabs. */
+export default function AdminSettings({ meId }: { meId: number }) {
+  const [tab, setTabState] = useState<Tab>(() => { try { return (localStorage.getItem('psc-admin-tab') as Tab) || 'users'; } catch { return 'users'; } });
+  const setTab = (t: string) => { setTabState(t as Tab); try { localStorage.setItem('psc-admin-tab', t); } catch { /* private window */ } };
+  const [upd, setUpd] = useState<{ available: boolean; latest?: { version: string } } | null>(null);
+  useEffect(() => { api<typeof upd>('/updates').then(setUpd).catch(() => {}); }, [tab]);
+  return (
+    <div className="admin">
+      {upd?.available && tab !== 'updates' && <div className="admin-upd"><span>Version <b>{upd.latest?.version}</b> is available.</span><button className="link" onClick={() => setTab('updates')}>Updates ›</button></div>}
+      <div className="toolbar-row"><Seg value={tab} on={setTab} opts={TABS} small /></div>
+      {tab === 'users' ? <Users meId={meId} /> : tab === 'backups' ? <div className="admin-one"><Backups /></div> : tab === 'security' ? <div className="admin-one"><Security onTab={setTab} /></div>
+        : tab === 'activity' ? <Activity /> : tab === 'updates' ? <div className="admin-one"><Updates /></div> : <div className="admin-one"><FigureLogo /></div>}
+    </div>
+  );
+}
+
+function Users({ meId }: { meId: number }) {
   const [list, setList] = useState<U[]>([]), [f, setF] = useState(blank), [err, setErr] = useState(''), [tags, setTags] = useState<Tag[]>([]), [tagFor, setTagFor] = useState<number | null>(null);
   const load = () => { api<U[]>('/users').then(setList); api<Tag[]>('/tags').then(setTags); };
   const setUserTags = (u: U, ids: number[]) => api(`/users/${u.id}/tags`, 'PUT', { tags: ids }).then(() => { setErr(''); load(); }).catch((x) => setErr(x.message));
@@ -36,7 +56,7 @@ export default function Users({ meId }: { meId: number }) {
             <span><b>{u.name}</b> <span className="mut">@{u.username} · {u.role}{u.active ? '' : ' · disabled'}</span>{u.must_change ? <> <Badge tone="warn">temporary password</Badge></> : null}</span>
             <span className="actions">
               <button className="link" onClick={() => setTagFor(tagFor === u.id ? null : u.id)}>{tagFor === u.id ? 'Done' : 'Tags'}</button>
-              <button className="link" onClick={() => { const pw = window.prompt(`Temporary password for ${u.name} (min 8 characters). They choose their own at the next sign-in.`); if (pw) patch(u.id, { password: pw }); }}>Reset password</button>
+              <button className="link" onClick={() => { const pw = window.prompt(`Temporary password for ${u.name} (min 10 characters). They choose their own at the next sign-in.`); if (pw) patch(u.id, { password: pw }); }}>Reset password</button>
               {u.id !== meId && <button className="link" onClick={() => patch(u.id, { active: !u.active })}>{u.active ? 'Disable' : 'Enable'}</button>}
               {u.id !== meId && <button className="link danger-link" onClick={() => del(u)}>Delete</button>}
             </span>
@@ -54,29 +74,29 @@ export default function Users({ meId }: { meId: number }) {
         <input placeholder="Username" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />
         <input placeholder="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="member">Member</option><option value="admin">Admin</option></select>
-        <input type="password" placeholder="Temporary password (min 8)" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-        <button className="btn" disabled={!f.username || !f.name || f.password.length < 8}>Create user</button>
+        <input type="password" placeholder="Temporary password (min 10 characters)" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+        <button className="btn" disabled={!f.username || !f.name || f.password.length < 10}>Create user</button>
       </form>
-      <Tags tags={tags} reload={load} />
-      <FigureLogo />
       </div>
-      <Backups />
+      <div><Tags tags={tags} reload={load} /></div>
     </div>
   );
 }
 
-type B = { name: string; kind: 'auto' | 'manual' | 'update' | 'before-restore'; size: number; created: string };
+type B = { name: string; kind: 'auto' | 'manual' | 'update' | 'before-restore'; size: number; created: string; enc?: boolean };
 const KIND: Record<B['kind'], string> = { auto: 'Daily', manual: 'Manual', update: 'Before update', 'before-restore': 'Before restore' };
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const ago = (iso: string) => { const h = (Date.now() - new Date(iso).getTime()) / 3.6e6; return h < 1 ? 'less than an hour ago' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
 
 /** Database backups: the server makes one a day by itself; admins can make one now and download any of them. */
 function Backups() {
-  type Mirror = { dir: string; last?: { at: string; ok: boolean; msg: string } };
-  const [d, setD] = useState<{ dir: string; files: B[]; mirror: Mirror } | null>(null), [busy, setBusy] = useState(false), [msg, setMsg] = useState(''), [all, setAll] = useState(false);
+  type Mirror = { dir: string; encrypt?: boolean; last?: { at: string; ok: boolean; msg: string } };
+  type Check = { name: string; at: string; ok: boolean; msg: string } | null;
+  const [key, setKey] = useState(''), [enc, setEnc] = useState<boolean | null>(null);
+  const [d, setD] = useState<{ dir: string; files: B[]; mirror: Mirror; check: Check } | null>(null), [busy, setBusy] = useState(false), [msg, setMsg] = useState(''), [all, setAll] = useState(false);
   const [mdir, setMdir] = useState<string | null>(null), [mmsg, setMmsg] = useState('');
-  const load = () => api<{ dir: string; files: B[]; mirror: Mirror }>('/backups').then(setD).catch((e) => setMsg(e.message));
-  const saveMirror = (dir: string) => api<Mirror>('/backups/mirror', 'PUT', { dir }).then((m) => { setMdir(null); setMmsg(m.dir ? (m.last?.ok ? `Saved · ${m.last.msg}` : `Saved, but: ${m.last?.msg ?? ''}`) : 'Second copy turned off'); load(); }).catch((e) => setMmsg(e.message));
+  const load = () => api<{ dir: string; files: B[]; mirror: Mirror; check: Check }>('/backups').then(setD).catch((e) => setMsg(e.message));
+  const saveMirror = (dir: string, encrypt = enc ?? d?.mirror.encrypt ?? true) => api<Mirror>('/backups/mirror', 'PUT', { dir, encrypt }).then((m) => { setMdir(null); setMmsg(m.dir ? (m.last?.ok ? `Saved · ${m.last.msg}` : `Saved, but: ${m.last?.msg ?? ''}`) : 'Second copy turned off'); load(); }).catch((e) => setMmsg(e.message));
   useEffect(() => { load(); }, []);
   const now = () => { setBusy(true); api<B>('/backups', 'POST').then((b) => { setMsg(`Backed up: ${b.name}`); load(); }).catch((e) => setMsg(e.message)).finally(() => setBusy(false)); };
   const last = d?.files[0], shown = all ? d?.files ?? [] : (d?.files ?? []).slice(0, 8);
@@ -88,6 +108,7 @@ function Backups() {
           <span>{last ? <>Last backup <b>{ago(last.created)}</b> <span className="mut">({when(last.created)})</span></> : <span className="mut">No backups yet</span>}</span>
           <button className="btn" disabled={busy} onClick={now}>{busy ? 'Backing up…' : 'Back up now'}</button>
         </div>
+        {d?.check && <p className={'small ' + (d.check.ok ? 'ok' : 'err')}>{d.check.ok ? '✓ Checked: the last backup opens as a complete database' : '✕ The last backup failed its check'} ({d.check.msg}).</p>}
         {msg && <p className="mut small">{msg}</p>}
         {shown.length > 0 && (
           <div className="scroll"><table className="list">
@@ -99,7 +120,7 @@ function Backups() {
           </table></div>
         )}
         {(d?.files.length ?? 0) > 8 && <button className="link" style={{ justifySelf: 'start' }} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${d!.files.length}`}</button>}
-        <p className="mut small">The app backs up the database once a day while it runs, and before every update. It keeps the last 14 daily and 30 manual backups. Folder: <code>{d?.dir ?? 'backups'}</code></p>
+        <p className="mut small">The app backs up the database once a day while it runs, and before every update, and opens each backup to check it. It keeps the last 14 daily and 30 manual backups. Folder: <code>{d?.dir ?? 'backups'}</code></p>
         <p className="mut small">To restore one: close the app window, run <b>restore.bat</b> (Windows) or <b>restore.command</b> (Mac) in the app folder, and choose the backup. The current database is backed up first, so a restore can be undone.</p>
       </section>
       <h3 className="sub">Second copy off this computer</h3>
@@ -107,12 +128,19 @@ function Backups() {
         <p className="mut small">Every backup is also copied to this folder, so a broken or stolen computer does not take the backups with it. Use a network drive or a folder that a cloud app (Google Drive, OneDrive, Dropbox) keeps in sync, as seen from <b>the computer that runs the app</b>, for example <code>Z:\PerovskiteLab</code>, <code>/Volumes/LabShare/PerovskiteLab</code> or <code>/home/lab/Google Drive/PerovskiteLab</code>.</p>
         <div className="inline">
           <input style={{ flex: 1, minWidth: 220 }} placeholder="Folder for the second copy (empty = off)" value={mdir ?? d?.mirror.dir ?? ''} onChange={(e) => setMdir(e.target.value)} />
-          <button className="btn" disabled={mdir === null} onClick={() => saveMirror(mdir ?? '')}>Save</button>
+          <button className="btn" disabled={mdir === null && enc === null} onClick={() => saveMirror(mdir ?? d?.mirror.dir ?? '')}>Save</button>
           {d?.mirror.dir && <button className="link" onClick={() => saveMirror(d.mirror.dir)}>Copy now</button>}
         </div>
         {d?.mirror.dir && d.mirror.last && <p className={'small ' + (d.mirror.last.ok ? 'ok' : 'err')}>{d.mirror.last.ok ? 'Last copy' : 'Last copy failed'} {ago(d.mirror.last.at)}: {d.mirror.last.msg}{d.mirror.last.ok ? '' : ' · the app tries again every hour'}</p>}
+        <label className="inline small"><input type="checkbox" checked={enc ?? d?.mirror.encrypt ?? true} onChange={(e) => setEnc(e.target.checked)} /> Encrypt the copies (AES-256). Recommended: the folder is often shared or in the cloud.</label>
         {!d?.mirror.dir && <p className="warn-text small">No second copy yet: the backups are only on this computer.</p>}
         {mmsg && <p className="mut small">{mmsg}</p>}
+        {(enc ?? d?.mirror.encrypt ?? true) && <div className="bk-key">
+          <p className="small"><b>Backup key.</b> The encrypted copies can only be read with this key. It is kept on this computer; if the computer is lost, the key is needed to restore from the second copy. Save it in a password manager or print it and keep it with the lab's important papers.</p>
+          {key ? <><code className="bk-key-v">{key}</code><div className="inline"><button className="link" onClick={() => navigator.clipboard?.writeText(key)}>Copy</button><button className="link" onClick={() => setKey('')}>Hide</button></div></>
+            : <button className="btn secondary" onClick={() => api<{ key: string }>('/backups/key').then((r) => setKey(r.key)).catch((e) => setMmsg(e.message))}>Show key</button>}
+          <p className="mut small">To restore from an encrypted copy: put the <code>.db.enc</code> file anywhere, then in the <code>apps/server</code> folder run <code>node db-tools.cjs decrypt path\to\file.db.enc</code> (it asks for the key if this computer does not have it) and then restore as usual.</p>
+        </div>}
       </section>
     </div>
   );

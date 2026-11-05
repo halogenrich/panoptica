@@ -53,10 +53,10 @@ function NewPassword({ me, onDone, onLogout }: { me: Me; onDone: () => void; onL
         <h1>Choose your password</h1>
         <p className="mut">Hello {me.name}. You signed in with a temporary password; choose your own to continue.</p>
         <input type="password" placeholder="Temporary password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} />
-        <input type="password" placeholder="New password (at least 8 characters)" autoComplete="new-password" value={nw} onChange={(e) => setNw(e.target.value)} />
+        <input type="password" placeholder="New password (at least 10 characters)" autoComplete="new-password" value={nw} onChange={(e) => setNw(e.target.value)} />
         <input type="password" placeholder="New password again" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
         {err && <p className="err">{err}</p>}
-        <button className="btn" disabled={!cur || nw.length < 8 || !again}>Save and continue</button>
+        <button className="btn" disabled={!cur || nw.length < 10 || !again}>Save and continue</button>
         <button type="button" className="link" onClick={onLogout}>Sign out</button>
       </form>
     </main>

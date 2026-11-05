@@ -9,13 +9,13 @@ export const NewUser = z.object({
   username: z.string().min(3).max(40).regex(/^[a-zA-Z0-9._-]+$/, 'letters, digits, . _ - only'),
   name: z.string().min(1).max(80),
   role: Role,
-  password: z.string().min(8, 'password needs at least 8 characters'),
+  password: z.string().min(10, 'password needs at least 10 characters').max(128),
 });
 export const UserPatch = z.object({
   name: z.string().min(1).max(80).optional(),
   role: Role.optional(),
   active: z.boolean().optional(),
-  password: z.string().min(8, 'password needs at least 8 characters').optional(),
+  password: z.string().min(10, 'password needs at least 10 characters').max(128).optional(),
 });
 
 /** Selected ions with their subscript fractions, e.g. { A: { FA: 0.85, Cs: 0.15 }, X: { I: 1 } } */
@@ -79,7 +79,7 @@ export const PrefsIn = z.object({
 });
 /** Group logo and name stamped on exported figures: one for the whole app, set by an admin. '' removes the logo. */
 export const FigureSettingsIn = z.object({ watermark: Watermark.optional(), group: z.string().max(120).optional() });
-export const PasswordIn = z.object({ current: z.string().min(1), next: z.string().min(8, 'password needs at least 8 characters') });
+export const PasswordIn = z.object({ current: z.string().min(1), next: z.string().min(10, 'password needs at least 10 characters').max(128) });
 
 // ---- J–V measurements ----
 /** What a sample (as named in the measurement files) is: a batch or a stack of this app. Groups for the statistics. */
@@ -112,7 +112,9 @@ export const CommentIn = z.object({ text: z.string().trim().min(1, 'write someth
   private: z.boolean().optional() });
 export const ReactIn = z.object({ emoji: z.string().min(1).max(32).refine((e) => /^\p{Extended_Pictographic}|^\p{Regional_Indicator}|^[#*0-9]\uFE0F?\u20E3/u.test(e) && [...new Intl.Segmenter().segment(e)].length === 1, 'one emoji only') });
 /** Copy of every backup to a second place (network drive, synced cloud folder). '' turns it off. */
-export const BackupMirrorIn = z.object({ dir: z.string().max(500) });
+export const BackupMirrorIn = z.object({ dir: z.string().max(500), encrypt: z.boolean().optional() });
+/** Update settings: GitHub repository (owner/name) and a read-only token; an empty token removes it, a missing one keeps it. */
+export const UpdateSettingsIn = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'repository as owner/name').optional(), token: z.string().max(400).optional() });
 
 /** Own profile: display name and photo (square JPEG or PNG, resized in the browser; '' removes it). */
 export const ProfileIn = z.object({

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 
-export type Note = { id: number; kind: 'record' | 'fork' | 'comment' | 'reply'; text: string; link: { view: string; id: number }; actor: string; read: boolean; created_at: string };
-const ICON: Record<string, string> = { record: '🏆', fork: '🧬', comment: '💬', reply: '↩︎', batch: '▶︎' };
+export type Note = { id: number; kind: 'record' | 'fork' | 'comment' | 'reply' | 'update'; text: string; link: { view: string; id: number }; actor: string; read: boolean; created_at: string };
+const ICON: Record<string, string> = { record: '🏆', fork: '🧬', comment: '💬', reply: '↩︎', batch: '▶︎', update: '⬆︎' };
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 1000;
   return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86400)} d ago`;
