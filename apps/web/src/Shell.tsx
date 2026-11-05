@@ -57,6 +57,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   const notes = useNotifications(), profs = usePresence(), [schedId, setSchedId] = useState<number | null>(null);
   const openLink = (l: { view: string; id: number }) => {
     setPop('');
+    if (l.view === 'users') { try { localStorage.setItem('psc-admin-tab', 'updates'); } catch { /* ignore */ } go('users'); return; }
     if (l.view === 'batches') { setBid(l.id); setView('batches'); } else if (l.view === 'iv') { setIvId(l.id); setView('iv'); } else if (l.view in LABEL) go(l.view as Key, l.id);
   };
   const tabOf = (k: Key) => TABS.find((t) => t.items.includes(k));

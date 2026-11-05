@@ -1,0 +1,40 @@
+name: Release
+# On main: when package.json has a version without a release yet, check everything, then publish
+# perovskite-lab.zip and its SHA-256 as release v<version>, with that version's CHANGELOG section as notes.
+# The lab computers download it from Admin settings › Updates.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: release
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" >/dev/null 2>&1; then echo "exists=1" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - if: steps.v.outputs.exists != '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.v.outputs.exists != '1'
+        run: npm ci && npm run check && npm audit --omit=dev --audit-level=moderate
+      - if: steps.v.outputs.exists != '1'
+        name: Package and publish
+        run: |
+          v=${{ steps.v.outputs.version }}
+          git archive --format=zip --prefix=perovskite-lab/ -o perovskite-lab.zip HEAD
+          sha256sum perovskite-lab.zip > perovskite-lab.zip.sha256
+          node tools/notes.mjs "$v" > notes.md
+          gh release create "v$v" perovskite-lab.zip perovskite-lab.zip.sha256 --title "Perovskite Lab $v" --notes-file notes.md --target "$GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,7 @@
+# Windows scripts need CRLF line endings; shell scripts need LF
+*.bat text eol=crlf
+*.sh text eol=lf
+*.command text eol=lf
+# not part of the release zip
+.github export-ignore
+.gitattributes export-ignore

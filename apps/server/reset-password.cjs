@@ -1,6 +1,6 @@
 // Reset a user's password directly in the SQLite database.
 // Usage (from the apps/server folder, server stopped):
-//   node reset-password.cjs <username> <new password, min 8 characters>
+//   node reset-password.cjs <username> <new password, min 10 characters>
 const fs = require('node:fs');
 const { randomBytes, scryptSync } = require('node:crypto');
 const emit = process.emitWarning.bind(process); // node:sqlite is "experimental" on Node 22; keep the output clean
@@ -10,8 +10,8 @@ const { DatabaseSync } = require('node:sqlite');
 const [user, pw] = process.argv.slice(2);
 const file = process.env.DB_PATH || 'data.db';
 
-if (!user || !pw || pw.length < 8) {
-  console.error('Usage: node reset-password.cjs <username> <new password (min 8 characters)>');
+if (!user || !pw || pw.length < 10) {
+  console.error('Usage: node reset-password.cjs <username> <new password (min 10 characters)>');
   process.exit(1);
 }
 if (!fs.existsSync(file)) {
