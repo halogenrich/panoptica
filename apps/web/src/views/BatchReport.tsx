@@ -6,19 +6,8 @@ import { fmtDate } from '../lib/ui';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { BoxFigure, TITLES } from '../iv/BoxFigure';
-import {
-  METRICS,
-  SERIES,
-  hasValue,
-  fmt,
-  statRows,
-  summarize,
-  type IvSetFull,
-  type MetricKey,
-  type StatRow,
-  type Dir,
-} from '../iv/model';
-import type { BoxGroup } from '../iv/charts';
+import { METRICS, fmt, statRows, summarize, type IvSetFull, type MetricKey, type StatRow, type Dir } from '../iv/model';
+import { boxes, dirsOf, groupsOf } from '../iv/boxes';
 import type { Batch, BRun } from './Batches';
 import { fmtRun, parseSci } from '../lib/RunInputs';
 
@@ -46,36 +35,6 @@ export async function batchMeasurements(batchId: number): Promise<IvSetFull[]> {
   return full.filter((s): s is IvSetFull => !!s && s.curves.length > 0);
 }
 
-function groupsOf(rows: StatRow[]) {
-  const g: { key: string; label: string; rows: StatRow[] }[] = [];
-  for (const r of rows) {
-    let x = g.find((y) => y.key === r.gkey);
-    if (!x) g.push((x = { key: r.gkey, label: r.group, rows: [] }));
-    x.rows.push(r);
-  }
-  return g;
-}
-function boxes(rows: StatRow[], dirs: Dir[], k: MetricKey): BoxGroup[] {
-  return groupsOf(rows).map((g, i) => ({
-    label: g.label,
-    series: dirs.map((d) => {
-      const rs = g.rows.filter((r) => r.dir === d && hasValue(r, k)),
-        best = rs.reduce<StatRow | null>((b, r) => (!b || r.m.pce > b.m.pce ? r : b), null);
-      return {
-        label: dirs.length > 1 ? (d === 'rev' ? 'Backward' : 'Forward') : '',
-        color: SERIES[i % SERIES.length],
-        light: d === 'fwd' && dirs.length > 1,
-        stats: summarize(rs, k),
-        points: rs.map((r) => ({
-          v: r.m[k] as number,
-          best: r === best,
-          tip: `substrate ${r.substrate} · pixel ${r.pixel}`,
-        })),
-      };
-    }),
-  }));
-}
-
 /** Printable batch report (save as PDF from the print dialog): stack, recipes, checklist, notes, run data and J–V results. */
 export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: BRun[]; sets: IvSetFull[] }) {
   const fs = useFigureSettings(),
@@ -84,11 +43,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
     rec = b.record ?? {},
     dataOf = (id: string | number) => ctx.all.find((p) => String(p.id) === String(id));
   const rows = statRows(sets, 'both'),
-    dirs: Dir[] = rows.some((r) => r.dir === 'rev')
-      ? rows.some((r) => r.dir === 'fwd')
-        ? ['rev', 'fwd']
-        : ['rev']
-      : ['fwd'];
+    dirs: Dir[] = dirsOf(rows);
   const champ = rows.reduce<StatRow | null>((x, r) => (!x || r.m.pce > x.m.pce ? r : x), null);
   return (
     <div className="report">
