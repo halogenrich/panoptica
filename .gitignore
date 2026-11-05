@@ -1,0 +1,10 @@
+node_modules
+dist
+*.db
+*.db-*
+*.db.enc
+.env
+# lab data and machine secrets never go to GitHub
+backups/
+config/
+updates/
