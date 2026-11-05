@@ -41,23 +41,20 @@ type Key =
   | 'help'
   | 'trash'
   | 'profile';
+/**
+ * Side menu, in the order work happens: make devices (Fabrication), measure them (Measurements), the procedures they use
+ * (Recipes, Designs), and the lab's shared resources (Lab, at the bottom). The phone tabs follow the same groups.
+ */
 const NAV: { group: string; items: [Key, string][] }[] = [
   {
-    group: '',
+    group: 'Fabrication',
     items: [
       ['stk', 'Stacks'],
       ['batches', 'Batches'],
       ['cal', 'Calendar'],
-      ['iv', 'Electric measurements'],
     ],
   },
-  {
-    group: 'Designs',
-    items: [
-      ['sub', 'Substrates'],
-      ['mask', 'Metal masks'],
-    ],
-  },
+  { group: 'Measurements', items: [['iv', 'Electric measurements']] },
   {
     group: 'Recipes',
     items: [
@@ -69,7 +66,14 @@ const NAV: { group: string; items: [Key, string][] }[] = [
       ['s5', 'Evaporated perovskite'],
     ],
   },
-  { group: 'Library', items: [['chem', 'Inventory']] },
+  {
+    group: 'Designs',
+    items: [
+      ['sub', 'Substrates'],
+      ['mask', 'Metal masks'],
+    ],
+  },
+  { group: 'Lab', items: [['chem', 'Inventory']] },
 ];
 const LABEL: Record<string, string> = {
   ...Object.fromEntries(NAV.flatMap((g) => g.items)),
@@ -79,10 +83,10 @@ const LABEL: Record<string, string> = {
   help: 'Help',
   profile: 'Profile',
 };
-/** Phone tab bar: Stacks (stacks and batches), Electric measurements, Recipes (all recipe kinds), then Menu for the rest. */
+/** Phone tab bar, the same groups as the side menu: Fabrication, Measurements, Recipes, then Menu for the rest. */
 const TABS: { key: string; label: string; items: Key[] }[] = [
-  { key: 'stacks', label: 'Stacks', items: ['stk', 'batches', 'cal'] },
-  { key: 'iv', label: 'Electric measurements', items: ['iv'] },
+  { key: 'stacks', label: 'Fabrication', items: ['stk', 'batches', 'cal'] },
+  { key: 'iv', label: 'Measurements', items: ['iv'] },
   { key: 'recipes', label: 'Recipes', items: ['s0', 's1', 's2', 's3', 's4', 's5'] },
 ];
 const SHORT: Partial<Record<Key, string>> = {
@@ -356,7 +360,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
           </div>
         )}
         {NAV.map((g) => (
-          <div key={g.group || 'main'} style={g.group === 'Library' ? { marginTop: 'auto' } : undefined}>
+          <div key={g.group || 'main'} style={g.group === 'Lab' ? { marginTop: 'auto' } : undefined}>
             {g.group && <div className="glabel">{g.group}</div>}
             {g.items.map(([k, l]) => (
               <button key={k} className={'navitem' + (view === k ? ' on' : '')} onClick={() => go(k)}>

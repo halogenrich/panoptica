@@ -271,7 +271,8 @@ export function PresetSheet({
   const [tab, setTab] = useState<'recipe' | 'runs' | 'history' | 'comments'>('recipe'),
     [pane, setPane] = useState<'in' | 'out'>('in'),
     [confirm, setConfirm] = useState(false),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [naming, setNaming] = useState<string | null>(null); // the "Name and save" box, open when not null
 
   const fetchDet = (id: number) =>
     api<Detail>('/presets/' + id)
@@ -310,17 +311,21 @@ export function PresetSheet({
     uses = usage ? usage.stacks.length + usage.batches.length + (usage.presets?.length ?? 0) : 0,
     forks = !isNew && det !== null && (uses > 0 || !det.mine);
 
-  const save = async () => {
-    if (!draft || !draft.name.trim()) {
-      setErr('Give the preset a name.');
+  /** Saves the draft; `name` comes from the "Name and save" box when the title was left empty. */
+  const save = async (name?: string) => {
+    const nm = (name ?? draft?.name ?? '').trim();
+    if (!draft || !nm) {
+      setNaming('');
       return;
     }
+    if (name !== undefined) setDraft({ ...draft, name: nm });
+    setNaming(null);
     setBusy(true);
     try {
       const data = kind.prepareSave ? await kind.prepareSave(draft.data, ctx) : draft.data;
       const body = {
         segment: kind.segment,
-        name: draft.name.trim(),
+        name: nm,
         visibility: draft.visibility,
         data,
         parent_id: draft.parent_id ?? null,
@@ -459,9 +464,56 @@ export function PresetSheet({
               <button className="link" onClick={tryClose}>
                 Cancel
               </button>
-              <button className="btn" disabled={busy} onClick={save}>
-                {forks ? 'Save as new version' : 'Save'}
-              </button>
+              {draft.name.trim() ? (
+                <button className="btn" disabled={busy} onClick={() => save()}>
+                  {forks ? 'Save as new version' : 'Save'}
+                </button>
+              ) : (
+                <div className="name-save">
+                  {naming !== null && (
+                    <form
+                      className="name-pop"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (naming.trim()) save(naming);
+                      }}
+                    >
+                      <label htmlFor="name-pop-input">Name this {kind.noun}</label>
+                      <input
+                        id="name-pop-input"
+                        autoFocus
+                        value={naming}
+                        placeholder={`e.g. ${kind.summary(norm(kind, draft.data), ctx).split(' · ')[0]}`}
+                        onChange={(e) => setNaming(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation(); // closes this box, not the editor
+                            setNaming(null);
+                          }
+                        }}
+                      />
+                      <div className="inline">
+                        <span className="mut small">You can rename it later.</span>
+                        <div className="grow" />
+                        <button type="button" className="link" onClick={() => setNaming(null)}>
+                          Cancel
+                        </button>
+                        <button className="btn" disabled={busy || !naming.trim()}>
+                          Save
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => setNaming(naming === null ? '' : null)}
+                    aria-expanded={naming !== null}
+                  >
+                    Name and save
+                  </button>
+                </div>
+              )}
             </>
           )}
         </footer>
