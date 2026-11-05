@@ -1,4 +1,5 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { MeCtx } from '../ctx';
 import { Seg } from '../lib/ui';
@@ -313,6 +314,94 @@ export default function Calendar({
       window.removeEventListener('keydown', esc);
     };
   }, [drag]);
+  // ---- resizing a booking by its top or bottom edge (own bookings without an outcome)
+  const [resize, setResize] = useState<{ b: Booking; edge: 'start' | 'end'; col: HTMLElement; day: string } | null>(
+    null,
+  );
+  const resized = (r: NonNullable<typeof resize>, y: number) => {
+    const rect = r.col.getBoundingClientRect(),
+      d0 = at(r.day, '00:00').getTime(),
+      m = Math.max(0, Math.min(24 * 60, Math.round((((y - rect.top) / HOUR_PX) * 60) / SNAP) * SNAP));
+    let s = new Date(r.b.start).getTime(),
+      e = new Date(r.b.end).getTime();
+    if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - SNAP * 6e4);
+    else e = Math.max(d0 + m * 6e4, s + SNAP * 6e4);
+    const clash = (data?.bookings ?? []).some(
+      (o) =>
+        o.equipment_id === r.b.equipment_id &&
+        o.id !== r.b.id &&
+        new Date(o.end).getTime() > s &&
+        new Date(o.start).getTime() < e,
+    );
+    return { s, e, clash };
+  };
+  useEffect(() => {
+    if (!resize) return;
+    const show = (y: number) => {
+      const { s, e, clash } = resized(resize, y),
+        d0 = at(resize.day, '00:00').getTime();
+      setPreview({
+        day: resize.day,
+        eq: resize.b.equipment_id,
+        start: Math.round((s - d0) / 6e4),
+        dur: Math.round((e - s) / 6e4),
+        color: resize.b.color,
+        label: resize.b.equipment,
+        ok: !clash,
+      });
+    };
+    const mv = (ev: PointerEvent) => show(ev.clientY);
+    const up = (ev: PointerEvent) => {
+      const { s, e, clash } = resized(resize, ev.clientY),
+        b = resize.b;
+      setResize(null);
+      setPreview(null);
+      justDragged.current = true;
+      setTimeout(() => {
+        justDragged.current = false;
+      }, 0);
+      if (s === new Date(b.start).getTime() && e === new Date(b.end).getTime()) return;
+      if (clash) return showToast(`${b.equipment} is not free then`);
+      api('/bookings/' + b.id, 'PUT', {
+        equipment_id: b.equipment_id,
+        batch_id: b.batch_id,
+        step: b.step,
+        note: b.note,
+        start: new Date(s).toISOString(),
+        end: new Date(e).toISOString(),
+      })
+        .then(() => {
+          load();
+          loadSb();
+          batchesChanged();
+          showToast(`${b.equipment}: now ${hm(new Date(s))}–${hm(new Date(e))}`);
+        })
+        .catch((x) => showToast(x.message));
+    };
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        setResize(null);
+        setPreview(null);
+      }
+    };
+    document.body.classList.add('resizing-block');
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', esc);
+    return () => {
+      document.body.classList.remove('resizing-block');
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [resize]);
+  const startResize = (b: Booking, edge: 'start' | 'end', e: React.PointerEvent) => {
+    if (e.button !== 0 || !b.editable || b.outcome || narrow) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const col = (e.currentTarget as HTMLElement).closest('.tg-col') as HTMLElement | null;
+    if (col?.dataset.day) setResize({ b, edge, col, day: col.dataset.day });
+  };
   /** Pressing on a booking: a click opens it; moving 5 px starts dragging it (own bookings without an outcome). */
   const grab = (b: Booking, e: React.PointerEvent) => {
     if (e.button !== 0 || !b.editable || b.outcome || narrow) return;
@@ -458,6 +547,9 @@ export default function Calendar({
           onNew={newAt}
           onOpen={(b) => !justDragged.current && open(b)}
           onGrab={grab}
+          onResize={startResize}
+          busy={!!drag || !!resize}
+          activeId={resize?.b.id ?? (drag?.kind === 'move' ? drag.booking.id : undefined)}
           preview={preview}
         />
       )}
@@ -504,6 +596,56 @@ export default function Calendar({
 }
 
 // ------------------------------------------------------------------ day and week
+const OUTCOME: Record<string, string> = { done: 'Concluded', postponed: 'Postponed', canceled: 'Canceled' };
+/** Everything about a booking, next to its block (right of it, or left when there is no room). */
+function HoverCard({ b, r }: { b: Booking; r: DOMRect }) {
+  const W = 270,
+    s = new Date(b.start),
+    e = new Date(b.end),
+    mins = Math.round((e.getTime() - s.getTime()) / 6e4);
+  const left = r.right + 10 + W < window.innerWidth ? r.right + 10 : Math.max(8, r.left - 10 - W),
+    top = Math.max(8, Math.min(r.top, window.innerHeight - 220));
+  return (
+    <div className="bk-card" style={{ left, top, width: W, '--eq': b.color } as React.CSSProperties} role="tooltip">
+      <div className="bk-card-h">
+        <i />
+        <b>{b.equipment}</b>
+      </div>
+      <dl>
+        <dt>Experiment</dt>
+        <dd>{what(b)}</dd>
+        <dt>Booked by</dt>
+        <dd>{b.user_name}</dd>
+        <dt>When</dt>
+        <dd>
+          {s.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, {hm(s)}–{hm(e)}{' '}
+          <span className="mut">
+            ({mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`})
+          </span>
+        </dd>
+        {b.note && (
+          <>
+            <dt>Note</dt>
+            <dd>{b.note}</dd>
+          </>
+        )}
+        {b.outcome && (
+          <>
+            <dt>Outcome</dt>
+            <dd>
+              {OUTCOME[b.outcome] ?? b.outcome}
+              {b.reason ? `: ${b.reason}` : ''}
+            </dd>
+          </>
+        )}
+      </dl>
+      {b.editable && !b.outcome && (
+        <p className="mut small">Drag to move · drag the top or bottom edge to change the time</p>
+      )}
+    </div>
+  );
+}
+
 function TimeGrid({
   view,
   date,
@@ -512,6 +654,9 @@ function TimeGrid({
   onNew,
   onOpen,
   onGrab,
+  onResize,
+  busy,
+  activeId,
   preview,
 }: {
   view: 'day' | 'week';
@@ -521,6 +666,11 @@ function TimeGrid({
   onNew: (s: Date, e: Date, eq?: number) => void;
   onOpen: (b: Draft) => void;
   onGrab?: (b: Booking, e: React.PointerEvent) => void;
+  onResize?: (b: Booking, edge: 'start' | 'end', e: React.PointerEvent) => void;
+  /** a block is being moved or resized: no hover card */
+  busy?: boolean;
+  /** the booking being moved or resized: drawn faded under its preview */
+  activeId?: number;
   preview?: Preview | null;
 }) {
   const cols =
@@ -534,6 +684,24 @@ function TimeGrid({
   const scroller = useRef<HTMLDivElement>(null),
     [now, setNow] = useState(new Date()),
     [drag, setDrag] = useState<{ col: number; a: number; b: number } | null>(null);
+  // hover card: all the details of a booking whose block is too small (or too narrow) to show them in full
+  const [card, setCard] = useState<{ b: Booking; r: DOMRect } | null>(null),
+    hoverT = useRef<number>(0);
+  const hoverIn = (b: Booking, el: HTMLElement) => {
+    window.clearTimeout(hoverT.current);
+    const cut =
+      el.scrollHeight > el.clientHeight + 1 ||
+      Array.from(el.querySelectorAll<HTMLElement>('b, .bk-s, .bk-t')).some((c) => c.scrollWidth > c.clientWidth + 1);
+    if (!cut) return setCard(null);
+    hoverT.current = window.setTimeout(() => setCard({ b, r: el.getBoundingClientRect() }), 250);
+  };
+  const hoverOut = () => {
+    window.clearTimeout(hoverT.current);
+    setCard(null);
+  };
+  useEffect(() => {
+    if (busy) hoverOut();
+  }, [busy]);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 7 * HOUR_PX;
   }, [view]); // the working day in view
@@ -560,6 +728,7 @@ function TimeGrid({
   const today = sod(new Date());
   return (
     <div className={'tg tg-' + view}>
+      {card && createPortal(<HoverCard b={card.b} r={card.r} />, document.body)}
       <div className="tg-scroll" ref={scroller}>
         <div
           className="tg-head"
@@ -628,13 +797,19 @@ function TimeGrid({
                     L = lay.get(b.id)!;
                   const top = ((s - d0) / 3.6e6) * HOUR_PX,
                     h = Math.max(18, ((e - s) / 3.6e6) * HOUR_PX - 2);
+                  const when = `${hm(new Date(b.start))}–${hm(new Date(b.end))}`,
+                    who = nm(b.user_name),
+                    canEdit = !!onResize && b.editable && !b.outcome,
+                    size = h >= 66 ? 'tall' : h >= 34 ? 'mid' : 'short';
                   return (
                     <button
                       key={b.id}
                       className={
-                        'bk' +
+                        'bk bk-' +
+                        size +
                         (b.mine ? ' mine' : '') +
-                        (h < 40 ? ' short' : '') +
+                        (canEdit ? ' can-edit' : '') +
+                        (b.id === activeId ? ' bk-dim' : '') +
                         (b.outcome ? ' bk-' + b.outcome : ended(b) ? ' bk-wait' : '')
                       }
                       style={
@@ -646,17 +821,58 @@ function TimeGrid({
                           '--eq': b.color,
                         } as React.CSSProperties
                       }
-                      onPointerDown={(e) => onGrab?.(b, e)}
+                      onPointerDown={(ev) => {
+                        hoverOut();
+                        onGrab?.(b, ev);
+                      }}
+                      onPointerEnter={(ev) => !busy && hoverIn(b, ev.currentTarget)}
+                      onPointerLeave={hoverOut}
                       onClick={() => onOpen(b)}
-                      title={`${b.equipment}\n${b.user_name}\n${what(b)}\n${hm(new Date(b.start))}–${hm(new Date(b.end))}${b.outcome ? `\n${b.outcome === 'done' ? 'Concluded' : b.outcome === 'postponed' ? 'Postponed' : 'Canceled'}${b.reason ? ': ' + b.reason : ''}` : ''}`}
+                      aria-label={`${b.equipment}, ${b.user_name}, ${what(b)}, ${when}`}
                     >
-                      <b>{b.equipment}</b>
-                      {h >= 34 && <span className="bk-s">{nm(b.user_name)}</span>}
-                      {h >= 50 && <span className="bk-s">{what(b)}</span>}
-                      {h >= 66 && (
-                        <span className="bk-t">
-                          {hm(new Date(b.start))}–{hm(new Date(b.end))}
-                        </span>
+                      {size === 'tall' ? (
+                        <>
+                          <b>{b.equipment}</b>
+                          <span className="bk-s">{who}</span>
+                          <span className="bk-s">{what(b)}</span>
+                          <span className="bk-t">{when}</span>
+                        </>
+                      ) : size === 'mid' ? (
+                        <>
+                          <span className="bk-l">
+                            <b>{b.equipment}</b>
+                            <span className="bk-t">{when}</span>
+                          </span>
+                          <span className="bk-s">
+                            {who} · {what(b)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <b>{b.equipment}</b>
+                          <span className="bk-s">
+                            {who} · {what(b)}
+                          </span>
+                          <span className="bk-t">{when}</span>
+                        </>
+                      )}
+                      {canEdit && s === new Date(b.start).getTime() && (
+                        <span
+                          className="bk-edge bk-edge-s"
+                          aria-hidden
+                          title="Drag to change the start"
+                          onPointerDown={(ev) => onResize!(b, 'start', ev)}
+                          onClick={(ev) => ev.stopPropagation()}
+                        />
+                      )}
+                      {canEdit && e === new Date(b.end).getTime() && (
+                        <span
+                          className="bk-edge bk-edge-e"
+                          aria-hidden
+                          title="Drag to change the end"
+                          onPointerDown={(ev) => onResize!(b, 'end', ev)}
+                          onClick={(ev) => ev.stopPropagation()}
+                        />
                       )}
                     </button>
                   );
