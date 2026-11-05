@@ -179,8 +179,11 @@ Click your photo or initial (top right) for **Edit profile** (photo, name, setti
 
 ## For admins
 
-- **Figure logo** (in Admin settings): the group name and logo stamped on exported J–V figures and box plots, one for the whole app. Everyone chooses per export whether to include it.
-- **Admin settings** (profile menu or Menu): create users, reset passwords, disable accounts, delete profiles; make a backup now, download backups. A deleted profile can no longer sign in and its username is free again; everything the person made (presets, stacks, batches, run data, measurements) stays, shown as “username (former)”. Their private items stay private (visible to admins and the Professor only).
-- **Second copy of the backups** (in Admin settings): a folder off this computer (network drive, or a folder kept in sync by Google Drive, OneDrive or Dropbox) where every backup is also copied. The page shows when the last copy was made; if the drive is offline, the app tries again every hour.
-- **Chemical list** (Inventory): admins and people with the Inventory tag edit the shared list used by the recipes (formula, molar mass, density, purity, role).
-- Backups, restore, updates and network access are described in the README in the app folder.
+**Admin settings** (profile menu or Menu) has one tab per job:
+
+- **Users**: create users, reset passwords, disable accounts, delete profiles; tags. A deleted profile can no longer sign in and its username is free again; everything the person made stays, shown as “username (former)”. Their private items stay private (visible to admins and the Professor only). New passwords need at least 10 characters (a short sentence works well) and cannot be well-known passwords or contain the username.
+- **Backups**: make a backup now, download backups. Each backup is opened and checked after it is made. **Second copy off this computer**: a folder on a network drive or kept in sync by Google Drive, OneDrive or Dropbox, where every backup is also copied, encrypted by default. **Show key** shows the key of the encrypted copies: save it somewhere safe.
+- **Security**: a checklist of what keeps the data safe (encrypted connection, recent checked backup, encrypted second copy, intact activity log, number of admins, temporary passwords, unused accounts), each with what to do when it is not in order.
+- **Activity log**: every change, sign-in and refused request, with who, when and from which address; search, filter by person, export as CSV. The content of changes is not stored. Each entry is linked to the one before, so an entry edited or removed in the database shows up as a broken log.
+- **Updates**: the installed and the latest version, release notes, **Download** and **Install now**; where updates come from (the GitHub repository and its read-only token).
+- **Figures**: the group name and logo stamped on exported J–V figures and box plots, one for the whole app. Everyone chooses per export whether to include it.

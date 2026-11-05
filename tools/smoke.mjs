@@ -1,0 +1,127 @@
+// Security and data-safety checks against a real server with a throw-away database. Run: npm run test:server
+// Starts a fake GitHub API too, to test the update download and its checksum.
+import { spawn, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const tmp = mkdtempSync(join(tmpdir(), 'psc-smoke-')), PORT = 3900 + Math.floor(Math.random() * 90), GH = PORT + 100;
+const base = `http://127.0.0.1:${PORT}`, PW = 'Admin-pass-for-tests-26';
+let failed = 0;
+const ok = (cond, what) => { console.log(`${cond ? '  ok  ' : '  FAIL'} ${what}`); if (!cond) failed++; };
+
+// ---- fake GitHub: one release with a zip and its checksum (and a wrong checksum on demand)
+const zip = Buffer.from('PK fake zip for the update test'), good = createHash('sha256').update(zip).digest('hex');
+let sum = good;
+const gh = createServer((req, res) => {
+  if (req.headers.authorization !== 'Bearer test-token') { res.writeHead(404); return res.end('{}'); }
+  if (req.url === '/repos/lab/app/releases/latest') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ tag_name: 'v99.0.0', name: 'v99.0.0', body: 'notes', published_at: new Date().toISOString(), html_url: 'x', assets: [{ id: 1, name: 'perovskite-lab.zip', size: zip.length }, { id: 2, name: 'perovskite-lab.zip.sha256', size: 64 }] })); }
+  if (req.url === '/repos/lab/app/releases/assets/1') { res.writeHead(200); return res.end(zip); }
+  if (req.url === '/repos/lab/app/releases/assets/2') { res.writeHead(200); return res.end(`${sum}  perovskite-lab.zip\n`); }
+  res.writeHead(404); res.end('{}');
+}).listen(GH);
+
+const env = { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DB_PATH: join(tmp, 'data.db'), BACKUP_DIR: join(tmp, 'backups'), CONFIG_DIR: join(tmp, 'config'), UPDATES_DIR: join(tmp, 'updates'),
+  ADMIN_USER: 'admin', ADMIN_PASSWORD: PW, UPDATE_API: `http://127.0.0.1:${GH}`, UPDATE_REPO: 'lab/app' };
+const srv = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: join(root, 'apps/server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
+const done = (code) => { srv.kill(); gh.close(); try { rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows */ } process.exit(code); };
+for (let i = 0; i < 100 && !log.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+if (!log.includes('Server listening')) { console.error(log); done(1); }
+
+let cookie = '';
+const call = async (method, path, body, headers = {}) => {
+  const r = await fetch(base + path, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = t; }
+  return { s: r.status, j, h: r.headers };
+};
+
+console.log('Sign-in');
+ok((await call('POST', '/api/login', { username: 'admin', password: 'wrong' })).s === 401, 'wrong password refused');
+ok((await call('POST', '/api/login', { username: 'nobody', password: 'wrong' })).s === 401, 'unknown user refused the same way');
+const li = await call('POST', '/api/login', { username: 'admin', password: PW });
+ok(li.s === 200, 'right password accepted');
+const set = li.h.get('set-cookie') ?? ''; cookie = set.split(';')[0];
+ok(/HttpOnly/i.test(set) && /SameSite=Lax/i.test(set), 'session cookie is HttpOnly and SameSite=Lax');
+const raw = cookie.split('=')[1];
+const { DatabaseSync } = await import('node:sqlite');
+const db = new DatabaseSync(env.DB_PATH);
+ok(!db.prepare('SELECT 1 FROM sessions WHERE token=?').get(raw) && !!db.prepare('SELECT 1 FROM sessions').get(), 'session stored as a hash, not the cookie value');
+ok(!/admin|Admin-pass/.test(db.prepare('SELECT hash FROM users WHERE username=?').get('admin').hash), 'password stored as a hash');
+
+console.log('Headers');
+const me = await call('GET', '/api/me');
+ok(me.s === 200, 'signed in');
+ok((me.h.get('content-security-policy') ?? '').includes("script-src 'self'") && (me.h.get('content-security-policy') ?? '').includes("frame-ancestors 'none'"), 'Content-Security-Policy');
+ok(me.h.get('x-content-type-options') === 'nosniff' && me.h.get('x-frame-options') === 'DENY' && me.h.get('referrer-policy') === 'same-origin', 'nosniff, no framing, no referrer');
+ok(me.h.get('cache-control') === 'no-store', 'API answers are not cached');
+
+console.log('Cross-site requests and permissions');
+ok((await call('POST', '/api/backups', null, { origin: 'https://evil.example' })).s === 403, 'change from another website refused');
+ok((await call('POST', '/api/backups', null, { origin: base })).s === 200, 'change from the app itself accepted');
+const c0 = cookie; cookie = '';
+ok((await call('GET', '/api/users')).s === 401, 'not signed in: refused');
+cookie = c0;
+
+console.log('Passwords');
+ok((await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'short' })).s === 400, 'short password refused');
+ok((await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'perovskite123' })).s === 400, 'common password refused');
+ok((await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'ana-loves-cells' })).s === 400, 'password with the username refused');
+ok((await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'blue glass at noon' })).s === 200, 'good password accepted');
+const ana = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ana', password: 'blue glass at noon' }) });
+const anaCookie = (ana.headers.get('set-cookie') ?? '').split(';')[0];
+ok((await fetch(base + '/api/users', { headers: { cookie: anaCookie } })).status === 403, 'member cannot open admin pages');
+for (let i = 0; i < 5; i++) await call('POST', '/api/login', { username: 'ana', password: 'nope' + i });
+ok((await call('POST', '/api/login', { username: 'ana', password: 'blue glass at noon' })).s === 429, 'sign-in paused after 5 failures');
+
+console.log('Backups');
+const b = await call('POST', '/api/backups');
+ok(b.s === 200, 'backup made');
+const bl = await call('GET', '/api/backups');
+ok(bl.j.check?.ok === true, `backup checked: ${bl.j.check?.msg}`);
+const mirror = join(tmp, 'second');
+(await import('node:fs')).mkdirSync(mirror);
+const m = await call('PUT', '/api/backups/mirror', { dir: mirror, encrypt: true });
+ok(m.j.last?.ok === true && /encrypted and checked/.test(m.j.last.msg), `second copy: ${m.j.last?.msg}`);
+const encs = readdirSync(mirror).filter((f) => f.endsWith('.db.enc'));
+ok(encs.length > 0 && !readFileSync(join(mirror, encs[0])).includes(Buffer.from('SQLite format')), 'second copy is encrypted (no readable database inside)');
+const k = await call('GET', '/api/backups/key');
+ok(/^[0-9a-f]{64}$/.test(k.j.key), 'backup key shown to admins');
+rmSync(env.BACKUP_DIR, { recursive: true, force: true });
+const out = execFileSync(process.execPath, ['db-tools.cjs', 'decrypt', join(mirror, encs[0]), k.j.key], { cwd: join(root, 'apps/server'), env: { ...env, CONFIG_DIR: join(tmp, 'nokey') } }).toString();
+ok(/Decrypted/.test(out) && existsSync(join(env.BACKUP_DIR, encs[0].replace(/\.enc$/, ''))), 'encrypted copy restores with the key');
+let wrong = '';
+try { execFileSync(process.execPath, ['db-tools.cjs', 'decrypt', join(mirror, encs[0]), 'ab'.repeat(32)], { cwd: join(root, 'apps/server'), env: { ...env, BACKUP_DIR: join(tmp, 'b2'), CONFIG_DIR: join(tmp, 'nokey') } }); } catch (e) { wrong = e.stdout.toString(); }
+ok(/Wrong key/.test(wrong), 'wrong key refused');
+
+console.log('Activity log');
+const a = await call('GET', '/api/audit');
+const acts = a.j.rows.map((r) => r.action);
+ok(acts.includes('Signed in') && acts.includes('Failed sign-in') && acts.includes('Created a user') && acts.includes('Made a backup') && acts.includes('Viewed the backup key'), 'sign-ins, changes and sensitive reads logged');
+ok(acts.some((x) => x.startsWith('Refused')), 'refused requests logged');
+ok(!JSON.stringify(a.j).includes('blue glass'), 'no passwords in the log');
+ok((await call('GET', '/api/audit/verify')).j.ok === true, 'log chain intact');
+db.prepare("UPDATE audit SET username='someone' WHERE id=2").run();
+const v = (await call('GET', '/api/audit/verify')).j;
+ok(v.ok === false && v.brokenAt?.id === 2, 'edited log entry detected');
+
+console.log('Updates');
+ok((await call('POST', '/api/updates/check')).j.error?.includes('private'), 'private repository without token: clear message');
+const u = await call('PUT', '/api/updates/settings', { token: 'test-token' });
+ok(u.j.tokenSet && u.j.available && u.j.latest?.version === '99.0.0', 'new version found with the token');
+ok(!JSON.stringify(u.j).includes('test-token'), 'token never sent back to the browser');
+ok(!readFileSync(env.DB_PATH).includes(Buffer.from('test-token')), 'token not stored in the database');
+sum = 'f'.repeat(64);
+ok((await call('POST', '/api/updates/download')).s === 400, 'download with a wrong checksum refused');
+sum = good;
+const d = await call('POST', '/api/updates/download');
+ok(d.s === 200 && d.j.downloaded?.version === '99.0.0', 'download checked against its checksum');
+ok(db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='update'").get().n === 0, 'no notification for a version found while saving settings');
+
+db.close();
+console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed');
+done(failed ? 1 : 0);

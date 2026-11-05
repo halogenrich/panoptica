@@ -1,5 +1,5 @@
 import './quiet.js';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { randomBytes } from 'node:crypto';
@@ -16,11 +16,25 @@ import { registerSocial } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
 import { registerDashboard } from './dashboard.js';
-import { BACKUP_DIR, backupNow, backupStream, checkFolder, getMirror, listBackups, scheduleBackups, setMirror } from './backup.js';
+import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
+import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
+import { registerUpdates } from './updates.js';
+import { BACKUP_DIR, backupKey, backupNow, backupStream, checkFolder, getMirror, lastCheck, listBackups, scheduleBackups, setMirror } from './backup.js';
 
-const app = Fastify({ logger: true });
+// HTTPS: either the university's web server in front of the app (TRUST_PROXY=1, it forwards the client address and https),
+// or the app itself with a certificate (TLS_CERT and TLS_KEY: paths to PEM files).
+const tls = process.env.TLS_CERT && process.env.TLS_KEY ? { cert: readFileSync(process.env.TLS_CERT), key: readFileSync(process.env.TLS_KEY) } : null;
+const app = Fastify({ logger: true, trustProxy: process.env.TRUST_PROXY === '1', ...(tls ? { https: tls } : {}) } as {}) as unknown as FastifyInstance;
+const HTTPS = !!tls || process.env.SECURE_COOKIES === '1';
 await app.register(cookie);
-const WEEK = 7 * 864e5, tries = new Map<string, { n: number; t: number }>();
+registerSecurity(app);
+const WEEK = 7 * 864e5, byName = new Limiter(5, 10 * 60e3), byAddress = new Limiter(30, 10 * 60e3);
+const DUMMY = hash(randomBytes(12).toString('hex')); // unknown usernames take as long as wrong passwords
+db.prepare('DELETE FROM sessions WHERE expires<?').run(new Date().toISOString());
+if (!db.prepare("SELECT 1 FROM meta WHERE key='sessions_hashed'").get()) { // 0.26: sessions are stored hashed; older plain ones are dropped (everyone signs in once more)
+  db.prepare('DELETE FROM sessions').run(); db.prepare("INSERT INTO meta(key,value) VALUES('sessions_hashed','1')").run();
+}
+setInterval(() => db.prepare('DELETE FROM sessions WHERE expires<?').run(new Date().toISOString()), 3600e3).unref();
 
 // First run: create the admin user and print its password once.
 if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
@@ -37,7 +51,7 @@ const userOf = (req: any): User | undefined => {
   const t = req.cookies.sid;
   if (!t) return;
   const u = db.prepare(`SELECT u.id,u.username,u.name,u.role,u.must_change AS mustChange,u.photo_v AS photoV FROM sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires>? AND u.active=1 AND u.deleted=0`).get(t, new Date().toISOString()) as User | undefined;
+    WHERE s.token=? AND s.expires>? AND u.active=1 AND u.deleted=0`).get(tokenHash(t), new Date().toISOString()) as User | undefined;
   if (!u) return;
   const p = perms(u.id);
   // presence: the last request time, written at most every 10 s; online_since restarts after being away
@@ -59,27 +73,30 @@ const auth = (need: boolean | 'admin' | 'inventory' | 'manager' = false) => asyn
 };
 export type User = { id: number; username: string; name: string; role: 'admin' | 'member'; photoV?: number; professor?: boolean; manager?: boolean; inventory?: boolean; all?: boolean };
 const bad = (reply: any, p: { error: { issues: { message: string }[] } }) => reply.code(400).send({ error: p.error.issues[0].message });
+registerAudit(app, auth);
 
 app.post('/api/login', async (req, reply) => {
   const p = Login.safeParse(req.body);
   if (!p.success) return reply.code(400).send({ error: 'invalid request' });
-  const key = p.data.username.toLowerCase(), f = tries.get(key), fresh = f && Date.now() - f.t < 6e5;
-  if (fresh && f!.n >= 5) return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' });
+  const key = p.data.username.toLowerCase(), ip = ipOf(req);
+  if (byName.blocked(key) || byAddress.blocked(ip)) { audit({ username: p.data.username, ip, action: 'Sign-in blocked (too many attempts)', status: 429 }); return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' }); }
   const u = db.prepare('SELECT * FROM users WHERE username=? AND active=1 AND deleted=0').get(p.data.username) as any;
-  if (!u || !verify(p.data.password, u.hash)) {
-    tries.set(key, { n: (fresh ? f!.n : 0) + 1, t: Date.now() });
+  if (!verify(p.data.password, u?.hash ?? DUMMY) || !u) {
+    byName.hit(key); byAddress.hit(ip);
+    audit({ user_id: u?.id, username: p.data.username, ip, action: 'Failed sign-in', status: 401 });
     return reply.code(401).send({ error: 'wrong username or password' });
   }
-  tries.delete(key);
+  byName.clear(key);
   const token = randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(token, u.id, new Date(Date.now() + WEEK).toISOString());
-  reply.setCookie('sid', token, { httpOnly: true, sameSite: 'lax', path: '/', secure: process.env.SECURE_COOKIES === '1', maxAge: WEEK / 1000 });
+  db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(tokenHash(token), u.id, new Date(Date.now() + WEEK).toISOString());
+  reply.setCookie('sid', token, { httpOnly: true, sameSite: 'lax', path: '/', secure: HTTPS || req.protocol === 'https', maxAge: WEEK / 1000 });
+  audit({ user_id: u.id, username: u.username, ip, action: 'Signed in' });
   return { id: u.id, username: u.username, name: u.name, role: u.role, mustChange: u.must_change };
 });
 app.post('/api/logout', async (req, reply) => {
   const u = userOf(req);
-  if (u) { db.prepare('UPDATE users SET last_seen=NULL WHERE id=?').run(u.id); seen.delete(u.id); }
-  if (req.cookies.sid) db.prepare('DELETE FROM sessions WHERE token=?').run(req.cookies.sid);
+  if (u) { db.prepare('UPDATE users SET last_seen=NULL WHERE id=?').run(u.id); seen.delete(u.id); audit({ user_id: u.id, username: u.username, ip: ipOf(req), action: 'Signed out' }); }
+  if (req.cookies.sid) db.prepare('DELETE FROM sessions WHERE token=?').run(tokenHash(req.cookies.sid));
   reply.clearCookie('sid', { path: '/' });
   return { ok: true };
 });
@@ -170,6 +187,7 @@ app.delete('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply)
 app.post('/api/users', { preHandler: auth(true) }, async (req: any, reply) => {
   const p = NewUser.safeParse(req.body);
   if (!p.success) return bad(reply, p);
+  const weak = weakPassword(p.data.password, p.data.username); if (weak) return reply.code(400).send({ error: weak });
   try {
     // the temporary password the admin chose must be replaced at the first sign-in
     const r = db.prepare('INSERT INTO users(username,name,role,hash,must_change) VALUES(?,?,?,?,1)').run(p.data.username, p.data.name, p.data.role, hash(p.data.password));
@@ -180,6 +198,7 @@ app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) 
   const id = +req.params.id, p = UserPatch.safeParse(req.body);
   if (!p.success) return bad(reply, p);
   const d = p.data;
+  if (d.password) { const un = (db.prepare('SELECT username FROM users WHERE id=?').get(id) as any)?.username; const weak = weakPassword(d.password, un); if (weak) return reply.code(400).send({ error: weak }); }
   if (id === req.user.id && (d.active === false || d.role === 'member')) return reply.code(400).send({ error: 'you cannot disable or demote yourself' });
   if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, id);
   if (d.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(d.role, id);
@@ -296,8 +315,9 @@ app.post('/api/me/password', { preHandler: auth() }, async (req: any, reply) => 
   const u = db.prepare('SELECT hash FROM users WHERE id=?').get(req.user.id) as any;
   if (!verify(p.data.current, u.hash)) return reply.code(400).send({ error: 'current password is wrong' });
   if (p.data.next === p.data.current) return reply.code(400).send({ error: 'choose a new password, different from the current one' });
+  const weak = weakPassword(p.data.next, req.user.username); if (weak) return reply.code(400).send({ error: weak });
   db.prepare('UPDATE users SET hash=?,must_change=0 WHERE id=?').run(hash(p.data.next), req.user.id);
-  db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(req.user.id, req.cookies.sid);
+  db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(req.user.id, tokenHash(req.cookies.sid));
   return { ok: true };
 });
 app.get('/api/prefs', { preHandler: auth() }, async (req: any) => {
@@ -347,13 +367,15 @@ app.get('/api/network', { preHandler: auth() }, async () => {
 });
 
 // ---- admin: database backups ----
-app.get('/api/backups', { preHandler: auth(true) }, async () => ({ dir: BACKUP_DIR, files: listBackups(), mirror: getMirror() }));
+app.get('/api/backups', { preHandler: auth(true) }, async () => ({ dir: BACKUP_DIR, files: listBackups(), mirror: getMirror(), check: lastCheck() }));
+/** The key of the encrypted second copies: admins save it somewhere safe (a password manager, a printed sheet in the lab safe). */
+app.get('/api/backups/key', { preHandler: auth(true) }, async () => ({ key: backupKey(), file: 'config/backup.key' }));
 app.put('/api/backups/mirror', { preHandler: auth(true) }, async (req: any, reply) => {
   const p = BackupMirrorIn.safeParse(req.body);
   if (!p.success) return bad(reply, p);
   const err = checkFolder(p.data.dir.trim());
   if (err) return reply.code(400).send({ error: `${p.data.dir}: ${err}` });
-  return setMirror(p.data.dir);
+  return setMirror(p.data.dir, p.data.encrypt ?? true);
 });
 app.post('/api/backups', { preHandler: auth(true) }, async () => backupNow('manual'));
 app.get('/api/backups/:name', { preHandler: auth(true) }, async (req: any, reply) => {
@@ -368,5 +390,20 @@ if (existsSync(dist)) {
   await app.register(fastifyStatic, { root: dist });
   app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api') ? reply.code(404).send({ error: 'not found' }) : reply.sendFile('index.html')));
 }
+registerUpdates(app, auth, VERSION);
+
+/** Admin settings › Security: the state of the things that keep the data safe, in one request. */
+app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
+  const users = db.prepare('SELECT id,username,name,role,must_change,last_seen,created_at FROM users WHERE deleted=0 AND active=1').all() as any[];
+  const old = Date.now() - 90 * 864e5;
+  return {
+    https: req.protocol === 'https', tls: !!tls, trustProxy: process.env.TRUST_PROXY === '1', lan: ['0.0.0.0', '::'].includes(process.env.HOST || ''),
+    admins: users.filter((u) => u.role === 'admin').map((u) => u.name),
+    temporary: users.filter((u) => u.must_change).map((u) => u.name),
+    idle: users.filter((u) => new Date(u.last_seen ?? u.created_at.replace(' ', 'T') + 'Z').getTime() < old).map((u) => u.name),
+    backups: { last: listBackups().find((f) => !f.enc) ?? null, check: lastCheck(), mirror: getMirror() },
+    audit: verifyAudit(),
+  };
+});
 scheduleBackups((m) => app.log.info(m));
 await app.listen({ port: +(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });
