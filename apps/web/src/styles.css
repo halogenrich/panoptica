@@ -4564,13 +4564,117 @@ tr.clickable.on td {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.bk.short {
+.bk.bk-short {
   grid-auto-flow: column;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   justify-content: start;
   gap: 6px;
   align-items: center;
   padding-top: 1px;
   padding-bottom: 1px;
+}
+.bk.bk-mid {
+  padding-top: 3px;
+  padding-bottom: 2px;
+}
+.bk-l {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+.bk-l b {
+  min-width: 0;
+}
+.bk-l .bk-t {
+  flex: none;
+}
+/* resizing: a strip at the top and bottom of own blocks */
+.bk-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 1;
+}
+.bk-edge-s {
+  top: 0;
+}
+.bk-edge-e {
+  bottom: 0;
+}
+.bk.can-edit:hover .bk-edge::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 22px;
+  height: 3px;
+  margin-left: -11px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--eq) 70%, var(--fg));
+  opacity: 0.55;
+}
+.bk-edge-s::after {
+  top: 2px;
+}
+.bk-edge-e::after {
+  bottom: 2px;
+}
+body.resizing-block,
+body.resizing-block * {
+  cursor: ns-resize !important;
+  user-select: none;
+}
+.bk.bk-dim {
+  opacity: 0.35;
+}
+.bk.bk-dim > * {
+  visibility: hidden; /* the preview carries the text */
+}
+/* hover card with all the details of a small block */
+.bk-card {
+  position: fixed;
+  z-index: 400;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--sep);
+  border-left: 4px solid var(--eq);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  pointer-events: none;
+  animation: rise 0.12s var(--ease);
+}
+.bk-card-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.bk-card-h i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--eq);
+}
+.bk-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+}
+.bk-card dt {
+  color: var(--mut);
+}
+.bk-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.bk-card p {
+  margin: 0;
 }
 .bk-ghost {
   position: absolute;
