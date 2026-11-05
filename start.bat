@@ -52,4 +52,6 @@ if /i "%~1"=="lan" (
 echo.
 start "" /min cmd /c "timeout /t 4 >nul & start http://localhost:%PORT%"
 call npm.cmd start
+rem stopped by Admin settings > Updates: the update window takes over
+if exist updates\restarting (del updates\restarting & exit)
 pause

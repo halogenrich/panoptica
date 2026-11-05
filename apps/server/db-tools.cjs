@@ -1,6 +1,9 @@
 // Database backup and restore for the start/update/restore scripts. Run from the apps/server folder, app stopped.
 //   node db-tools.cjs backup <kind>     kind: update | before-restore | manual
 //   node db-tools.cjs restore [file]    lists the backups and asks which one, unless a file name is given
+//   node db-tools.cjs decrypt <file.db.enc> [key]
+//                                       turns an encrypted second copy back into a backup in the backups folder (then use restore);
+//                                       the key is read from config/backup.key on this computer, or given (Admin settings › Backups › Show key)
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
@@ -81,6 +84,32 @@ async function restore(arg) {
   return 0;
 }
 
-const [cmd, arg] = process.argv.slice(2);
-(cmd === 'backup' ? backup(arg || 'manual').then(() => 0) : cmd === 'restore' ? restore(arg) : Promise.resolve((console.log('Usage: node db-tools.cjs backup <kind> | restore [file]'), 1)))
+async function decrypt(file, keyArg) {
+  const crypto = require('node:crypto');
+  if (!file || !fs.existsSync(file)) { console.log('Usage: node db-tools.cjs decrypt <path/to/data-....db.enc> [key]'); return 1; }
+  const keyFile = path.resolve(process.env.CONFIG_DIR || path.join(__dirname, '..', '..', 'config'), 'backup.key');
+  let key = (keyArg || process.env.BACKUP_KEY || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8') : '')).trim();
+  if (!key) key = await ask('Backup key (64 characters, from Admin settings › Backups › Show key): ');
+  if (!/^[0-9a-f]{64}$/i.test(key)) { console.log('That is not a backup key (64 characters, 0-9 and a-f).'); return 1; }
+  const box = fs.readFileSync(file);
+  if (box.subarray(0, 4).toString() !== 'PLB1') { console.log('Not an encrypted Perovskite Lab backup.'); return 1; }
+  let plain;
+  try {
+    const d = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), box.subarray(4, 16));
+    d.setAuthTag(box.subarray(box.length - 16));
+    plain = Buffer.concat([d.update(box.subarray(16, box.length - 16)), d.final()]);
+  } catch { console.log('Wrong key, or the file was damaged or altered. Nothing written.'); return 1; }
+  fs.mkdirSync(DIR, { recursive: true });
+  const name = path.basename(file).replace(/\.enc$/, ''), out = path.join(DIR, NAME.test(name) ? name : `data-${stamp()}-manual.db`);
+  if (fs.existsSync(out)) { console.log(`${path.basename(out)} is already in the backups folder.`); return 0; }
+  fs.writeFileSync(out, plain);
+  const info = check(out);
+  if (!info) { fs.unlinkSync(out); console.log('Decrypted, but the result is not a readable database. Nothing written.'); return 1; }
+  console.log(`Decrypted: backups/${path.basename(out)} (${info.users} users, ${info.presets} presets). Restore it with restore.bat / restore.sh.`);
+  return 0;
+}
+
+const [cmd, arg, arg2] = process.argv.slice(2);
+(cmd === 'backup' ? backup(arg || 'manual').then(() => 0) : cmd === 'restore' ? restore(arg) : cmd === 'decrypt' ? decrypt(arg, arg2)
+  : Promise.resolve((console.log('Usage: node db-tools.cjs backup <kind> | restore [file] | decrypt <file.enc> [key]'), 1)))
   .then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });

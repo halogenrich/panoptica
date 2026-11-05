@@ -996,3 +996,37 @@ body.dragging-block, body.dragging-block * { cursor: grabbing !important; user-s
   .ov-more-b { padding-left: 16px; }
 }
 .run-stages table { width: auto; } .run-stages th, .run-stages td { padding-right: 28px; }
+
+/* ============ admin settings, 0.26: tabs, security checklist, activity log, updates ============ */
+.admin { display: grid; gap: 14px; }
+.admin-one { max-width: 760px; display: grid; gap: 4px; }
+.admin-upd { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--r); background: var(--ac-soft); }
+.admin-upd .link { margin-left: auto; }
+.sec { display: grid; gap: 12px; }
+.sec-sum { margin: 0; font-size: 16px; }
+.sec-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sec-item { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: start; padding: 12px 14px; border-radius: var(--r); background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.sec-item p { margin: 2px 0 0; color: var(--mut); font-size: 13.5px; }
+.sec-ic { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; }
+.sec-item.ok .sec-ic { background: var(--ok); } .sec-item.warn .sec-ic { background: var(--warn); } .sec-item.bad .sec-ic { background: var(--err); }
+.sec-item.bad { box-shadow: inset 3px 0 0 var(--err), 0 1px 2px rgba(0,0,0,.04); } .sec-item.warn { box-shadow: inset 3px 0 0 var(--warn), 0 1px 2px rgba(0,0,0,.04); }
+.sec-item .link { white-space: nowrap; }
+.act { display: grid; gap: 10px; }
+.act-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.act-bar input[type=search] { flex: 1; min-width: 220px; max-width: 420px; }
+.act-bar select { width: auto; min-width: 160px; }
+.act-bar a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.act-table td { vertical-align: top; } .act-table td:first-child { white-space: nowrap; }
+.act-item { max-width: 34ch; overflow-wrap: anywhere; }
+.act-table tr.refused td { background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.upd-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.upd-head > div:not(.grow) { display: grid; }
+.upd-v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; } .upd-v.new { color: var(--ac); }
+.upd-arrow { font-size: 22px; color: var(--mut); }
+.upd-h { margin: 8px 0 0; font-size: 15px; }
+.upd-notes { white-space: pre-wrap; font-size: 13.5px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 4%, var(--card)); }
+.upd-how summary { cursor: pointer; color: var(--ac); font-size: 13.5px; } .upd-how ol { margin: 8px 0; display: grid; gap: 4px; }
+.upd-wait { max-width: 560px; }
+.bk-key { display: grid; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--sep); }
+.bk-key p { margin: 0; }
+.bk-key-v { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--card)); word-break: break-all; user-select: all; }

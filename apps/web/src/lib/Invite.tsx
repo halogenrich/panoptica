@@ -53,7 +53,7 @@ export default function Invite({ onClose }: { onClose: () => void }) {
             <ul className="small mut invite-steps">
               <li>Scan with the phone camera; it opens the app in the browser.</li>
               <li>The phone must be on the same Wi-Fi or network as this computer. Networks like eduroam may block it; a lab router or a phone hotspot works.</li>
-              <li>Each person signs in with their own account (Users and backups, admins only).</li>
+              <li>Each person signs in with their own account (Admin settings › Users).</li>
             </ul>
           </> : <p className="err">This computer has no network address. Connect it to Wi-Fi or a cable and try again.</p>)}
         </div>

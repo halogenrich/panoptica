@@ -45,8 +45,8 @@ function PwForm() {
   return (
     <div className="pw-form">
       <input type="password" placeholder="Current password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} />
-      <input type="password" placeholder="New password (at least 8 characters)" autoComplete="new-password" value={nw} onChange={(e) => setNw(e.target.value)} />
-      <div className="inline"><button className="btn secondary" disabled={!cur || nw.length < 8} onClick={save}>Change password</button>{msg && <span className="mut small">{msg}</span>}</div>
+      <input type="password" placeholder="New password (at least 10 characters)" autoComplete="new-password" value={nw} onChange={(e) => setNw(e.target.value)} />
+      <div className="inline"><button className="btn secondary" disabled={!cur || nw.length < 10} onClick={save}>Change password</button>{msg && <span className="mut small">{msg}</span>}</div>
     </div>
   );
 }

@@ -14,11 +14,12 @@
     "start": "npm run start -w @psc/server",
     "test": "npm run test -w @psc/core",
     "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web --noEmit",
-    "check": "npm run typecheck && npm test && npm run build"
+    "test:server": "node --no-warnings tools/smoke.mjs",
+    "check": "npm run typecheck && npm test && npm run test:server && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
     "typescript": "^5.7.0"
   },
-  "version": "0.25.0"
+  "version": "0.26.0"
 }
