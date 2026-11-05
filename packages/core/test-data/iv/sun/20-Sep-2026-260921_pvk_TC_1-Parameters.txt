@@ -1,0 +1,120 @@
+260921_pvk_TC_1-Backward-A1
+Voc= 0.97 V 
+Jsc= 21.39 mA/cm² 
+FF= 49.26 %  
+n = 10.22 % 
+VMPP = 0.64 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A1
+Voc= 0.98 V 
+Jsc= 21.14 mA/cm² 
+FF= 41.37 %  
+n = 8.57 % 
+VMPP = 0.64 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Backward-A2
+Voc= 0.93 V 
+Jsc= 19.74 mA/cm² 
+FF= 51.48 %  
+n = 9.45 % 
+VMPP = 0.61 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A2
+Voc= 0.99 V 
+Jsc= 19.85 mA/cm² 
+FF= 46.17 %  
+n = 9.07 % 
+VMPP = 0.67 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Backward-A3
+Voc= 0.44 V 
+Jsc= 20.68 mA/cm² 
+FF= 102.17 %  
+n = 9.3 % 
+VMPP = 0.63 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A3
+Voc= 0.91 V 
+Jsc= 20.84 mA/cm² 
+FF= 36.14 %  
+n = 6.85 % 
+VMPP = 0.47 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Backward-A1
+Voc= 0.93 V 
+Jsc= 21.23 mA/cm² 
+FF= 55.15 %  
+n = 10.89 % 
+VMPP = 0.65 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A1
+Voc= 0.98 V 
+Jsc= 20.88 mA/cm² 
+FF= 46.68 %  
+n = 9.55 % 
+VMPP = 0.68 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Backward-A2
+Voc= 0.89 V 
+Jsc= 21.1 mA/cm² 
+FF= 53.74 %  
+n = 10.09 % 
+VMPP = 0.65 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A2
+Voc= 0.98 V 
+Jsc= 21.17 mA/cm² 
+FF= 50.24 %  
+n = 10.42 % 
+VMPP = 0.71 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Backward-A3
+Voc= 0.91 V 
+Jsc= 21.62 mA/cm² 
+FF= 56.63 %  
+n = 11.14 % 
+VMPP = 0.68 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+
+260921_pvk_TC_1-Forward-A3
+Voc= 0.96 V 
+Jsc= 21.76 mA/cm² 
+FF= 49.0 %  
+n = 10.24 % 
+VMPP = 0.67 V 
+Step = 0.01 V 
+Delay = 0.01 s 
+Power light = 100.0% Sun 
+

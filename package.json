@@ -1,0 +1,24 @@
+{
+  "name": "perovskite-lab",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @psc/server",
+    "dev:web": "npm run dev -w @psc/web",
+    "build": "npm run build -w @psc/web",
+    "start": "npm run start -w @psc/server",
+    "test": "npm run test -w @psc/core",
+    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web --noEmit",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  },
+  "version": "0.25.0"
+}
