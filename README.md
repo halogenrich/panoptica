@@ -105,6 +105,8 @@ The script checks that the file is a valid database and backs up the current one
 
 ## Development
 
+How the code is organised, how a request travels through it, the database and how to change things: [docs/architecture.md](docs/architecture.md).
+
 Monorepo (npm workspaces, Node 22+):
 
 - `packages/schema`: validation schemas (zod) shared by server and web
@@ -115,7 +117,9 @@ Monorepo (npm workspaces, Node 22+):
 ```
 npm install
 npm run dev      # API on :3000, web with hot reload on :5173
-npm run check    # typecheck + unit tests + server security checks + production build
+npm run format   # Prettier over the code
+npm run lint     # ESLint
+npm run check    # format check + lint + typecheck + unit tests + server security checks + production build
 ```
 
 GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `perovskite-lab.zip` and its SHA-256 and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.
