@@ -232,7 +232,8 @@ export function JvFigure({
 }
 
 /** Downloads an SVG element as .svg, or as a white-background PNG at 3× for slides and papers. */
-export async function exportSvg(svg: SVGSVGElement, name: string, as: 'svg' | 'png') {
+/** Downloads a figure as SVG, or as PNG at `scale` times its size (3 for figures, about 2 for full slides). */
+export async function exportSvg(svg: SVGSVGElement, name: string, as: 'svg' | 'png', scale = 3) {
   const xml = new XMLSerializer().serializeToString(svg),
     blob = new Blob([xml], { type: 'image/svg+xml' });
   const save = (b: Blob, ext: string) => {
@@ -254,7 +255,7 @@ export async function exportSvg(svg: SVGSVGElement, name: string, as: 'svg' | 'p
     img.src = url;
   });
   const vb = svg.viewBox.baseVal,
-    k = 3,
+    k = scale,
     c = document.createElement('canvas');
   c.width = (vb?.width || FW) * k;
   c.height = (vb?.height || FH) * k;

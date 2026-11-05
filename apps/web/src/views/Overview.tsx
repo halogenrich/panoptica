@@ -2,8 +2,19 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import Avatar from '../lib/Avatar';
 import { Seg, fmtDate } from '../lib/ui';
-import { useFigureSettings } from '../lib/figure';
-import { exportSvg } from '../iv/JvFigure';
+import {
+  BLUE,
+  INK,
+  MUT,
+  ORANGE,
+  SW,
+  SlideButtons,
+  SlideFrame,
+  SlideNumbers,
+  SlideTrend,
+  useSlide,
+  PresentationExport,
+} from './overview/slides';
 import type { Tag } from '../ctx';
 
 type Unit = 'week' | 'month';
@@ -486,237 +497,6 @@ function LineChart({
   );
 }
 
-// ------------------------------------------------------------------ slides (16:9, for presenting)
-const SW = 1920,
-  SH = 1080,
-  SF = 'Inter, "Segoe UI", Helvetica, Arial, sans-serif',
-  INK = '#15171a',
-  MUT = '#5f6570',
-  BLUE = '#2a78d6',
-  ORANGE = '#eb6834',
-  RULE = '#e3e5e8';
-function SlideFrame({
-  title,
-  sub,
-  children,
-  svgRef,
-}: {
-  title: string;
-  sub: string;
-  children: React.ReactNode;
-  svgRef: React.Ref<SVGSVGElement>;
-}) {
-  const fs = useFigureSettings();
-  return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${SW} ${SH}`}
-      width={SW}
-      height={SH}
-      xmlns="http://www.w3.org/2000/svg"
-      fontFamily={SF}
-    >
-      <rect width={SW} height={SH} fill="#fff" />
-      <rect x={0} y={0} width={SW} height={10} fill={BLUE} />
-      <text x={110} y={150} fontSize={64} fontWeight={700} fill={INK}>
-        {title}
-      </text>
-      <text x={110} y={210} fontSize={32} fill={MUT}>
-        {sub}
-      </text>
-      {children}
-      {fs.watermark && (
-        <image
-          href={fs.watermark}
-          x={SW - 330}
-          y={SH - 130}
-          width={220}
-          height={80}
-          preserveAspectRatio="xMaxYMax meet"
-          opacity={0.85}
-        />
-      )}
-      {fs.group && (
-        <text x={fs.watermark ? SW - 350 : SW - 110} y={SH - 70} fontSize={24} fill={MUT} textAnchor="end">
-          {fs.group}
-        </text>
-      )}
-    </svg>
-  );
-}
-function SlideNumbers({ items, y }: { items: [string, string][]; y: number }) {
-  const w = (SW - 220) / items.length;
-  return (
-    <g>
-      {items.map(([k, v], i) => (
-        <g key={k} transform={`translate(${110 + i * w} ${y})`}>
-          <text fontSize={28} fill={MUT}>
-            {k}
-          </text>
-          <text y={74} fontSize={64} fontWeight={600} fill={INK}>
-            {v}
-          </text>
-        </g>
-      ))}
-    </g>
-  );
-}
-function SlideTrend({
-  points,
-  x,
-  y,
-  w,
-  h,
-  tickOf,
-}: {
-  points: { x: string; best: number | null; median: number | null }[];
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  tickOf: (s: string) => string;
-}) {
-  const vals = points.flatMap((p) => [p.best, p.median]).filter((v): v is number => v != null);
-  if (!vals.length)
-    return (
-      <text x={x} y={y + 60} fontSize={30} fill={MUT}>
-        No working devices measured in this time.
-      </text>
-    );
-  const lo = Math.max(0, Math.floor((Math.min(...vals) - 2) / 5) * 5),
-    hi = Math.ceil((Math.max(...vals) + 1) / 5) * 5,
-    L = 70,
-    B = 50,
-    PW = w - L - 140,
-    PH = h - B;
-  const X = (i: number) => x + L + (points.length === 1 ? PW / 2 : (i / (points.length - 1)) * PW),
-    Y = (v: number) => y + PH - ((v - lo) / (hi - lo || 1)) * PH;
-  const path = (k: 'best' | 'median') =>
-    points
-      .map((p, i) => (p[k] == null ? '' : `${i && points[i - 1][k] != null ? 'L' : 'M'}${X(i)},${Y(p[k]!)}`))
-      .join('');
-  const lastI = (k: 'best' | 'median') => {
-    for (let i = points.length - 1; i >= 0; i--) if (points[i][k] != null) return i;
-    return -1;
-  };
-  return (
-    <g fontFamily={SF}>
-      {Array.from({ length: Math.round((hi - lo) / 5) + 1 }, (_, i) => lo + i * 5).map((v) => (
-        <g key={v}>
-          <line x1={x + L} x2={x + L + PW} y1={Y(v)} y2={Y(v)} stroke={RULE} strokeWidth={2} />
-          <text x={x + L - 16} y={Y(v)} fontSize={24} fill={MUT} textAnchor="end" dominantBaseline="central">
-            {v} %
-          </text>
-        </g>
-      ))}
-      {points.map(
-        (p, i) =>
-          (i % Math.ceil(points.length / 8) === 0 || i === points.length - 1) && (
-            <text key={i} x={X(i)} y={y + PH + 40} fontSize={24} fill={MUT} textAnchor="middle">
-              {tickOf(p.x)}
-            </text>
-          ),
-      )}
-      {(
-        [
-          ['median', ORANGE],
-          ['best', BLUE],
-        ] as const
-      ).map(([k, c]) => (
-        <g key={k}>
-          <path d={path(k)} fill="none" stroke={c} strokeWidth={5} strokeLinejoin="round" />
-          {points.map(
-            (p, i) =>
-              p[k] != null && <circle key={i} cx={X(i)} cy={Y(p[k]!)} r={9} fill={c} stroke="#fff" strokeWidth={3} />,
-          )}
-          {lastI(k) >= 0 && (
-            <text x={X(lastI(k)) + 20} y={Y(points[lastI(k)][k]!)} fontSize={28} fill={INK} dominantBaseline="central">
-              {k === 'best' ? 'Best' : 'Median'} {points[lastI(k)][k]!.toFixed(1)} %
-            </text>
-          )}
-        </g>
-      ))}
-    </g>
-  );
-}
-/** Renders a slide off screen, exports it, then removes it. */
-function useSlide() {
-  const [node, setNode] = useState<{ el: React.ReactNode; name: string; as: 'png' | 'svg' } | null>(null),
-    ref = useRef<SVGSVGElement>(null);
-  useEffect(() => {
-    if (node && ref.current) {
-      const r = ref.current;
-      setTimeout(() => exportSvg(r, node.name, node.as).finally(() => setNode(null)), 60);
-    }
-  }, [node]);
-  const holder = node ? (
-    <div className="slide-holder" aria-hidden>
-      {node.el}
-    </div>
-  ) : null;
-  return {
-    ref,
-    holder,
-    make: (el: React.ReactNode, name: string, as: 'png' | 'svg' = 'png') => setNode({ el, name, as }),
-  };
-}
-/** "Export slide" with the formats (and slides) inside, so it does not compete with the content. */
-function SlideButtons({
-  onMake,
-  extra,
-}: {
-  onMake: (as: 'png' | 'svg') => void;
-  extra?: [string, (as: 'png' | 'svg') => void];
-}) {
-  const [open, setOpen] = useState(false),
-    ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const f = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', f);
-    return () => document.removeEventListener('mousedown', f);
-  }, [open]);
-  const opt = (label: string, fn: (as: 'png' | 'svg') => void) => (
-    <div className="ov-exp-row">
-      <span>{label}</span>
-      <button
-        className="link"
-        onClick={() => {
-          fn('png');
-          setOpen(false);
-        }}
-      >
-        PNG
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          fn('svg');
-          setOpen(false);
-        }}
-      >
-        SVG
-      </button>
-    </div>
-  );
-  return (
-    <div className="ov-exp" ref={ref}>
-      <button className="btn secondary small-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Export slide
-      </button>
-      {open && (
-        <div className="ov-exp-menu" role="menu">
-          <span className="mut small">16:9, for presentations</span>
-          {opt(extra ? 'Summary' : 'Slide', onMake)}
-          {extra && opt(extra[0], extra[1])}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ Summary (the lab and what happened, in one page)
 function Summary({
   d,
@@ -731,7 +511,7 @@ function Summary({
   onOpenBatch?: (id: number) => void;
   onOpenIv?: (id: number) => void;
 }) {
-  const sl = useSlide(),
+  const [exporting, setExporting] = useState(false),
     g = d.digest,
     L = d.lab,
     active = d.people.filter((p) => p.batchesStarted || p.measurements || p.hours > 0 || p.running);
@@ -755,13 +535,6 @@ function Summary({
     .join(' ');
   const attention = g.setbacks.length + g.waiting;
   // slides
-  const nums: [string, string][] = [
-    ['Batches started', String(L.batchesStarted)],
-    ['Batches finished', String(L.batchesDone)],
-    ['Cells measured', String(L.devices)],
-    ['Best cell', pct(L.best)],
-    ['Typical cell', pct(L.median)],
-  ];
   const lines = [
     g.record
       ? `New lab record: ${g.record.pce.toFixed(2)} % by ${g.record.owner}${g.record.before ? ` (was ${g.record.before.toFixed(2)} %)` : ''}`
@@ -770,47 +543,38 @@ function Summary({
     `${plural(g.measurements.length, 'measurement')}, ${plural(L.devices, 'working cell')}`,
     g.setbacks.length ? `${plural(g.setbacks.length, 'step')} postponed or canceled` : 'No steps postponed or canceled',
   ].filter(Boolean) as string[];
-  const summarySlide = (as: 'png' | 'svg') =>
-    sl.make(
-      <SlideFrame svgRef={sl.ref} title="Lab overview" sub={label}>
-        <SlideNumbers items={nums} y={320} />
-        <SlideTrend points={points} x={110} y={520} w={SW - 220} h={430} tickOf={(x) => tick(x, d.unit)} />
-      </SlideFrame>,
-      `overview-${d.from.slice(0, 10)}`,
-      as,
-    );
-  const highlightSlide = (as: 'png' | 'svg') =>
-    sl.make(
-      <SlideFrame svgRef={sl.ref} title={`${d.unit === 'week' ? 'Week' : 'Month'} in the lab`} sub={label}>
-        <g transform="translate(110 330)">
-          {lines.map((l, i) => (
-            <g key={i} transform={`translate(0 ${i * 74})`}>
-              <circle cx={12} cy={-12} r={8} fill={i === 0 && g.record ? ORANGE : BLUE} />
-              <text x={40} fontSize={40} fill={INK}>
-                {l}
-              </text>
-            </g>
-          ))}
-        </g>
-        <g transform={`translate(110 ${330 + lines.length * 74 + 70})`}>
-          <text fontSize={30} fill={MUT}>
-            Best cells
-          </text>
-          {g.top.slice(0, 4).map((t, i) => (
-            <text key={i} y={56 + i * 52} fontSize={34} fill={INK}>
-              {t.pce.toFixed(2)} % {t.owner}, {t.sample.replace(/_/g, ' ')} substrate {t.substrate}
+  const highlights = (ref: React.Ref<SVGSVGElement>) => (
+    <SlideFrame svgRef={ref} title={`${d.unit === 'week' ? 'Week' : 'Month'} in the lab`} sub={label}>
+      <g transform="translate(110 330)">
+        {lines.map((l, i) => (
+          <g key={i} transform={`translate(0 ${i * 74})`}>
+            <circle cx={12} cy={-12} r={8} fill={i === 0 && g.record ? ORANGE : BLUE} />
+            <text x={40} fontSize={40} fill={INK}>
+              {l}
             </text>
-          ))}
-        </g>
-      </SlideFrame>,
-      `highlights-${d.from.slice(0, 10)}`,
-      as,
-    );
+          </g>
+        ))}
+      </g>
+      <g transform={`translate(110 ${330 + lines.length * 74 + 70})`}>
+        <text fontSize={30} fill={MUT}>
+          Best cells
+        </text>
+        {g.top.slice(0, 4).map((t, i) => (
+          <text key={i} y={56 + i * 52} fontSize={34} fill={INK}>
+            {t.pce.toFixed(2)} % {t.owner}, {t.sample.replace(/_/g, ' ')} substrate {t.substrate}
+          </text>
+        ))}
+      </g>
+    </SlideFrame>
+  );
+  const sub = `${label} · best cell ${pct(L.best, 2)} · typical ${pct(L.median)} · ${plural(L.devices, 'cell')} measured · ${plural(L.batchesStarted, 'batch', 'batches')} started`;
   return (
     <div className="ov-body">
       <div className="ov-intro">
         <p className="ov-lede">{lede}</p>
-        <SlideButtons onMake={summarySlide} extra={['Highlights', highlightSlide]} />
+        <button className="btn secondary small-btn ov-exp-btn" onClick={() => setExporting(true)}>
+          Export for a presentation
+        </button>
       </div>
       {g.record && (
         <div className="ov-record">
@@ -981,7 +745,18 @@ function Summary({
           )}
         </More>
       </section>
-      {sl.holder}
+      {exporting && (
+        <PresentationExport
+          label={label}
+          sub={sub}
+          points={points}
+          tickOf={(x) => tick(x, d.unit)}
+          top={top}
+          file={d.from.slice(0, 10)}
+          extra={{ name: 'Highlights', render: highlights }}
+          onClose={() => setExporting(false)}
+        />
+      )}
     </div>
   );
 }
