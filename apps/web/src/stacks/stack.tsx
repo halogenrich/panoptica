@@ -40,6 +40,12 @@ const Loading = () => (
   </div>
 );
 
+/** 3D view heights that fit the window: the stack's page (in its sheet) and the stack editor, so neither needs scrolling. */
+export const FIT_VIEW = 'clamp(240px, calc(100dvh - 250px), 480px)';
+export const FIT_EDIT = 'clamp(240px, calc(100dvh - 290px), 560px)';
+/** On the batch page: the Schedule button under the view stays on screen. */
+export const FIT_BATCH = 'clamp(240px, calc(100dvh - 330px), 440px)';
+
 export function View3D({
   st,
   ctx,
@@ -53,7 +59,7 @@ export function View3D({
   ctx: Ctx;
   placed?: number;
   current?: number;
-  height?: number;
+  height?: number | string;
   cog?: boolean;
   corner?: React.ReactNode;
 }) {
@@ -463,7 +469,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                   .map(({ s, j }) => (
                     <div
                       key={slotKey(s, j)}
-                      className={'layer-row' + (j > 0 && reorder.drag === n - 1 - j ? ' dragging' : '')}
+                      className={'layer-row with-handle' + (j > 0 && reorder.drag === n - 1 - j ? ' dragging' : '')}
                       ref={j > 0 ? reorder.rowRef(n - 1 - j) : undefined}
                     >
                       {/* the substrate stays at the bottom; the layers above it can be dragged into another order */}
@@ -513,7 +519,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
           {nav}
         </div>
         <div className="stack-view">
-          <View3D st={st} ctx={ctx} placed={review ? Infinity : placed} current={i} height={560} cog />
+          <View3D st={st} ctx={ctx} placed={review ? Infinity : placed} current={i} height={FIT_EDIT} cog />
         </div>
       </div>
       {nested && (
@@ -539,7 +545,7 @@ function Output({ d: raw, ctx }: { d: StackD; ctx: Ctx; blanks?: boolean }) {
   const st = nstack(raw);
   return (
     <div className="stack-out">
-      <View3D st={st} ctx={ctx} height={480} cog />
+      <View3D st={st} ctx={ctx} height={FIT_VIEW} cog />
       <div className="layer-list">
         {[...st.sl]
           .map((s, j) => ({ s, j }))

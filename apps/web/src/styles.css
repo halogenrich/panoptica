@@ -432,11 +432,9 @@ tr.click:hover td {
 .chips {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  gap: 4px;
 }
+/* toggles you can pick several of (parameters to plot, ions): plain text, a light highlight on hover, filled when picked */
 .chip {
   height: 30px;
   min-width: 44px;
@@ -444,19 +442,26 @@ tr.click:hover td {
   border-radius: 7px;
   border: 0;
   background: none;
-  color: var(--mut);
+  color: var(--fg);
   font: inherit;
   font-size: 13.5px;
+  font-weight: 500;
   cursor: pointer;
 }
-.chip:hover:not(.on) {
-  color: var(--fg);
+.chip:hover:not(.on):not(:disabled) {
+  background: color-mix(in srgb, var(--ac) 10%, transparent);
 }
 .chip.on {
-  background: var(--raise);
-  color: var(--fg);
+  background: var(--ac);
+  color: #fff;
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+.chip.on:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ac) 86%, #000);
+}
+.chip:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
 }
 .seg {
   display: inline-flex;
@@ -2323,6 +2328,9 @@ table.list td {
   border-radius: 10px;
   background: var(--card);
 }
+.layer-row.with-handle {
+  grid-template-columns: 16px 28px 1fr auto;
+}
 .layer-row .num {
   width: 24px;
   height: 24px;
@@ -2693,6 +2701,12 @@ table.list td {
   .layer-row .row-actions {
     grid-column: 2;
     margin-left: -8px;
+  }
+  .layer-row.with-handle {
+    grid-template-columns: 16px 28px 1fr;
+  }
+  .layer-row.with-handle .row-actions {
+    grid-column: 3;
   }
   .wiz-nav {
     flex-wrap: nowrap;
@@ -6603,8 +6617,30 @@ body.dragging-block * {
   position: relative;
   z-index: 2;
 }
-.cx-group > .cbar {
-  margin: 2px 0 4px 28px;
+/* a name with its colour as a bar exactly as wide as the name */
+.named {
+  display: inline-grid;
+  justify-items: stretch;
+}
+.named > .cbar,
+.cx-gbar > .cbar {
+  width: auto;
+  margin-top: 5px;
+}
+.cx-gbar {
+  display: inline-grid;
+  max-width: calc(100% - 22px);
+  margin: 0 0 6px 22px;
+}
+.cx-gbar > span {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  font-weight: 600;
+}
+.cx-gbar > .cbar {
+  margin-top: 0;
 }
 .cx-group .drag-handle,
 .cx-grip-space {
@@ -6855,8 +6891,8 @@ body.dragging-block * {
   border-top: 1px solid var(--sep);
   padding-top: 10px;
 }
-.cx-change > .cbar {
-  margin: 0 0 8px;
+.cx-change > .named {
+  margin-bottom: 8px;
 }
 .cx-change h4 {
   margin: 0;

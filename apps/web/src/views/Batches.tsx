@@ -17,7 +17,7 @@ import RunSheet from '../stacks/RunSheet';
 import { bundlesOf, placedOf } from '../lib/bundles';
 import { layerState, stepPresets } from '../lib/stepRuns';
 import type { Booking } from './Calendar';
-import { StackIcon, View3D } from '../stacks/stack';
+import { FIT_BATCH, StackIcon, View3D } from '../stacks/stack';
 import { BatchMeasurements } from '../iv/IvPage';
 import type { Variants as VariantsD } from '@psc/core';
 import Variants from './Variants';
@@ -526,16 +526,15 @@ function Detail({
 
       <div className="batch-grid">
         <div>
-          <View3D st={st} ctx={ctx} height={440} cog />
+          <View3D st={st} ctx={ctx} height={FIT_BATCH} cog />
           <div className="below-3d">
             <ScheduleButton b={b} books={books} onSchedule={onSchedule} />
           </div>
         </div>
         <section className="group">
           <h3>Layers</h3>
-          {[...st.sl]
+          {st.sl
             .map((s, i) => ({ s, i }))
-            .reverse()
             .map(({ s, i }) => {
               const ps = presetsOf(s),
                 state = statusOf(i);
