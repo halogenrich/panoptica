@@ -1,4 +1,4 @@
-import { boxStats } from '@psc/core';
+import { boxStats, type SlotExtras } from '@psc/core';
 import { KINDS } from '../recipes';
 import { norm } from '../recipes/types';
 import { snapCtx, type Batch } from '../views/Batches';
@@ -188,6 +188,10 @@ export function batchFacts(b: Batch): Record<string, string> {
       return;
     }
     out[`${layer} › Method`] = s.m;
+    // what a batch variant adds to the layer
+    const x = s as typeof s & SlotExtras;
+    if (x.add?.length) out[`${layer} › Additive`] = x.add.join(', ');
+    if (x.note?.length) out[`${layer} › Change`] = x.note.join('; ');
     for (const p of slotPresets(s)) {
       const r = ctx.all.find((x) => String(x.id) === String(p.id)),
         k = KINDS[p.seg];
@@ -197,6 +201,8 @@ export function batchFacts(b: Batch): Record<string, string> {
       for (const [a, v] of Object.entries(k.describe(norm(k, r.data), ctx))) out[`${layer} › ${a}`] = v;
     }
   });
+  const notes = (b.snapshot as { notes?: string[] }).notes;
+  if (notes?.length) out['Device › Change'] = notes.join('; ');
   return out;
 }
 

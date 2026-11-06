@@ -101,6 +101,37 @@ function readable(rows: CRow[], uid: number, owner: number) {
   });
 }
 
+// ------------------------------------------------------------------ mentions
+/** Users named as `@username` in a comment text (a trailing . or - is punctuation, not part of the name). */
+export function mentionsIn(text: string) {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/(^|[^\w@.])@([a-zA-Z0-9._-]{3,40})/g))
+    out.add(m[2].replace(/[.-]+$/, '').toLowerCase());
+  return [...out].filter((n) => n.length >= 3);
+}
+/** Active users who can open the target; with `who`, the subset of those usernames. */
+function readers(t: Target, who?: string[]) {
+  const rows = db
+    .prepare('SELECT id,username,name,role,photo_v AS photoV FROM users WHERE active=1 AND deleted=0 ORDER BY name')
+    .all() as { id: number; username: string; name: string; role: string; photoV: number }[];
+  return rows.filter(
+    (u) =>
+      (!who || who.includes(u.username.toLowerCase())) &&
+      canSee({ id: u.id, all: u.role === 'admin' || perms(u.id).professor } as U, t),
+  );
+}
+/** Mentioned users who can read this comment (a private thread is read only by the owner and the Professor who started it). */
+function mentionTargets(text: string, t: Target, kind: string, tid: number, cid: number, by: number) {
+  const names = mentionsIn(text);
+  if (!names.length) return [];
+  const all = db
+    .prepare('SELECT id,parent_id,user_id,private FROM comments WHERE target=? AND target_id=?')
+    .all(kind, tid) as CRow[];
+  return readers(t, names)
+    .filter((u) => u.id !== by && readable(all, u.id, t.owner_id).some((c) => c.id === cid))
+    .map((u) => u.id);
+}
+
 // ------------------------------------------------------------------ trash
 const TRASH_DAYS = 30;
 type TrashKind = 'preset' | 'batch' | 'iv' | 'cmp';
@@ -188,6 +219,18 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
       })),
     };
   });
+  /** People who can open the item, for @mentions (the signed-in user is marked `me`). */
+  app.get('/api/comments/:kind/:id/people', { preHandler: auth() }, async (req: any, reply) => {
+    const t = target(req.params.kind, +req.params.id);
+    if (!t || !canSee(req.user, t)) return reply.code(404).send({ error: 'not found' });
+    return readers(t).map((u) => ({
+      id: u.id,
+      username: u.username,
+      name: u.name,
+      photoV: u.photoV,
+      me: u.id === req.user.id,
+    }));
+  });
   app.post('/api/comments/:kind/:id', { preHandler: auth() }, async (req: any, reply) => {
     const t = target(req.params.kind, +req.params.id);
     if (!t || !canSee(req.user, t)) return reply.code(404).send({ error: 'not found' });
@@ -214,8 +257,12 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
     const r = db
       .prepare('INSERT INTO comments(target,target_id,user_id,parent_id,text,private) VALUES(?,?,?,?,?,?)')
       .run(req.params.kind, +req.params.id, req.user.id, p.data.parent_id ?? null, p.data.text, priv);
-    const snippet = p.data.text.length > 80 ? p.data.text.slice(0, 79) + '…' : p.data.text;
-    if (parent && parent.user_id !== req.user.id)
+    const snippet = p.data.text.length > 80 ? p.data.text.slice(0, 79) + '…' : p.data.text,
+      cid = Number(r.lastInsertRowid);
+    // a mention replaces the reply or comment notice for the person mentioned
+    const named = mentionTargets(p.data.text, t, req.params.kind, +req.params.id, cid, req.user.id);
+    notify(named, 'mention', `${req.user.name} mentioned you on “${t.name}”: ${snippet}`, t.link, req.user.name);
+    if (parent && parent.user_id !== req.user.id && !named.includes(parent.user_id))
       notify(
         [parent.user_id],
         'reply',
@@ -223,7 +270,7 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
         t.link,
         req.user.name,
       );
-    if (t.owner_id !== req.user.id && t.owner_id !== parent?.user_id)
+    if (t.owner_id !== req.user.id && t.owner_id !== parent?.user_id && !named.includes(t.owner_id))
       notify(
         [t.owner_id],
         'comment',
@@ -231,15 +278,35 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
         t.link,
         req.user.name,
       );
-    return { id: Number(r.lastInsertRowid) };
+    return { id: cid };
   });
   app.patch('/api/comments/:cid', { preHandler: auth() }, async (req: any, reply) => {
-    const c = db.prepare('SELECT user_id FROM comments WHERE id=? AND deleted=0').get(+req.params.cid) as any;
+    const c = db
+      .prepare('SELECT user_id,text,target,target_id FROM comments WHERE id=? AND deleted=0')
+      .get(+req.params.cid) as any;
     if (!c) return reply.code(404).send({ error: 'not found' });
     if (c.user_id !== req.user.id) return reply.code(403).send({ error: 'only the author can edit a comment' });
     const p = CommentIn.pick({ text: true }).safeParse(req.body);
     if (!p.success) return bad(reply, p);
     db.prepare('UPDATE comments SET text=?,edited_at=CURRENT_TIMESTAMP WHERE id=?').run(p.data.text, +req.params.cid);
+    // people newly mentioned by the edit are told; those named before were told already
+    const t = target(c.target, c.target_id);
+    if (t) {
+      const before = new Set(mentionsIn(c.text)),
+        added = mentionsIn(p.data.text).filter((n) => !before.has(n));
+      if (added.length) {
+        const ids = mentionTargets(
+          added.map((n) => '@' + n).join(' '),
+          t,
+          c.target,
+          c.target_id,
+          +req.params.cid,
+          req.user.id,
+        );
+        const snippet = p.data.text.length > 80 ? p.data.text.slice(0, 79) + '…' : p.data.text;
+        notify(ids, 'mention', `${req.user.name} mentioned you on “${t.name}”: ${snippet}`, t.link, req.user.name);
+      }
+    }
     return { ok: true };
   });
   app.delete('/api/comments/:cid', { preHandler: auth() }, async (req: any, reply) => {
