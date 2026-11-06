@@ -1,3 +1,4 @@
+import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
 import { DeviceTable, type DeviceMap } from './Devices';
@@ -76,7 +77,7 @@ export default function ImportIv({
     [over, setOver] = useState(false),
     [err, setErr] = useState('');
   const [targets, setTargets] = useState<{
-    batches: { id: number; code: string; name: string }[];
+    batches: LinkTargets['batches'];
     stacks: { id: number; name: string }[];
     sets: { id: number; name: string; stabilityOf: number | null }[];
   }>({ batches: [], stacks: [], sets: [] });
@@ -87,7 +88,7 @@ export default function ImportIv({
     Promise.all([api<any[]>('/batches'), api<any[]>('/presets?segment=stk'), api<any[]>('/iv')])
       .then(([b, s, v]) =>
         setTargets({
-          batches: b.map((x) => ({ id: x.id, code: x.code, name: x.name })),
+          batches: b.map((x) => ({ id: x.id, code: x.code, name: x.name, variants: x.variants })),
           stacks: s.map((x) => ({ id: x.id, name: x.name })),
           sets: v.map((x) => ({ id: x.id, name: x.name, stabilityOf: x.stabilityOf ?? null })),
         }),
@@ -262,7 +263,7 @@ function DraftCard({
 }: {
   d: Draft;
   targets: {
-    batches: { id: number; code: string; name: string }[];
+    batches: LinkTargets['batches'];
     stacks: { id: number; name: string }[];
     sets: { id: number; name: string; stabilityOf: number | null }[];
   };
@@ -288,7 +289,6 @@ function DraftCard({
       }),
     [d.curves, chk],
   );
-  const val = (l: Link) => (l ? `${l.kind}:${l.id}` : '');
   const devs = useMemo(
     () =>
       [...new Set(d.curves.map((c) => c.sample + '|' + c.substrate))].map((k) => {
@@ -349,32 +349,11 @@ function DraftCard({
                 <td>
                   <select
                     aria-label={`Link ${r.s}`}
-                    value={val(d.links[r.s] ?? null)}
-                    onChange={(e) => {
-                      const [k, id] = e.target.value.split(':');
-                      up({ links: { ...d.links, [r.s]: k ? { kind: k as 'batch' | 'stack', id: +id } : null } });
-                    }}
+                    value={linkVal(d.links[r.s] ?? null)}
+                    onChange={(e) => up({ links: { ...d.links, [r.s]: parseLink(e.target.value) } })}
                   >
                     <option value="">Not linked</option>
-                    {targets.batches.length > 0 && (
-                      <optgroup label="Batches">
-                        {targets.batches.map((b) => (
-                          <option key={'b' + b.id} value={`batch:${b.id}`}>
-                            {b.code}
-                            {b.name ? ` · ${b.name}` : ''}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {targets.stacks.length > 0 && (
-                      <optgroup label="Stacks">
-                        {targets.stacks.map((s) => (
-                          <option key={'s' + s.id} value={`stack:${s.id}`}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
+                    <LinkOptions t={targets} />
                   </select>
                 </td>
               </tr>
@@ -437,7 +416,11 @@ function DraftCard({
             const l = d.links[s];
             return l
               ? ((l.kind === 'batch'
-                  ? targets.batches.find((b) => b.id === l.id)?.code
+                  ? (() => {
+                      const b = targets.batches.find((x) => x.id === l.id),
+                        v = b?.variants?.find((x) => x.id === l.variant);
+                      return b ? b.code + (v ? ` · ${v.name}` : '') : undefined;
+                    })()
                   : targets.stacks.find((x) => x.id === l.id)?.name) ?? s)
               : s.replace(/_/g, ' ');
           }}

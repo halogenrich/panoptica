@@ -585,11 +585,11 @@ function Actions({ id, name, d, ctx }: { id: number; name: string; d: StackD; ct
       name,
       visibility: prefs.vis ?? 'shared',
       stack: { arch: d.arch, sl: d.sl, thumb: d.thumb },
+      source: id || undefined,
     })
       .then((r) => ctx.openBatch?.(r.id))
       .catch((e) => setErr(e.message));
   };
-  void id;
   return (
     <>
       {err && <span className="err small">{err}</span>}

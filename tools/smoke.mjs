@@ -412,6 +412,68 @@ console.log('Calendar: shortest booking and cleanup');
   ok((await call('GET', '/api/search?q=Smoke')).j.containers !== undefined, 'search also looks in containers');
 }
 
+console.log('Batches: variants, lock, mentions');
+{
+  const sl = [
+    { n: 'Substrate', m: 'Substrate', a: '', b: '', t: '' },
+    { n: 'Perovskite', m: 'Spin', a: '', b: '', t: '' },
+    { n: 'BCP', m: 'Organic evap', a: '', b: '', t: '' },
+  ];
+  const b = await call('POST', '/api/batches', {
+    code: 'SMOKE-VAR',
+    visibility: 'shared',
+    stack: { arch: 'p-i-n', sl },
+  });
+  const put = (list) => call('PUT', `/api/batches/${b.j.id}/variants`, { control: '1 to 4', list });
+  ok((await put([{ id: 'A', name: 'Empty' }])).s === 400, 'a variant without a stack or changes is refused');
+  ok(
+    (await put([{ id: 'A', name: 'Far', changes: [{ t: 'remove', slot: 7 }] }])).s === 400,
+    'a change on a layer the batch does not have is refused',
+  );
+  const v = await put([
+    {
+      id: 'A',
+      name: '5 % MACl',
+      substrates: '5 to 8',
+      changes: [
+        { t: 'additive', slot: 1, name: 'MACl', amount: '5 %' },
+        { t: 'remove', slot: 2 },
+      ],
+    },
+  ]);
+  ok(v.s === 200 && v.j.list[0].changes.length === 2, 'variant saved');
+  const got = (await call('GET', '/api/batches/' + b.j.id)).j;
+  ok(got.variants.control === '1 to 4' && got.variants.list[0].name === '5 % MACl', 'variants come with the batch');
+  ok((await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id).variants[0].id === 'A', 'list names them');
+
+  // lock: done more than 14 days ago
+  db.prepare("UPDATE batches SET status='done', done_at='2020-01-01T00:00:00Z' WHERE id=?").run(b.j.id);
+  ok((await call('PATCH', '/api/batches/' + b.j.id, { name: 'x' })).s === 423, 'a finished batch locks by itself');
+  ok((await put([])).s === 423, 'variants of a locked batch cannot change');
+  ok((await call('DELETE', '/api/batches/' + b.j.id)).s === 423, 'a locked batch cannot go to the trash');
+  ok((await call('PATCH', '/api/batches/' + b.j.id, { visibility: 'private' })).s === 200, 'sharing stays open');
+  ok((await call('POST', `/api/batches/${b.j.id}/unlock`, {})).s === 200, 'admin unlocks');
+  ok((await call('PATCH', '/api/batches/' + b.j.id, { name: 'unlocked' })).s === 200, 'unlocked batch can change');
+  ok((await call('POST', `/api/batches/${b.j.id}/lock`, {})).s === 200, 'admin locks again');
+  ok((await call('GET', '/api/batches/' + b.j.id)).j.lock.locked, 'locked again');
+  ok(
+    db.prepare("SELECT COUNT(*) n FROM audit WHERE action='Unlocked a finished batch'").get().n === 1,
+    'unlocking is in the activity log',
+  );
+
+  // @mentions: ana is told; a name that is no user is ignored
+  await call('PATCH', '/api/batches/' + b.j.id, { visibility: 'shared' });
+  const ana = db.prepare("SELECT id FROM users WHERE username='ana'").get().id;
+  const c = await call('POST', `/api/comments/batch/${b.j.id}`, { text: 'Look at this @ana, and @nobody.' });
+  ok(c.s === 200, 'comment with mentions saved');
+  ok(
+    db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='mention' AND user_id=?").get(ana).n === 1,
+    'the person mentioned is notified',
+  );
+  const people = (await call('GET', `/api/comments/batch/${b.j.id}/people`)).j;
+  ok(people.some((p) => p.username === 'ana') && people.some((p) => p.me), 'people who can open it are offered');
+}
+
 console.log('Updates');
 ok(
   (await call('POST', '/api/updates/check')).j.error?.includes('token'),

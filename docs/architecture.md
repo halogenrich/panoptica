@@ -46,6 +46,7 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs, stability series. |
 | `comparisons.ts` | Comparisons: saved groups of devices (references to measurement, sample and substrate), private by default; the device list for picking. |
 | `calendar.ts` | Equipment, bookings, outcomes, batch scheduling; moves batches to Running and Done. |
+| `batchlock.ts` | Finished batches lock 14 days after Done (423 on changes); admins unlock for 7 days. |
 | `inventory.ts` | Storage areas and types, shelves, containers, CSV import. |
 | `social.ts` | Comments, reactions, notifications, lab records. |
 | `dashboard.ts` | The Overview (aggregates over batches, measurements and bookings). |
@@ -86,7 +87,7 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | `users`, `sessions`, `user_prefs`, `tags`, `user_tags` | Accounts, sign-in sessions (token hashes), per-person settings, labels and access tags |
 | `presets` | Recipes, designs and stacks: `segment` says which kind, `data` is JSON, `parent_id` links versions, `deleted_at` is the trash |
 | `run_data` | What really happened when a recipe was run, linked to a batch by code |
-| `batches` | A stack frozen at start (`snapshot` JSON) and what was recorded during the run (`record` JSON) |
+| `batches` | A stack frozen at start (`snapshot` JSON), what was recorded during the run (`record` JSON), its variants with their recipes frozen (`variants` JSON; applied to the snapshot by `applyVariant` in `@psc/core`), and `done_at` / `unlocked_until` for the automatic lock (`batchlock.ts`) |
 | `chemicals` | Reagents with formula, molar mass, density, purity (JSON) |
 | `iv_sets`, `iv_curves` | J–V measurements and their curves (data and computed metrics as JSON); `stability_of` links follow-up measurements; `kind = 'check'` marks check sweeps |
 | `comparisons` | Saved comparisons: groups of devices as JSON references (`data`), private by default |

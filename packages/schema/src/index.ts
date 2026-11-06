@@ -70,6 +70,8 @@ const Appearance = z
   .optional();
 export const BatchIn = z.object({
   code: z.string().min(1).max(40),
+  /** The stack the batch was started from (its variations are offered as variants). */
+  source: z.number().int().positive().optional(),
   name: z.string().max(120).default(''),
   visibility: Visibility,
   stack: z.object({
@@ -91,6 +93,59 @@ export const BatchIn = z.object({
     ),
   }),
 });
+const Method = z.enum(['Substrate', 'Spin', 'Organic evap', 'Metal evap', 'Manual']);
+const PresetRef = z.string().regex(/^\d*$/).max(20).default('');
+/** One change of a variant from the default device (layer positions are those of the batch's stack). */
+export const VarChangeIn = z.discriminatedUnion('t', [
+  z.object({
+    t: z.literal('recipe'),
+    slot: z.number().int().min(0),
+    which: z.enum(['a', 'b']),
+    id: z.number().int().positive(),
+  }),
+  z.object({
+    t: z.literal('layer'),
+    after: z.number().int().min(0),
+    n: z.string().trim().min(1, 'name the new layer').max(80),
+    m: Method.exclude(['Substrate']),
+    a: PresetRef,
+    b: PresetRef,
+    th: z.number().positive().max(1e5).optional(),
+  }),
+  z.object({ t: z.literal('remove'), slot: z.number().int().min(1, 'the substrate cannot be left out') }),
+  z.object({
+    t: z.literal('additive'),
+    slot: z.number().int().min(0),
+    name: z.string().trim().min(1, 'name the additive').max(120),
+    amount: z.string().trim().max(60).default(''),
+  }),
+  z.object({
+    t: z.literal('other'),
+    slot: z.number().int().min(0).nullable().default(null),
+    text: z.string().trim().min(1, 'describe the change').max(400),
+  }),
+]);
+export const VariantIn = z
+  .object({
+    id: z
+      .string()
+      .regex(/^[A-Z][0-9]*$/)
+      .max(6),
+    name: z.string().trim().min(1, 'name each variant').max(60),
+    substrates: z.string().trim().max(120).default(''),
+    /** A premade variation: another stack, frozen when linked. Otherwise `changes` from the default device. */
+    stack: z.number().int().positive().nullable().default(null),
+    changes: z.array(VarChangeIn).max(20).default([]),
+  })
+  .refine((v) => v.stack || v.changes.length, {
+    message: 'a variant links to a stack variation or lists what changes from the default device',
+  });
+export const VariantsIn = z.object({
+  /** Substrates of the default device (the control). */
+  control: z.string().trim().max(120).default(''),
+  list: z.array(VariantIn).max(26),
+});
+
 export const BatchPatch = z.object({
   name: z.string().max(120).optional(),
   status: z.enum(['planned', 'running', 'done']).optional(),
@@ -127,7 +182,14 @@ export const PasswordIn = z.object({
 
 // ---- J–V measurements ----
 /** What a sample (as named in the measurement files) is: a batch or a stack of this app. Groups for the statistics. */
-export const IvLink = z.object({ kind: z.enum(['batch', 'stack']), id: z.number().int().positive() }).nullable();
+export const IvLink = z
+  .object({
+    kind: z.enum(['batch', 'stack']),
+    id: z.number().int().positive(),
+    /** For a batch: which of its variants the sample is (none: the default device). */
+    variant: z.string().max(6).optional(),
+  })
+  .nullable();
 export const IvCurveIn = z.object({
   file: z.string().max(400),
   sample: z.string().max(160),

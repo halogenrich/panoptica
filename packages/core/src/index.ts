@@ -583,3 +583,4 @@ export * from './inventory';
 export * from './iv';
 export * from './mask';
 export * from './stack3d';
+export * from './variants';
