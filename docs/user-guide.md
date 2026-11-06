@@ -156,7 +156,7 @@ React to a comment with any emoji: **+** under the comment opens the emoji keybo
 
 Single bookings can also be made in the Calendar: drag across empty time in the day or week view (a click books one hour), or **New booking**. Times snap to 15 minutes. **A booking is at least 1 hour** (a shorter older booking becomes an hour when moved). Overlaps cannot be saved (admins can book anyway).
 
-**Cleanup after glovebox bookings**: every booking of glovebox equipment (the **GB:** ones) is followed by **20 minutes of cleanup**, drawn hatched under the block. The equipment stays taken during it, so the next person can only start after it: everyone has time to leave the glovebox clean without someone waiting. A new booking cannot start in someone's cleanup, nor end so late that its own cleanup runs into the next booking. The cleanup is per equipment: the spinner's cleanup does not block the scale. Click a booking to change or remove it (**Undo** brings it back). Admins manage the equipment under **Equipment**: drag the handle to change the order (the Day view's columns and the pickers follow it), colour, name, procedure (which steps the scheduler books it for), **cleanup after** each booking in minutes (new equipment named GB: starts at 20, others at 0), remove and add.
+**Cleanup after glovebox bookings**: every booking of glovebox equipment (the **GB:** ones) is followed by **20 minutes of cleanup**, drawn hatched under the block. The equipment stays taken during it, so the next person can only start after it: everyone has time to leave the glovebox clean without someone waiting. A new booking cannot start in someone's cleanup, nor end so late that its own cleanup runs into the next booking. The cleanup is per equipment: the spinner's cleanup does not block the scale. Click a booking to change or remove it (**Undo** brings it back). **Drawings**: each equipment has a line drawing (balance, spin coater, small or thermal evaporator, UV-ozone cleaner, hotplate, glovebox, solar simulator, profilometer, ultrasonic bath or other), its working part in the equipment's colour. They head the Day view's columns, the booking form's equipment choice, the hover card and the Overview's equipment use. The drawing is chosen from what the equipment is used for and its name; admins change it under **Equipment** (click the drawing). Admins manage the equipment under **Equipment**: drag the handle to change the order (the Day view's columns and the pickers follow it), colour, name, procedure (which steps the scheduler books it for), **cleanup after** each booking in minutes (new equipment named GB: starts at 20, others at 0), remove and add.
 
 ## Inventory
 
@@ -188,8 +188,21 @@ Deleting a stack, recipe, design, batch or measurement moves it to the **Trash**
 
 - **Cards or List**: Recipes, Designs, Stacks, Batches, Electric measurements and Comparisons can show cards or a list; the choice is one for the whole app.
 - **Reordering**: everything with an order has a handle (six dots) to drag it, or focus the handle and use the arrow keys: substrate-prep steps, spin steps and dispenses, solvents and additives, stack layers (in the stack's Review step; the substrate stays at the bottom), comparison groups, inventory divisions and equipment.
-- **Dates** are day/month/year (06/11/2026) and times 24 h, whatever the browser's language.
+- **Dates** are day/month/year (06/11/2026) and times 24 h, whatever the browser's language. A measurement day is shown as that day everywhere (before 0.34 some lists showed the day before).
 - **Moving to the trash** asks nothing: the toast offers **Undo**, and Trash keeps it for 30 days. Only what cannot be undone asks first (removing equipment, deleting users or tags, emptying the trash).
+
+## Links
+
+Every page and item has its own address: a batch (`#/batches/12`), a measurement, a comparison, a recipe or design, a container. **Copy link** (in the item's header) copies it; anyone who can see the item opens it with the link, after signing in if needed. The browser's **Back** and **Forward** buttons move between what you opened, and a bookmark reopens the same item. The address uses the computer's address on the lab network, so links work for everyone on that network.
+
+## Data package
+
+A **data package** is one .zip for a data repository, made from the batches, measurements and comparisons you choose. Open it from a batch (**Export › Data package**), a measurement (**Data package**), a comparison (**Export › Data package**) or the Batches and Electric measurements lists (**Data package**, starting with nothing chosen).
+
+- **What goes in**: tick batches, measurements and comparisons (filter by name or person). With **Also add what they are linked to** on, a batch brings its measurements, a measurement its batches and a comparison its measurements; those are listed as "linked to a chosen item".
+- **Describe it**: title, description, authors (separated by ;), affiliation, FAPESP process number, licence (CC BY 4.0, CC0, CC BY-NC 4.0, or not decided yet) and keywords. Affiliation, process, licence and keywords are remembered for the next package.
+- **Inside the .zip**: a **README.md** that describes the data (who, when, what, the folder layout, units and methods: how the parameters are calculated and which pixels count), **metadata.json** with the fields a repository deposit asks for (REDU, Unicamp's research data repository, runs Dataverse), and **manifest-sha256.txt** with the SHA-256 of every file (check with `sha256sum -c manifest-sha256.txt`). Each batch has batch.json (the stack and recipes as frozen at the start, variants, bookings, run data) and the batch spreadsheet's tables as CSV; each measurement has measurement.json, pixels.csv (every curve with its parameters, check sweep or not, counted or not) and one CSV per curve (V in volts, J in mA/cm²); each comparison has comparison.json and pixels.csv.
+- Files are CSV (UTF-8, comma-separated, decimal point) and JSON, readable without the app. Nothing leaves the computer: the package is made in the browser and downloaded.
 
 ## Run data
 
