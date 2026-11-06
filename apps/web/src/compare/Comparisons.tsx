@@ -460,7 +460,11 @@ function GroupRail({
                   {g.ref ? 'Reference' : 'Set as reference'}
                 </button>
               </div>
-              <i className="cbar" aria-hidden />
+              {/* the colour bar as wide as the name (a hidden copy of the name sets its width) */}
+              <span className="cx-gbar" aria-hidden>
+                <span>{g.name || 'Unnamed group'}</span>
+                <i className="cbar" />
+              </span>
               <div className="cx-group-meta">
                 <button
                   className="cx-disclose small"
@@ -1365,8 +1369,10 @@ function Results({
                 </header>
                 {changes.map((x) => (
                   <div key={x.g.id} className="cx-change" style={{ '--eq': seriesColor(groups.indexOf(x.g)) } as any}>
-                    <h4>{x.g.name || 'Unnamed group'}</h4>
-                    <i className="cbar" aria-hidden />
+                    <h4 className="named">
+                      {x.g.name || 'Unnamed group'}
+                      <i className="cbar" aria-hidden />
+                    </h4>
                     {x.names && (
                       <p className="small">
                         Sample names: <s className="mut">{x.names[0]}</s> → <b>{x.names[1]}</b>
