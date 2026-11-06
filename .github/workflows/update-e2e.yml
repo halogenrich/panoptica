@@ -38,6 +38,10 @@ jobs:
           (cd "$T/inst" && unzip -q ../base.zip)
           (cd "$T/new" && unzip -q ../base.zip && node -e "const f='perovskite-lab/package.json',p=require('fs');const j=JSON.parse(p.readFileSync(f,'utf8'));j.version='99.0.0';p.writeFileSync(f,JSON.stringify(j,null,2)+'\n')")
           (cd "$T/new" && 7z a -tzip -bso0 "$T/out/perovskite-lab.zip" perovskite-lab || zip -qr "$T/out/perovskite-lab.zip" perovskite-lab)
+      - name: Probe how a separate window can be opened (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node tools/win-spawn-probe.mjs
       - name: Update from the app
         shell: bash
         run: node tools/update-e2e.mjs "$RUNNER_TEMP/inst/perovskite-lab" "$RUNNER_TEMP/out/perovskite-lab.zip" 99.0.0

@@ -64,7 +64,13 @@ function range(v: View, d: Date): [Date, Date] {
   const first = monday(new Date(d.getFullYear(), d.getMonth(), 1));
   return [first, addDays(first, 42)];
 }
-function title(v: View, d: Date) {
+function title(v: View, d: Date, short = false) {
+  if (short && v === 'day')
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (short && v === 'week') {
+    const [a, b] = range('week', d);
+    return `${a.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${addDays(b, -1).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+  }
   if (v === 'day')
     return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   if (v === 'month') return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -475,7 +481,7 @@ export default function Calendar({
           <button className="iconbtn" aria-label="Next" title="Next (→)" onClick={() => step(1)}>
             ›
           </button>
-          <h2 className="cal-title">{title(view, date)}</h2>
+          <h2 className="cal-title">{title(view, date, narrow)}</h2>
         </div>
         <div className="grow" />
         <Seg
@@ -834,7 +840,17 @@ function TimeGrid({
                   const when = `${hm(new Date(b.start))}–${hm(new Date(b.end))}`,
                     who = nm(b.user_name),
                     canEdit = !!onResize && b.editable && !b.outcome,
-                    size = h >= 66 ? 'tall' : h >= 34 ? 'mid' : 'short';
+                    size = h >= 66 ? 'tall' : h >= 34 ? 'mid' : 'short',
+                    mark =
+                      b.outcome === 'done' ? (
+                        <span className="bk-mark" aria-label="concluded">
+                          ✓{' '}
+                        </span>
+                      ) : !b.outcome && ended(b) ? (
+                        <span className="bk-mark" aria-label="waiting for its outcome">
+                          ?{' '}
+                        </span>
+                      ) : null;
                   return (
                     <button
                       key={b.id}
@@ -866,7 +882,10 @@ function TimeGrid({
                     >
                       {size === 'tall' ? (
                         <>
-                          <b>{what(b)}</b>
+                          <b>
+                            {mark}
+                            {what(b)}
+                          </b>
                           <span className="bk-s">{b.mine ? 'You' : who}</span>
                           <span className="bk-s">{shortEq(b.equipment)}</span>
                           <span className="bk-t">{when}</span>
@@ -874,7 +893,10 @@ function TimeGrid({
                       ) : size === 'mid' ? (
                         <>
                           <span className="bk-l">
-                            <b>{what(b)}</b>
+                            <b>
+                              {mark}
+                              {what(b)}
+                            </b>
                             <span className="bk-t">{hm(new Date(b.start))}</span>
                           </span>
                           <span className="bk-s">
@@ -883,22 +905,15 @@ function TimeGrid({
                         </>
                       ) : (
                         <>
-                          <b>{what(b)}</b>
+                          <b>
+                            {mark}
+                            {what(b)}
+                          </b>
                           <span className="bk-s">
                             {shortEq(b.equipment)}, {b.mine ? 'you' : who}
                           </span>
                           <span className="bk-t">{hm(new Date(b.start))}</span>
                         </>
-                      )}
-                      {b.outcome === 'done' && (
-                        <span className="bk-mark" aria-label="concluded">
-                          ✓
-                        </span>
-                      )}
-                      {!b.outcome && ended(b) && (
-                        <span className="bk-mark" aria-label="waiting for its outcome">
-                          ?
-                        </span>
                       )}
                       {canEdit && s === new Date(b.start).getTime() && (
                         <span
