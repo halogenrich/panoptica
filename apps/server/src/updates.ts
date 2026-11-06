@@ -188,7 +188,17 @@ function install(lan: boolean) {
     }
   };
   if (process.platform === 'win32') {
-    const line = ['/c', 'start', '"Perovskite Lab update"', `"${run}"`, ...args.map((a) => `"${a}"`)];
+    // `start` opens the window; the inner `cmd /c ""script" "args""` is the only form that runs a batch file with quoted
+    // arguments from a path with spaces (checked on Windows in CI, tools/win-spawn-probe.mjs). The earlier form
+    // `start "title" "script.bat" args` silently did nothing, which is why the in-app update did not install on Windows.
+    const line = [
+      '/c',
+      'start',
+      '"Perovskite Lab update"',
+      'cmd',
+      '/c',
+      `""${run}" ${args.map((a) => `"${a}"`).join(' ')}"`,
+    ];
     note(`starting cmd.exe ${line.join(' ')}`);
     const child = spawn('cmd.exe', line, {
       cwd: ROOT,
