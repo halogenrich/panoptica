@@ -4,7 +4,7 @@ import { Badge, Empty, fmtDate } from '../lib/ui';
 import { refreshAll, showToast, useRefresh } from '../lib/trash';
 
 type Item = {
-  kind: 'preset' | 'batch' | 'iv';
+  kind: 'preset' | 'batch' | 'iv' | 'cmp';
   id: number;
   name: string;
   segment: string;
@@ -16,6 +16,7 @@ const KIND: Record<string, string> = {
   stk: 'Stack',
   batches: 'Batch',
   iv: 'Measurement',
+  cmp: 'Comparison',
   sub: 'Substrate',
   mask: 'Metal mask',
   s0: 'Substrate prep',
@@ -25,7 +26,7 @@ const KIND: Record<string, string> = {
   s4: 'Metal evaporation',
 };
 
-/** Deleted stacks, recipes, designs, batches and measurements: restore them, or delete them for good. Emptied automatically after 30 days. */
+/** Deleted stacks, recipes, designs, batches, measurements and comparisons: restore them, or delete them for good. Emptied automatically after 30 days. */
 export default function Trash({ admin }: { admin: boolean }) {
   const [d, setD] = useState<{ days: number; items: Item[] } | null>(null),
     [err, setErr] = useState('');
@@ -36,7 +37,7 @@ export default function Trash({ admin }: { admin: boolean }) {
   useEffect(() => {
     load();
   }, []);
-  useRefresh(load, ['presets', 'batches', 'iv']);
+  useRefresh(load, ['presets', 'batches', 'iv', 'comparisons']);
   const restore = (i: Item) =>
     api(`/trash/${i.kind}/${i.id}/restore`, 'POST')
       .then(() => {
@@ -64,7 +65,7 @@ export default function Trash({ admin }: { admin: boolean }) {
       {d.items.length === 0 ? (
         <Empty
           title="The trash is empty"
-          text="Deleted stacks, recipes, designs, batches and measurements appear here."
+          text="Deleted stacks, recipes, designs, batches, measurements and comparisons appear here."
         />
       ) : (
         <section className="group scroll flush">

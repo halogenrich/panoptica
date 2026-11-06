@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import { Check } from '../views/common';
 import type { BoxGroup } from './charts';
 
 /**
  * Box plots in article style (2 × 2: Jsc, FF / Voc, PCE), on screen and for export. Axes fitted around the data, closed frame with outward ticks,
  * light grid. Each group (device group, batch or stack) has its own colour: the backward box in that colour, the forward box a lighter
  * shade of it, joined to the backward one; the pixels as dots, the outliers (beyond 1.5 × IQR) as triangles and the optional density
- * curve in a darker shade. Hover a dot or box for its values.
+ * curve in a darker shade. Hover a dot or box for its values. With outliers hidden, the axis is fitted to the boxes and whiskers,
+ * and points beyond it are an arrow at the edge with how many there are (they still count in the box and the statistics).
  */
 export const BFW = 1100,
   BFH = 660;
@@ -26,6 +28,39 @@ const hex = (c: number[]) =>
     .join('');
 export const lighter = (h: string, k = 0.45) => hex(rgb(h).map((v) => v + (255 - v) * k));
 export const darker = (h: string, k = 0.38) => hex(rgb(h).map((v) => v * (1 - k)));
+
+/** "Show outliers", remembered in this browser and shared by every box plot (statistics, batch report, comparisons, slides). */
+export function useOutliers(): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => {
+    try {
+      return localStorage.getItem('psc-outliers') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  return [
+    v,
+    (x: boolean) => {
+      setV(x);
+      try {
+        localStorage.setItem('psc-outliers', x ? '1' : '0');
+      } catch {
+        /* private window */
+      }
+    },
+  ];
+}
+/** The checkbox for it. */
+export function OutlierToggle({ v, on }: { v: boolean; on: (v: boolean) => void }) {
+  return (
+    <label
+      className="inline small"
+      title="Untick when one far-off value squeezes the boxes: the axis then fits the boxes and whiskers, and points beyond it show as an arrow with their number. They still count in the statistics."
+    >
+      <Check v={v} on={on} /> Show outliers
+    </label>
+  );
+}
 
 export type Panel = { key: string; title: React.ReactNode; groups: BoxGroup[] };
 
@@ -129,6 +164,7 @@ function PanelSvg({
   onTip,
   log = false,
   logo,
+  outliers = true,
 }: {
   p: Panel;
   x: number;
@@ -141,6 +177,7 @@ function PanelSvg({
   onTip: (t: { x: number; y: number; text: string } | null) => void;
   log?: boolean;
   logo?: Logo;
+  outliers?: boolean;
 }) {
   const L = 62,
     R = 14,
@@ -152,8 +189,13 @@ function PanelSvg({
     oy = y + T;
   // log axis (shunt resistance spans decades): plotted in log10, labelled in the original unit
   const f = (v: number) => (log ? Math.log10(Math.max(v, 1e-9)) : v);
+  // outliers hidden: the axis is fitted to the points inside the whiskers only
   const vals = p.groups
-    .flatMap((g) => g.series.flatMap((s) => s.points.map((q) => q.v)))
+    .flatMap((g) =>
+      g.series.flatMap((s) =>
+        s.points.map((q) => q.v).filter((v) => outliers || !s.stats || (v >= s.stats.lo && v <= s.stats.hi)),
+      ),
+    )
     .filter((v) => Number.isFinite(v) && (!log || v > 0))
     .map(f);
   const { lo, top, step } = log
@@ -226,6 +268,50 @@ function PanelSvg({
             dark = darker(base),
             edge = darker(base, 0.2);
           const out = (v: number) => v < s.lo || v > s.hi;
+          // beyond the axis (only when outliers are hidden): not drawn, counted in an arrow at the edge
+          const beyond = (v: number) => !outliers && (f(v) > top || f(v) < lo);
+          const above = outliers ? [] : se.points.filter((q) => f(q.v) > top).map((q) => q.v),
+            below = outliers ? [] : se.points.filter((q) => f(q.v) < lo).map((q) => q.v);
+          const edgeTip = (vs: number[], where: string) =>
+            `${g.label}${se.label ? ` · ${se.label}` : ''}: ${vs.length} outlier${vs.length > 1 ? 's' : ''} ${where} the axis (${vs
+              .sort((a, b) => a - b)
+              .map((v) => v.toFixed(digits))
+              .join(', ')} ${unit}), counted in the box`;
+          const arrow = (vs: number[], up: boolean) => {
+            if (!vs.length) return null;
+            const yA = up ? oy + 4 : oy + ph - 4,
+              d = up ? 1 : -1,
+              t = edgeTip(vs, up ? 'above' : 'below');
+            return (
+              <g
+                onPointerEnter={(e) => tip(e, t)}
+                onPointerMove={(e) => tip(e, t)}
+                onPointerLeave={() => onTip(null)}
+                className="box-edge"
+              >
+                <title>{t}</title>
+                <path
+                  d={`M${cx.toFixed(1)},${yA.toFixed(1)}l5.5,${9.5 * d}h-11z`}
+                  fill={dark}
+                  stroke="#fff"
+                  strokeWidth={1}
+                />
+                <text
+                  x={cx + 8}
+                  y={yA + 5.5 * d}
+                  dominantBaseline="central"
+                  fontSize={11}
+                  fontWeight={600}
+                  fill={dark}
+                  paintOrder="stroke"
+                  stroke="#fff"
+                  strokeWidth={3}
+                >
+                  {vs.length}
+                </text>
+              </g>
+            );
+          };
           const side = n > 1 && si === 0 ? -1 : 1,
             dx = cx + side * (bw / 2 + 4);
           const dens =
@@ -279,7 +365,10 @@ function PanelSvg({
                   strokeWidth={2.2}
                 />
               </g>
+              {arrow(above, true)}
+              {arrow(below, false)}
               {se.points.map((q, k) => {
+                if (beyond(q.v)) return null;
                 const px = cx + jit(k + gi * 31 + si * 7, bw * 0.7),
                   py = Y(q.v),
                   t = `${q.v.toFixed(digits)} ${unit} · ${q.tip}`;
@@ -363,12 +452,15 @@ export function BoxPanel({
   showDensity = false,
   logo,
   log = false,
+  outliers = true,
 }: {
   panel: Panel & { unit: string; digits: number };
   svgRef?: React.Ref<SVGSVGElement>;
   showDensity?: boolean;
   logo?: { watermark?: string; group?: string };
   log?: boolean;
+  /** false: axis fitted to the boxes; points beyond it shown as edge arrows with their count */
+  outliers?: boolean;
 }) {
   const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
   return (
@@ -396,6 +488,7 @@ export function BoxPanel({
           h={PH}
           log={log}
           logo={logo}
+          outliers={outliers}
         />
       </svg>
       {tip && (
@@ -412,11 +505,13 @@ export function BoxFigure({
   svgRef,
   showDensity = false,
   logo,
+  outliers = true,
 }: {
   panels: (Panel & { unit: string; digits: number })[];
   svgRef?: React.Ref<SVGSVGElement>;
   showDensity?: boolean;
   logo?: { watermark?: string; group?: string };
+  outliers?: boolean;
 }) {
   const w = BFW / 2,
     h = BFH / 2,
@@ -447,6 +542,7 @@ export function BoxFigure({
             w={w}
             h={h}
             logo={logo}
+            outliers={outliers}
           />
         ))}
       </svg>

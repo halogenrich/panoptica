@@ -24,7 +24,7 @@ export function checkRecord(setId: number, by: U) {
       db
         .prepare(
           `SELECT MAX(json_extract(c.metrics,'$.pce')) AS p FROM iv_curves c JOIN iv_sets s ON s.id=c.set_id
-    WHERE json_extract(c.metrics,'$.status')='ok' AND (c.use IS NULL OR c.use=1) AND s.deleted_at IS NULL AND s.stability_of IS NULL AND s.system=? AND ${where}`,
+    WHERE json_extract(c.metrics,'$.status')='ok' AND (c.use=1 OR (c.use IS NULL AND (c.kind IS NULL OR c.kind<>'check'))) AND s.deleted_at IS NULL AND s.stability_of IS NULL AND s.system=? AND ${where}`,
         )
         .get(s.system, ...args) as { p: number | null }
     ).p;
@@ -103,8 +103,8 @@ function readable(rows: CRow[], uid: number, owner: number) {
 
 // ------------------------------------------------------------------ trash
 const TRASH_DAYS = 30;
-type TrashKind = 'preset' | 'batch' | 'iv';
-const TABLE: Record<TrashKind, string> = { preset: 'presets', batch: 'batches', iv: 'iv_sets' };
+type TrashKind = 'preset' | 'batch' | 'iv' | 'cmp';
+const TABLE: Record<TrashKind, string> = { preset: 'presets', batch: 'batches', iv: 'iv_sets', cmp: 'comparisons' };
 
 /** Permanently removes one trashed item (what the old delete did). */
 function purgeOne(kind: TrashKind, id: number) {
@@ -119,7 +119,8 @@ function purgeOne(kind: TrashKind, id: number) {
     } else if (kind === 'batch') {
       db.prepare("DELETE FROM comments WHERE target='batch' AND target_id=?").run(id);
       db.prepare('DELETE FROM batches WHERE id=?').run(id);
-    } else db.prepare('DELETE FROM iv_sets WHERE id=?').run(id);
+    } else if (kind === 'cmp') db.prepare('DELETE FROM comparisons WHERE id=?').run(id);
+    else db.prepare('DELETE FROM iv_sets WHERE id=?').run(id);
   });
 }
 export function purgeTrash() {
@@ -321,6 +322,9 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
       ),
       ...q(
         `SELECT 'batch' AS kind,x.id,x.code || CASE WHEN x.name<>'' THEN ' · ' || x.name ELSE '' END AS name,'batches' AS segment,x.deleted_at,u.name AS owner FROM batches x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
+      ),
+      ...q(
+        `SELECT 'cmp' AS kind,x.id,x.name,'cmp' AS segment,x.deleted_at,u.name AS owner FROM comparisons x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
       ),
       ...q(
         `SELECT 'iv' AS kind,x.id,x.name,'iv' AS segment,x.deleted_at,u.name AS owner FROM iv_sets x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,

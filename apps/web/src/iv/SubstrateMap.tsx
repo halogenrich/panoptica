@@ -11,6 +11,7 @@ import {
   cellGeom,
   fmt,
   inStats,
+  isCheck,
   pceFill,
   pixelOrder,
   scanOrder,
@@ -133,7 +134,7 @@ export function SubstrateMap({
     for (const p of pixels) {
       const pc = curves.filter((c) => c.pixel === p),
         c = shownCurve(pc, set.curves, dir);
-      if (c && c.m.status === 'ok' && c.m.pce > v) {
+      if (c && inStats(c, set.curves) && c.m.pce > v) {
         v = c.m.pce;
         b = p;
       }
@@ -292,7 +293,7 @@ export function SubstrateMap({
       </g>
     );
   };
-  const best = curves.filter((c) => c.dir === dir && c.m.status === 'ok').reduce((b, c) => Math.max(b, c.m.pce), 0);
+  const best = curves.filter((c) => c.dir === dir && inStats(c, set.curves)).reduce((b, c) => Math.max(b, c.m.pce), 0);
   return (
     <figure
       className={
@@ -368,9 +369,9 @@ export function PixelPanel({
   const cs = set.curves
     .filter((c) => c.sample === sample && c.substrate === substrate && c.pixel === pixel)
     .sort((a, b) => scanOrder(a.scan, b.scan) || (a.dir === 'rev' ? -1 : 1));
-  // the scan with the best PCE of this pixel (any direction) is the one shown first and reported on the figure
+  // the counted scan with the best PCE of this pixel (any direction; never a check sweep) is shown first and reported on the figure
   const best = cs
-    .filter((c) => c.m.status === 'ok')
+    .filter((c) => inStats(c, set.curves))
     .reduce<Curve | undefined>((b, c) => (!b || c.m.pce > b.m.pce ? c : b), undefined);
   const scans = [...new Set(cs.map((c) => c.scan))],
     first = best?.scan ?? scans[scans.length - 1] ?? '',
@@ -402,7 +403,13 @@ export function PixelPanel({
           small
           value={scan}
           on={setScan}
-          opts={scans.map((s) => [s, `Scan ${s || '1'}${best?.scan === s ? ' ★' : ''}`] as [string, string])}
+          opts={scans.map(
+            (s) =>
+              [
+                s,
+                `Scan ${s || '1'}${best?.scan === s ? ' ★' : ''}${cs.some((c) => c.scan === s && isCheck(c)) ? ' · check sweep' : ''}`,
+              ] as [string, string],
+          )}
         />
       )}
       <div className="fig-wrap">
@@ -458,11 +465,19 @@ export function PixelPanel({
           </thead>
           <tbody>
             {cs.map((c) => (
-              <tr key={c.id} className={c.scan === scan ? '' : 'mut'}>
+              <tr key={c.id} className={(c.scan === scan ? '' : 'mut') + (isCheck(c) ? ' sweep-row' : '')}>
                 <td>
                   {c.dir === 'rev' ? 'Backward' : 'Forward'}
                   {scans.length > 1 ? ` · ${c.scan || '1'}` : ''}
                   {c === best ? ' ★' : ''}
+                  {isCheck(c) && (
+                    <span
+                      className="sweep-tag"
+                      title="A quick exploratory scan (coarser steps or one direction) before the real measurement of this pixel. Not counted unless you include it."
+                    >
+                      check sweep
+                    </span>
+                  )}
                 </td>
                 <td>
                   <b>{fmt(c.m.pce)}</b>
@@ -583,7 +598,7 @@ export function SampleMaps({
     Math.max(
       0,
       ...set.curves
-        .filter((c) => c.sample === sample && c.substrate === sub && c.dir === dir && c.m.status === 'ok')
+        .filter((c) => c.sample === sample && c.substrate === sub && c.dir === dir && inStats(c, set.curves))
         .map((c) => c.m.pce),
     );
   const bestSub =

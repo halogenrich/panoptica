@@ -486,7 +486,10 @@ export function Updates() {
           <input value={repo ?? u.repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/name" />
         </label>
         <label className="fld">
-          <span>Access token {u.tokenSet ? <Badge tone="ac">saved</Badge> : <Badge tone="warn">not set</Badge>}</span>
+          <span>
+            Access token{' '}
+            {u.tokenSet ? <Badge tone="ac">saved</Badge> : <span className="mut">(only for a private repository)</span>}
+          </span>
           <input
             type="password"
             autoComplete="off"
@@ -519,7 +522,7 @@ export function Updates() {
             <button
               className="link danger-link"
               onClick={() =>
-                window.confirm('Remove the saved token? The app can then no longer check a private repository.') &&
+                window.confirm('Remove the saved token? Not needed while the repository is public.') &&
                 run('save', api<Upd>('/updates/settings', 'PUT', { token: '' }))
               }
             >
@@ -529,6 +532,10 @@ export function Updates() {
         </div>
         <details className="upd-how">
           <summary>How to make the token</summary>
+          <p className="small">
+            A public repository needs no token: leave this empty. Only if the repository is made private again, the app
+            needs one to read it:
+          </p>
           <ol className="small">
             <li>
               On GitHub, signed in as the repository owner: Settings › Developer settings › Personal access tokens ›{' '}

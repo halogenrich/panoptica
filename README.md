@@ -69,7 +69,7 @@ Admin settings › Security shows whether the connection is encrypted. Details f
 
 ## Update
 
-**From the app** (0.26 and later): releases are published on GitHub ([halogenrich/panoptica](https://github.com/halogenrich/panoptica/releases)). The app checks once a day and notifies admins. In **Admin settings › Updates**: **Download** (the file is checked against its SHA-256), then **Install now**: the app backs up the database, stops, the update script replaces the program files (never the data) and starts the app again; the page reloads by itself. Each step is written to `updates/update.log` and shown under Updates. The repository is private, so the app needs a read-only token once (the Updates tab explains how to make it; it is kept in `config/update.json` on this computer only).
+**From the app** (0.26 and later): releases are published on GitHub ([halogenrich/panoptica](https://github.com/halogenrich/panoptica/releases)). The app checks once a day and notifies admins. In **Admin settings › Updates**: **Download** (the file is checked against its SHA-256), then **Install now**: the app backs up the database, stops, the update script replaces the program files (never the data) and starts the app again; the page reloads by itself. Each step is written to `updates/update.log` and shown under Updates. The repository is public, so no token is needed. (If it is made private, the app needs a read-only token once: the Updates tab explains how to make it; it is kept in `config/update.json` on this computer only.)
 
 **By hand**: download `perovskite-lab.zip` from the release (or use the one the app downloaded into `updates/`), close the app window and run the update script (Linux: `./update.sh`). It takes the newest `perovskite-lab*.zip` in `updates/` or Downloads (or a path given as argument), backs up the database, copies the new files over the old ones (your data stays), reinstalls and rebuilds only if the files actually changed (compared by content), and starts the app. The version shows in the profile menu and with the version script.
 
@@ -92,7 +92,7 @@ The script checks that the file is a valid database and backs up the current one
 
 - Database: `apps/server/data.db` (users, presets, batches, run data). Do not copy it while the app runs; use a backup instead.
 - Backups: `backups/`.
-- This computer's secrets: `config/` (backup key, update token). Never shared, never in backups or on GitHub.
+- This computer's secrets: `config/` (backup key, update token if any). Never shared, never in backups or on GitHub.
 - Everything else in the folder can be replaced by an update.
 
 ## Troubleshooting
