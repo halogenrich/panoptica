@@ -326,6 +326,7 @@ type Upd = {
   error?: string;
   latest?: { version: string; name: string; notes: string; published: string; url: string; zip?: { size: number } };
   downloaded?: { version: string; file: string };
+  log?: string;
 };
 export function Updates() {
   const [u, setU] = useState<Upd | null>(null),
@@ -472,6 +473,12 @@ export function Updates() {
         )}
         {err && <p className="err small">{err}</p>}
       </section>
+      {u.log && (
+        <details className="upd-log">
+          <summary>What the last update did</summary>
+          <pre>{u.log}</pre>
+        </details>
+      )}
       <h3 className="sub">Where updates come from</h3>
       <section className="group">
         <label className="fld">

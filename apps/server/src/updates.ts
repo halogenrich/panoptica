@@ -9,6 +9,7 @@ import {
   readdirSync,
   unlinkSync,
   writeFileSync,
+  readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -189,7 +190,7 @@ function install(lan: boolean) {
   };
   if (process.platform === 'win32') {
     // `start` opens the window; the inner `cmd /c ""script" "args""` is the only form that runs a batch file with quoted
-    // arguments from a path with spaces (checked on Windows in CI, tools/win-spawn-probe.mjs). The earlier form
+    // arguments from a path with spaces (found by trying the forms on Windows in CI; the update itself is tested there by tools/update-e2e.mjs). The earlier form
     // `start "title" "script.bat" args` silently did nothing, which is why the in-app update did not install on Windows.
     const line = [
       '/c',
@@ -222,6 +223,14 @@ function install(lan: boolean) {
 }
 
 export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any, current: string) {
+  /** The end of updates/update.log: what the last update did, step by step (written by the app and the update script). */
+  const lastLog = () => {
+    try {
+      return readFileSync(join(DIR, 'update.log'), 'utf8').trim().split(/\r?\n/).slice(-40).join('\n');
+    } catch {
+      return '';
+    }
+  };
   const view = () => {
     const s = settings(),
       st = getState();
@@ -232,6 +241,7 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
       ...st,
       available: !!st.latest && newer(st.latest.version, current),
       canInstall: ['win32', 'linux', 'darwin'].includes(process.platform),
+      log: lastLog(),
     };
   };
   app.get('/api/updates', { preHandler: auth(true) }, async () => view());
