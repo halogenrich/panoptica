@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { MeCtx } from '../ctx';
 import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
 import Comments from '../lib/Comments';
 import { BatchReport, batchMeasurements, batchSpreadsheet } from './BatchReport';
 import { RunEntry, RunForm, type Run } from '../lib/Library';
-import { Badge, Empty, LayoutToggle, Seg, fmtDate, useLayout, usePrint } from '../lib/ui';
+import { Badge, Empty, LayoutToggle, Seg, fmtDate, fmtDateTime, useLayout, usePrint } from '../lib/ui';
 import { KINDS } from '../recipes';
 import { norm, type Ctx, type Rec } from '../recipes/types';
 import { SEG, type Slot, type StackD } from '../stacks/model';
@@ -14,6 +15,8 @@ import { layerState, stepPresets } from '../lib/stepRuns';
 import type { Booking } from './Calendar';
 import { StackIcon, View3D } from '../stacks/stack';
 import { BatchMeasurements } from '../iv/IvPage';
+import type { Variants as VariantsD } from '@psc/core';
+import Variants from './Variants';
 
 type Status = 'planned' | 'running' | 'done';
 type Row = {
@@ -32,7 +35,25 @@ type Row = {
   concluded: number;
   runs: number;
   thumb?: string;
+  variants?: { id: string; name: string }[];
+  locked?: boolean;
 };
+const LockGlyph = () => (
+  <svg
+    className="lock-glyph"
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    aria-label="Locked"
+  >
+    <title>Locked: finished more than 14 days ago</title>
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </svg>
+);
 export type Rec2 = { slots?: Record<number, { done?: boolean; at?: string }>; notes?: string };
 export type Batch = {
   id: number;
@@ -49,7 +70,11 @@ export type Batch = {
     resolved: Record<number, { a?: { name: string; data: any } | null; b?: { name: string; data: any } | null }>;
     chems: any[];
     coreVersion: string;
+    /** the stack the batch was started from (0.33 on) */
+    source?: number;
   };
+  variants?: VariantsD;
+  lock?: { locked: boolean; locksAt: string | null; unlockedUntil: string | null };
 };
 export type BRun = Run & { preset_id: number; segment: string };
 
@@ -146,8 +171,16 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                   <i style={{ width: `${r.steps ? (100 * r.concluded) / r.steps : 0}%` }} />
                 </div>
                 <div className="pcard-meta">
-                  <span className={'status ' + r.status}>{STATUS[r.status]}</span>
+                  <span className={'status ' + r.status}>
+                    {STATUS[r.status]}
+                    {r.locked && <LockGlyph />}
+                  </span>
                   <span>{progressText(r)}</span>
+                  {!!r.variants?.length && (
+                    <span>
+                      {r.variants.length} variant{r.variants.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                   {r.runs > 0 && <Badge>{r.runs} run data</Badge>}
                   <span>
                     {r.mine ? 'You' : r.owner} · {fmtDate(r.created_at)}
@@ -180,7 +213,10 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                     {r.name || r.arch}, {r.arch}
                   </td>
                   <td>
-                    <span className={'status ' + r.status}>{STATUS[r.status]}</span>
+                    <span className={'status ' + r.status}>
+                      {STATUS[r.status]}
+                      {r.locked && <LockGlyph />}
+                    </span>
                   </td>
                   <td className="mut">{progressText(r)}</td>
                   <td>{r.mine ? 'You' : r.owner}</td>
@@ -245,6 +281,7 @@ function Detail({
     [runs, setRuns] = useState<BRun[]>([]),
     [msg, setMsg] = useState(''),
     [adding, setAdding] = useState<{ slot: number; id: string; seg: string } | null>(null);
+  const { me } = useContext(MeCtx);
   const pr = usePrint(),
     saved = useRef(''),
     [busyRep, setBusyRep] = useState<'' | 'pdf' | 'xlsx'>('');
@@ -262,7 +299,7 @@ function Detail({
     const f = () => {
       loadBooks();
       api<Batch>('/batches/' + id)
-        .then((x) => setB((o) => (o ? { ...o, status: x.status } : x)))
+        .then((x) => setB((o) => (o ? { ...o, status: x.status, lock: x.lock, editable: x.editable } : x)))
         .catch(() => {});
     };
     window.addEventListener('psc-batches', f);
@@ -318,6 +355,16 @@ function Detail({
     .filter((x, j, a) => a.findIndex((y) => y.id === x.id && y.slot === x.slot) === j);
   const concludedN = stepsOf.filter(({ k }) => k.outcome === 'done').length;
   const dataOf = (pid: string | number) => ctx.all.find((p) => String(p.id) === String(pid))?.data;
+  const lock = b.lock,
+    admin = me.role === 'admin';
+  const relock = (path: 'unlock' | 'lock') =>
+    api(`/batches/${id}/${path}`, 'POST')
+      .then(() => api<Batch>('/batches/' + id))
+      .then((x) => {
+        setB({ ...b, lock: x.lock, editable: x.editable });
+        batchesChanged();
+      })
+      .catch((e) => setMsg(e.message));
 
   return (
     <div className="batch">
@@ -352,7 +399,9 @@ function Detail({
         />
         <button
           className="btn"
-          onClick={() => pr.print(<RunSheet st={st} ctx={ctx} name={b.name || st.arch} batch={b.code} />)}
+          onClick={() =>
+            pr.print(<RunSheet st={st} ctx={ctx} name={b.name || st.arch} batch={b.code} variants={b.variants} />)
+          }
         >
           Print sheet
         </button>
@@ -401,8 +450,34 @@ function Detail({
       <p className="mut small">
         {b.owner}, created {fmtDate(b.created_at)}.{' '}
         {stepsOf.length ? `${concludedN} of ${stepsOf.length} booked steps concluded` : 'Not scheduled yet'}
+        {lock?.locksAt && !lock.locked && !lock.unlockedUntil ? `. Locks on ${fmtDate(lock.locksAt)}` : ''}
         {msg ? `. ${msg}` : ''}
       </p>
+      {(lock?.locked || lock?.unlockedUntil) && (
+        <div className="batch-lock" role="status">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d={lock.locked ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 7.5-2'} />
+          </svg>
+          <span>
+            {lock.locked ? (
+              <>
+                <b>Locked</b> since {fmtDate(lock.locksAt!)}: steps, run data, variants and notes stay as recorded.
+                Comments, sharing and measurement links stay open.
+              </>
+            ) : (
+              <>
+                <b>Unlocked</b> by an admin until {fmtDateTime(lock.unlockedUntil!)}. It locks again by itself.
+              </>
+            )}
+          </span>
+          {admin && (
+            <button className="link" onClick={() => relock(lock.locked ? 'unlock' : 'lock')}>
+              {lock.locked ? 'Unlock for 7 days' : 'Lock now'}
+            </button>
+          )}
+        </div>
+      )}
       {missing.length > 0 && (
         <div className="runs-missing" role="status">
           <b>Run data missing</b> for{' '}
@@ -456,9 +531,11 @@ function Detail({
                         <span key={p.id} className="inline small">
                           {r?.name ?? 'Unavailable preset'}
                           {n > 0 && <Badge tone="ac">{n} run data</Badge>}
-                          <button className="link" onClick={() => setAdding({ slot: i, id: p.id, seg: p.seg })}>
-                            Add run data
-                          </button>
+                          {!lock?.locked && (
+                            <button className="link" onClick={() => setAdding({ slot: i, id: p.id, seg: p.seg })}>
+                              Add run data
+                            </button>
+                          )}
                         </span>
                       );
                     })}
@@ -489,6 +566,8 @@ function Detail({
             })}
         </section>
       </div>
+
+      <Variants b={b} onSaved={(v) => setB({ ...b, variants: v })} />
 
       <section className="group">
         <h3>Batch notes</h3>

@@ -1,3 +1,4 @@
+import { applyVariant } from '@psc/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
@@ -705,8 +706,8 @@ function DevicePicker({
 
 // ------------------------------------------------------------------ results
 /** The recipe source of a device: its batch (frozen snapshot) or its stack (recipes as they are now). */
-const srcKey = (l: { kind: string; id: number } | null | undefined) =>
-  l?.kind === 'batch' ? `b${l.id}` : l?.kind === 'stack' ? `s${l.id}` : null;
+const srcKey = (l: { kind: string; id: number; variant?: string } | null | undefined) =>
+  l?.kind === 'batch' ? `b${l.id}${l.variant ? ':' + l.variant : ''}` : l?.kind === 'stack' ? `s${l.id}` : null;
 
 function useBatches(groups: Group[], sets: Record<number, IvSetFull>) {
   const keys = [
@@ -719,9 +720,23 @@ function useBatches(groups: Group[], sets: Record<number, IvSetFull>) {
     const need = keys.filter((x) => !(x in b));
     if (!need.length) return;
     Promise.all(
-      need.map((x) =>
-        api<Batch>(x[0] === 'b' ? '/batches/' + x.slice(1) : `/stacks/${x.slice(1)}/snapshot`).catch(() => null),
-      ),
+      need.map((x) => {
+        // a batch variant: the batch's snapshot with the variant applied
+        const [id, variant] = x.slice(1).split(':');
+        return api<Batch>(x[0] === 'b' ? '/batches/' + id : `/stacks/${id}/snapshot`)
+          .then((b) =>
+            variant && b.variants
+              ? {
+                  ...b,
+                  snapshot: applyVariant(
+                    b.snapshot,
+                    b.variants.list.find((v) => v.id === variant),
+                  ),
+                }
+              : b,
+          )
+          .catch(() => null);
+      }),
     ).then((got) => setB((o) => ({ ...o, ...Object.fromEntries(need.map((x, i) => [x, got[i]])) })));
   }, [keys.join(',')]);
   return b;

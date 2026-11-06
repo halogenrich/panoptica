@@ -4,14 +4,22 @@ import { api } from '../api';
 
 export type Note = {
   id: number;
-  kind: 'record' | 'fork' | 'comment' | 'reply' | 'update';
+  kind: 'record' | 'fork' | 'comment' | 'reply' | 'mention' | 'update' | 'batch' | 'runs';
   text: string;
   link: { view: string; id: number };
   actor: string;
   read: boolean;
   created_at: string;
 };
-const ICON: Record<string, string> = { record: '🏆', fork: '🧬', comment: '💬', reply: '↩︎', batch: '▶︎', update: '⬆︎' };
+const ICON: Record<string, string> = {
+  record: '🏆',
+  fork: '🧬',
+  comment: '💬',
+  reply: '↩︎',
+  mention: '@',
+  batch: '▶︎',
+  update: '⬆︎',
+};
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 1000;
   return s < 60

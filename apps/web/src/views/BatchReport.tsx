@@ -2,6 +2,7 @@ import { api } from '../api';
 import { KINDS } from '../recipes';
 import { norm, type Ctx } from '../recipes/types';
 import { SEG, type Slot } from '../stacks/model';
+import { describeChanges } from '@psc/core';
 import { fmtDate } from '../lib/ui';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
@@ -104,6 +105,35 @@ export function BatchReport({
         </tbody>
       </table>
 
+      {!!b.variants?.list.length && (
+        <>
+          <h2>Variants</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Variant</th>
+                <th>Substrates</th>
+                <th>What changes from the default device</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Default device</td>
+                <td>{b.variants.control || '—'}</td>
+                <td>—</td>
+              </tr>
+              {b.variants.list.map((v) => (
+                <tr key={v.id}>
+                  <td>{v.name}</td>
+                  <td>{v.substrates || '—'}</td>
+                  <td>{describeChanges(v, st.sl).join('; ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       <h2>Recipes</h2>
       {st.sl.flatMap((s, i) =>
         slotPresets(s).map((p) => {
@@ -130,6 +160,27 @@ export function BatchReport({
           );
         }),
       )}
+
+      {variantRecipes(b).map((x, j) => {
+        const k = KINDS[x.seg];
+        return k ? (
+          <section key={'v' + j} className="report-block">
+            <h3>
+              Variant {x.variant} · {x.layer} · {x.name}
+            </h3>
+            <table className="kv">
+              <tbody>
+                {Object.entries(k.describe(norm(k, x.data), ctx)).map(([a, v]) => (
+                  <tr key={a}>
+                    <th>{a}</th>
+                    <td>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ) : null;
+      })}
 
       {rec.notes && (
         <>
@@ -257,6 +308,27 @@ export function BatchReport({
 }
 
 /** The same content as a spreadsheet: one sheet each for the batch, layers, recipes, run data, J–V pixels and statistics. */
+/** Recipes a variant uses instead of (or on top of) the batch's own, frozen with the variant. */
+function variantRecipes(b: Batch) {
+  const sl = b.snapshot.stack.sl,
+    out: { variant: string; layer: string; name: string; seg: string; data: unknown }[] = [];
+  for (const v of b.variants?.list ?? [])
+    for (const c of v.changes) {
+      if (c.t === 'recipe' && c.name !== undefined) {
+        const s = sl[c.slot];
+        const seg = c.which === 'b' ? 's2' : (SEG[s?.m as keyof typeof SEG] ?? '');
+        if (seg) out.push({ variant: v.name, layer: s.n, name: c.name, seg, data: c.data });
+      }
+      if (c.t === 'layer')
+        for (const [f, seg] of [
+          [c.ra, c.m === 'Spin' ? 's1' : (SEG[c.m as keyof typeof SEG] ?? '')],
+          [c.rb, 's2'],
+        ] as const)
+          if (f && seg) out.push({ variant: v.name, layer: c.n, name: f.name, seg, data: f.data });
+    }
+  return out;
+}
+
 export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []) {
   const st = b.snapshot.stack,
     rec = b.record ?? {},
@@ -295,10 +367,30 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
       ]),
     ],
   });
+  if (b.variants?.list.length)
+    sheets.push({
+      name: 'Variants',
+      rows: [
+        ['Variant', 'Substrates', 'What changes from the default device'],
+        ['Default device', b.variants.control, ''],
+        ...b.variants.list.map((v) => [v.name, v.substrates, describeChanges(v, st.sl).join('; ')]),
+      ],
+    });
   sheets.push({
     name: 'Recipes',
     rows: [
       ['Layer', 'Recipe', 'Field', 'Value'],
+      ...variantRecipes(b).flatMap((x) => {
+        const k = KINDS[x.seg];
+        return k
+          ? Object.entries(k.describe(norm(k, x.data), ctx)).map(([a, v]) => [
+              `Variant ${x.variant}, ${x.layer}`,
+              x.name,
+              a,
+              v,
+            ])
+          : [];
+      }),
       ...st.sl.flatMap((s, i) =>
         slotPresets(s).flatMap((p) => {
           const r = dataOf(p.id),

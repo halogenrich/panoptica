@@ -1,3 +1,4 @@
+import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
@@ -200,7 +201,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
 }
 
 function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: Link) => void; disabled?: boolean }) {
-  const [t, setT] = useState<{ batches: any[]; stacks: any[] } | null>(null);
+  const [t, setT] = useState<LinkTargets | null>(null);
   useEffect(() => {
     Promise.all([api<any[]>('/batches'), api<any[]>('/presets?segment=stk')])
       .then(([b, s]) => setT({ batches: b, stacks: s }))
@@ -211,32 +212,11 @@ function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: 
       className="link-select"
       aria-label="Linked batch or stack"
       disabled={disabled || !t}
-      value={value ? `${value.kind}:${value.id}` : ''}
-      onChange={(e) => {
-        const [k, id] = e.target.value.split(':');
-        onChange(k ? { kind: k as 'batch' | 'stack', id: +id } : null);
-      }}
+      value={linkVal(value)}
+      onChange={(e) => onChange(parseLink(e.target.value))}
     >
       <option value="">Not linked to a batch or stack</option>
-      {t && t.batches.length > 0 && (
-        <optgroup label="Batches">
-          {t.batches.map((b) => (
-            <option key={'b' + b.id} value={`batch:${b.id}`}>
-              {b.code}
-              {b.name ? ` · ${b.name}` : ''}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      {t && t.stacks.length > 0 && (
-        <optgroup label="Stacks">
-          {t.stacks.map((s) => (
-            <option key={'s' + s.id} value={`stack:${s.id}`}>
-              {s.name}
-            </option>
-          ))}
-        </optgroup>
-      )}
+      <LinkOptions t={t} />
     </select>
   );
 }

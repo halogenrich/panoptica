@@ -13,6 +13,7 @@ import {
   ChemicalIn,
   BatchIn,
   BatchPatch,
+  VariantsIn,
   PrefsIn,
   PasswordIn,
   FigureSettingsIn,
@@ -31,6 +32,7 @@ import { registerComparisons } from './comparisons.js';
 import { registerSocial } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
+import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
 import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
 import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
@@ -443,6 +445,9 @@ app.delete('/api/chemicals/:id', { preHandler: auth('inventory') }, async (req: 
 });
 
 // ---- batches: a stack frozen at run start + the values recorded during the run ----
+// 0.33: variants (other stacks or changes from the default device, with their recipes frozen when saved)
+if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'variants'))
+  db.exec(`ALTER TABLE batches ADD COLUMN variants TEXT NOT NULL DEFAULT '{"control":"","list":[]}'`);
 const preset = (u: User, id: string) => {
   if (!id) return null;
   const r = db.prepare('SELECT name,data,owner_id,visibility FROM presets WHERE id=?').get(+id) as any;
@@ -466,19 +471,40 @@ const batchOf = (req: any, reply: any, edit = false) => {
     reply.code(403).send({ error: 'not your batch' });
     return null;
   }
+  const lock = lockOf(b);
+  if (edit && lock.locked) {
+    reply.code(423).send({ error: lockText(b.code) });
+    return null;
+  }
   return {
     ...b,
-    editable: !!editable,
+    editable: !!editable && !lock.locked,
     snapshot: JSON.parse(b.snapshot),
     record: JSON.parse(b.record),
+    variants: JSON.parse(b.variants),
     mine: b.owner_id === u.id,
+    lock,
   };
+};
+/** Every layer's presets resolved (frozen copy of name and data); a recipe the user cannot see resolves to null. */
+const resolveStack = (u: User, stack: { sl?: { a: string; b: string }[] }, strict = false) => {
+  const resolved: Record<number, { a: unknown; b: unknown }> = {};
+  const one = (id: string) => {
+    try {
+      return preset(u, id);
+    } catch (e) {
+      if (strict) throw e;
+      return null;
+    }
+  };
+  (stack.sl ?? []).forEach((x, i) => (resolved[i] = { a: one(x.a), b: one(x.b) }));
+  return resolved;
 };
 app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
   const rows = db
     .prepare(
       `SELECT b.id,b.code,b.name,b.status,b.visibility,(b.owner_id=@uid) AS mine,u.name AS owner,b.created_at,b.updated_at,b.record,
-    json_extract(b.snapshot,'$.stack.arch') AS arch, json_array_length(b.snapshot,'$.stack.sl') AS total, json_extract(b.snapshot,'$.stack.thumb') AS thumb,
+    json_extract(b.snapshot,'$.stack.arch') AS arch, b.variants, b.done_at, b.unlocked_until, json_array_length(b.snapshot,'$.stack.sl') AS total, json_extract(b.snapshot,'$.stack.thumb') AS thumb,
     (SELECT COUNT(*) FROM run_data r WHERE r.batch=b.code) AS runs,
     (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND COALESCE(k.outcome,'')<>'canceled') AS steps,
     (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND k.outcome='done') AS concluded
@@ -487,7 +513,15 @@ app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
     )
     .all({ uid: req.user.id, all: req.user.all ? 1 : 0 }) as any[];
   // progress follows the calendar: booked steps concluded out of booked steps (canceled ones left out)
-  return rows.map(({ record: _r, ...r }) => r);
+  return rows.map(({ record: _r, done_at, unlocked_until, variants, ...r }) => ({
+    ...r,
+    // the variants by id and name (for linking measured samples)
+    variants: ((JSON.parse(variants).list ?? []) as { id: string; name: string }[]).map((v) => ({
+      id: v.id,
+      name: v.name,
+    })),
+    locked: lockOf({ code: r.code, status: r.status, done_at, unlocked_until }).locked,
+  }));
 });
 /** Run-data entries recorded under this batch's code, on any preset the user can see. */
 app.get('/api/batches/:id/runs', { preHandler: auth() }, async (req: any, reply) => {
@@ -515,17 +549,7 @@ app.get('/api/stacks/:id/snapshot', { preHandler: auth() }, async (req: any, rep
   if (!r || !(r.owner_id === req.user.id || r.visibility === 'shared' || req.user.all))
     return reply.code(404).send({ error: 'not found' });
   const stack = JSON.parse(r.data),
-    resolved: Record<number, unknown> = {};
-  (stack.sl ?? []).forEach((x: any, i: number) => {
-    const one = (id: string) => {
-      try {
-        return preset(req.user, id);
-      } catch {
-        return null; // a recipe the user cannot see
-      }
-    };
-    resolved[i] = { a: one(x.a), b: one(x.b) };
-  });
+    resolved = resolveStack(req.user, stack);
   const chems = (db.prepare('SELECT name,data FROM chemicals').all() as any[]).map((c) => ({
     name: c.name,
     ...JSON.parse(c.data),
@@ -555,7 +579,7 @@ app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
         p.data.code,
         p.data.name,
         p.data.visibility,
-        JSON.stringify({ stack: p.data.stack, resolved, chems, coreVersion: CORE_VERSION }),
+        JSON.stringify({ stack: p.data.stack, resolved, chems, coreVersion: CORE_VERSION, source: p.data.source }),
       );
     return { id: r.lastInsertRowid };
   } catch {
@@ -569,11 +593,21 @@ app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
 app.patch('/api/batches/:id', { preHandler: auth() }, async (req: any, reply) => {
   const p = BatchPatch.safeParse(req.body);
   if (!p.success) return bad(reply, p);
-  if (!batchOf(req, reply, true)) return;
   const d = p.data,
     id = +req.params.id;
+  // sharing stays open on a locked batch; everything else needs it unlocked
+  const onlyShare = d.visibility && d.name === undefined && !d.status && !d.record;
+  if (onlyShare) {
+    const b = batchOf(req, reply);
+    if (!b) return;
+    if (!(b.owner_id === req.user.id || req.user.role === 'admin'))
+      return reply.code(403).send({ error: 'not your batch' });
+  } else if (!batchOf(req, reply, true)) return;
   if (d.name !== undefined) db.prepare('UPDATE batches SET name=? WHERE id=?').run(d.name, id);
-  if (d.status) db.prepare('UPDATE batches SET status=? WHERE id=?').run(d.status, id);
+  if (d.status) {
+    db.prepare('UPDATE batches SET status=? WHERE id=?').run(d.status, id);
+    markDone(id);
+  }
   if (d.visibility) db.prepare('UPDATE batches SET visibility=? WHERE id=?').run(d.visibility, id);
   if (d.record) db.prepare('UPDATE batches SET record=? WHERE id=?').run(JSON.stringify(d.record), id);
   db.prepare('UPDATE batches SET updated_at=CURRENT_TIMESTAMP WHERE id=?').run(id);
@@ -583,6 +617,86 @@ app.delete('/api/batches/:id', { preHandler: auth() }, async (req: any, reply) =
   if (!batchOf(req, reply, true)) return;
   db.prepare('UPDATE batches SET deleted_at=? WHERE id=?').run(new Date().toISOString(), +req.params.id); // to the trash
   return { ok: true, trash: true };
+});
+/**
+ * The batch's variants. Recipes and stacks are frozen when first linked (like the batch itself); a link kept from before keeps its
+ * frozen copy, so editing a variant's name does not pick up later edits of its recipes.
+ */
+app.put('/api/batches/:id/variants', { preHandler: auth() }, async (req: any, reply) => {
+  const b = batchOf(req, reply, true);
+  if (!b) return;
+  const p = VariantsIn.safeParse(req.body);
+  if (!p.success) return bad(reply, p);
+  const sl = b.snapshot.stack.sl as { n: string; m: string }[],
+    old = (b.variants?.list ?? []) as any[];
+  const ids = p.data.list.map((v) => v.id);
+  if (new Set(ids).size !== ids.length) return reply.code(400).send({ error: 'two variants have the same id' });
+  const kept = new Map<string, unknown>();
+  for (const v of old)
+    for (const c of v.changes ?? []) {
+      if (c.t === 'recipe' && c.name !== undefined) kept.set('p' + c.id, { name: c.name, data: c.data });
+      if (c.t === 'layer') {
+        if (c.a && c.ra) kept.set('p' + c.a, c.ra);
+        if (c.b && c.rb) kept.set('p' + c.b, c.rb);
+      }
+    }
+  const frozen = (id: string | number) => {
+    if (!id) return null;
+    if (!kept.has('p' + id)) kept.set('p' + id, preset(req.user, String(id)));
+    return kept.get('p' + id) as { name: string; data: unknown };
+  };
+  try {
+    const list = p.data.list.map((v) => {
+      if (v.stack) {
+        const was = old.find((o) => o.stack?.id === v.stack);
+        if (was) return { ...v, changes: [], stack: was.stack };
+        const r = db
+          .prepare("SELECT * FROM presets WHERE id=? AND segment='stk' AND deleted_at IS NULL")
+          .get(v.stack) as any;
+        if (!r || !(r.owner_id === req.user.id || r.visibility === 'shared' || req.user.all))
+          throw new Error('the linked stack is not available');
+        const stack = JSON.parse(r.data);
+        return {
+          ...v,
+          changes: [],
+          stack: { id: r.id, name: r.name, stack, resolved: resolveStack(req.user, stack, true) },
+        };
+      }
+      const changes = v.changes.map((c) => {
+        const at = c.t === 'layer' ? c.after : c.t === 'other' ? c.slot : c.slot;
+        if (at !== null && at >= sl.length)
+          throw new Error(`${v.name}: a change refers to a layer the batch does not have`);
+        if (c.t === 'recipe') {
+          if (c.which === 'b' && sl[c.slot].m !== 'Spin') throw new Error(`${v.name}: only spin coating has a program`);
+          return { ...c, ...frozen(c.id) };
+        }
+        if (c.t === 'layer') return { ...c, ra: frozen(c.a), rb: frozen(c.b) };
+        return c;
+      });
+      return { ...v, stack: null, changes };
+    });
+    db.prepare('UPDATE batches SET variants=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(
+      JSON.stringify({ control: p.data.control, list }),
+      b.id,
+    );
+    return { control: p.data.control, list };
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
+});
+/** Admin: open a locked batch for changes for a few days (it locks again by itself), or lock it again now. */
+app.post('/api/batches/:id/unlock', { preHandler: auth(true) }, async (req: any, reply) => {
+  const b = batchOf(req, reply);
+  if (!b) return;
+  const until = new Date(Date.now() + UNLOCK_DAYS * 864e5).toISOString();
+  db.prepare('UPDATE batches SET unlocked_until=? WHERE id=?').run(until, b.id);
+  return { unlockedUntil: until };
+});
+app.post('/api/batches/:id/lock', { preHandler: auth(true) }, async (req: any, reply) => {
+  const b = batchOf(req, reply);
+  if (!b) return;
+  db.prepare('UPDATE batches SET unlocked_until=NULL WHERE id=?').run(b.id);
+  return { ok: true };
 });
 
 // ---- profile: own password, preferences; global search ----

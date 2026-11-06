@@ -47,6 +47,33 @@ export function useCommentCount(kind: 'preset' | 'batch', id: number) {
   return n;
 }
 
+/** Someone who can open the item, offered after "@". */
+export type Person = { id: number; username: string; name: string; photoV?: number | null; me?: boolean };
+const MENTION = /(^|[^\w@.])@([a-zA-Z0-9._-]{3,40})/g;
+
+/** Comment text with `@username` shown as the person's name (only for people who can open the item). */
+function withMentions(text: string, people: Person[]) {
+  const by = new Map(people.map((p) => [p.username.toLowerCase(), p]));
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(MENTION)) {
+    const raw = m[2],
+      name = raw.replace(/[.-]+$/, ''),
+      p = by.get(name.toLowerCase());
+    if (!p) continue;
+    const at = m.index! + m[1].length;
+    out.push(text.slice(last, at));
+    out.push(
+      <span key={at} className={'mention' + (p.me ? ' me' : '')} title={'@' + p.username}>
+        @{p.name}
+      </span>,
+    );
+    last = at + 1 + name.length;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+
 function Composer({
   onSend,
   placeholder,
@@ -54,6 +81,7 @@ function Composer({
   onCancel,
   autoFocus,
   privateTo,
+  people = [],
 }: {
   onSend: (t: string, priv: boolean) => Promise<unknown>;
   placeholder: string;
@@ -61,11 +89,44 @@ function Composer({
   onCancel?: () => void;
   autoFocus?: boolean;
   privateTo?: string;
+  people?: Person[];
 }) {
   const [t, setT] = useState(initial),
     [busy, setBusy] = useState(false),
     [err, setErr] = useState(''),
-    [priv, setPriv] = useState(false);
+    [priv, setPriv] = useState(false),
+    // the "@word" being typed: where its @ is, the text after it, and the highlighted suggestion
+    [m, setM] = useState<{ at: number; q: string; i: number } | null>(null);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const track = (v: string, caret: number) => {
+    const x = v.slice(0, caret).match(/(^|[^\w@.])@([a-zA-Z0-9._-]{0,40})$/);
+    setM(x ? { at: caret - x[2].length - 1, q: x[2].toLowerCase(), i: 0 } : null);
+  };
+  const hits = m
+    ? people
+        .filter(
+          (p) =>
+            !p.me &&
+            (p.username.toLowerCase().startsWith(m.q) ||
+              p.name
+                .toLowerCase()
+                .split(/\s+/)
+                .some((w) => w.startsWith(m.q))),
+        )
+        .slice(0, 6)
+    : [];
+  const choose = (p: Person) => {
+    if (!m || !ta.current) return;
+    const end = ta.current.selectionStart,
+      ins = '@' + p.username + ' ';
+    setT(t.slice(0, m.at) + ins + t.slice(end));
+    setM(null);
+    const pos = m.at + ins.length;
+    requestAnimationFrame(() => {
+      ta.current?.focus();
+      ta.current?.setSelectionRange(pos, pos);
+    });
+  };
   const send = () => {
     if (!t.trim()) return;
     setBusy(true);
@@ -81,18 +142,66 @@ function Composer({
   return (
     <div className="composer">
       <textarea
+        ref={ta}
         value={t}
         placeholder={placeholder}
         autoFocus={autoFocus}
         rows={2}
-        onChange={(e) => setT(e.target.value)}
+        role="combobox"
+        aria-expanded={hits.length > 0}
+        aria-autocomplete="list"
+        onChange={(e) => {
+          setT(e.target.value);
+          track(e.target.value, e.target.selectionStart);
+        }}
+        onClick={(e) => track(t, e.currentTarget.selectionStart)}
+        onBlur={() => setTimeout(() => setM(null), 150)}
         onKeyDown={(e) => {
+          if (m && hits.length) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              const n = hits.length;
+              setM({ ...m, i: (m.i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n });
+              return;
+            }
+            if ((e.key === 'Enter' && !e.ctrlKey && !e.metaKey) || e.key === 'Tab') {
+              e.preventDefault();
+              choose(hits[Math.min(m.i, hits.length - 1)]);
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setM(null);
+              return;
+            }
+          }
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             send();
           }
         }}
       />
+      {hits.length > 0 && m && (
+        <ul className="mention-menu" role="listbox" aria-label="Mention someone">
+          {hits.map((p, i) => (
+            <li
+              key={p.id}
+              role="option"
+              aria-selected={i === m.i}
+              className={i === m.i ? 'on' : ''}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                choose(p);
+              }}
+              onMouseEnter={() => setM({ ...m, i })}
+            >
+              <Avatar id={p.id} name={p.name} photoV={p.photoV} size={22} />
+              <span>{p.name}</span>
+              <span className="mut small">@{p.username}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="inline">
         <button className="btn" disabled={busy || !t.trim()} onClick={send}>
           {initial ? 'Save' : priv ? 'Send privately' : 'Send'}
@@ -108,7 +217,7 @@ function Composer({
             Cancel
           </button>
         )}
-        <span className="mut small">Ctrl + Enter to send</span>
+        <span className="mut small">{people.length > 1 ? '@ to mention someone · ' : ''}Ctrl + Enter to send</span>
         {err && <span className="err small">{err}</span>}
       </div>
     </div>
@@ -121,8 +230,14 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
     [err, setErr] = useState(''),
     [reply, setReply] = useState<number | null>(null),
     [edit, setEdit] = useState<number | null>(null),
-    [pick, setPick] = useState<number | null>(null);
+    [pick, setPick] = useState<number | null>(null),
+    [people, setPeople] = useState<Person[]>([]);
   const anchor = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    api<Person[]>(`/comments/${kind}/${id}/people`)
+      .then(setPeople)
+      .catch(() => setPeople([]));
+  }, [kind, id]);
   const load = () =>
     api<{ items: C[]; owner: string; canPrivate: boolean }>(`/comments/${kind}/${id}`)
       .then(setData)
@@ -180,6 +295,7 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
               initial={c.text}
               placeholder=""
               autoFocus
+              people={people}
               onCancel={() => setEdit(null)}
               onSend={(t) =>
                 api(`/comments/${c.id}`, 'PATCH', { text: t }).then(() => {
@@ -189,7 +305,7 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
               }
             />
           ) : (
-            !c.deleted && <p className="c-text">{c.text}</p>
+            !c.deleted && <p className="c-text">{withMentions(c.text, people)}</p>
           )}
           {!c.deleted && edit !== c.id && (
             <div className="c-actions">
@@ -248,6 +364,7 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
           <Composer
             placeholder={`Reply to ${c.author}…`}
             autoFocus
+            people={c.private ? [] : people}
             onCancel={() => setReply(null)}
             onSend={(t) => post(t, c.id)}
           />
@@ -262,11 +379,15 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
     <section className="comments">
       {err && <p className="err small">{err}</p>}
       {list.filter((c) => !c.deleted).length === 0 && (
-        <p className="mut">No comments yet. Questions, tips and results about this go here; the owner is notified.</p>
+        <p className="mut">
+          No comments yet. Questions, tips and results about this go here; the owner is notified, and anyone you mention
+          with @.
+        </p>
       )}
       <ul className="c-list c-root">{kids(null).map((c) => node(c, 0))}</ul>
       <Composer
         placeholder="Write a comment…"
+        people={people}
         privateTo={data?.canPrivate ? data.owner : undefined}
         onSend={(t, priv) => post(t, undefined, priv)}
       />

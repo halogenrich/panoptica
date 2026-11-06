@@ -9,6 +9,9 @@ import {
   type IvMetrics,
   type MaskD,
   type Pt,
+  applyVariant,
+  type Snap,
+  type Variant,
 } from '@psc/core';
 import { api } from '../api';
 
@@ -31,7 +34,7 @@ export interface Curve {
   /** 'check': a quick exploratory scan before the real measurement of the pixel (set by the server); never counted unless ticked in */
   kind?: 'check' | null;
 }
-export type Link = { kind: 'batch' | 'stack'; id: number; label?: string } | null;
+export type Link = { kind: 'batch' | 'stack'; id: number; variant?: string; label?: string } | null;
 export interface IvSet {
   id: number;
   name: string;
@@ -107,7 +110,8 @@ export function shownCurve(curves: Curve[], all: Curve[], dir: Dir): Curve | und
   return d.find((c) => inStats(c, all)) ?? late(d.filter((c) => !isCheck(c))) ?? late(d);
 }
 
-export const groupKey = (l: Link, sample: string) => (l ? `${l.kind}:${l.id}` : `sample:${sample}`);
+export const groupKey = (l: Link, sample: string) =>
+  l ? `${l.kind}:${l.id}${l.variant ? ':' + l.variant : ''}` : `sample:${sample}`;
 export const groupLabel = (l: Link, sample: string) =>
   l?.label ? l.label : `${sample.replace(/_/g, ' ')} (not linked)`;
 
@@ -176,18 +180,27 @@ async function currentOrder<P extends { n: number; at: Pt }>(frozen: P[], maskId
   }
   return frozen;
 }
+/** The snapshot of the devices a batch link stands for: the batch's own, or one of its variants applied to it. */
+export async function batchSnap(l: NonNullable<Link>) {
+  const b = await api<any>(`/batches/${l.id}`);
+  if (!b?.snapshot) return null;
+  return applyVariant(
+    b.snapshot as Snap,
+    (b.variants?.list ?? []).find((v: Variant) => v.id === l.variant),
+  );
+}
 export function cellGeom(l: Link): Promise<CellGeom | null> {
   if (!l) return Promise.resolve(null);
-  const k = `${l.kind}:${l.id}`;
+  const k = groupKey(l, '');
   if (!geomCache.has(k))
     geomCache.set(
       k,
       (async () => {
         let rec: { met?: string; mask?: MaskD | null } | null = null;
         if (l.kind === 'batch') {
-          const b = await api<any>(`/batches/${l.id}`);
-          const i = (b.snapshot?.stack?.sl ?? []).findIndex((s: any) => s.m === 'Metal evap');
-          rec = i >= 0 ? (b.snapshot.resolved?.[i]?.a?.data ?? null) : null;
+          const snap = await batchSnap(l);
+          const i = (snap?.stack?.sl ?? []).findIndex((s: any) => s.m === 'Metal evap');
+          rec = i >= 0 ? ((snap!.resolved?.[i]?.a?.data as any) ?? null) : null;
         } else {
           const st = await api<any>(`/presets/${l.id}`),
             slot = (st.data?.sl ?? []).find((s: any) => s.m === 'Metal evap');
@@ -342,19 +355,20 @@ const layerName = (slot: any, a: any, _b: any): string => {
 };
 export function deviceInfo(l: Link): Promise<DeviceInfo | null> {
   if (!l) return Promise.resolve(null);
-  const k = `${l.kind}:${l.id}`;
+  const k = groupKey(l, '');
   if (!infoCache.has(k))
     infoCache.set(
       k,
       (async () => {
         if (l.kind === 'batch') {
-          const b = await api<any>(`/batches/${l.id}`),
-            st = b.snapshot?.stack;
+          const snap = await batchSnap(l),
+            st = snap?.stack;
           return {
             arch: st?.arch ?? '',
-            layers: (st?.sl ?? []).map((s: any, i: number) =>
-              layerName(s, b.snapshot.resolved?.[i]?.a?.data, b.snapshot.resolved?.[i]?.b?.data),
-            ),
+            layers: (st?.sl ?? []).map((s: any, i: number) => {
+              const n = layerName(s, snap!.resolved?.[i]?.a?.data, snap!.resolved?.[i]?.b?.data);
+              return s.add?.length ? `${n} + ${s.add.join(' + ')}` : n;
+            }),
           };
         }
         const st = (await api<any>(`/presets/${l.id}`)).data;

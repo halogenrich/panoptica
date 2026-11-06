@@ -5,7 +5,7 @@ import { db, tx } from './db.js';
 import { checkRecord } from './social.js';
 
 type U = { id: number; role: 'admin' | 'member'; all?: boolean };
-type Link = { kind: 'batch' | 'stack'; id: number } | null;
+type Link = { kind: 'batch' | 'stack'; id: number; variant?: string } | null;
 const visible = (u: U, r: { owner_id: number; visibility: string }) =>
   r.owner_id === u.id || r.visibility === 'shared' || !!u.all;
 const editable = (u: U, r: { owner_id: number }) => r.owner_id === u.id || u.role === 'admin';
@@ -13,27 +13,32 @@ const fin = (x: number) => (Number.isFinite(x) ? x : null); // JSON has no NaN/I
 
 /** Names for the batches and stacks samples are linked to (the groups shown in the statistics). */
 export function linkNames(links: Record<string, Link>) {
-  const out: Record<string, { kind: string; id: number; label: string } | null> = {};
+  const out: Record<string, { kind: string; id: number; variant?: string; label: string } | null> = {};
   for (const [s, l] of Object.entries(links)) {
     if (!l) {
       out[s] = null;
       continue;
     }
-    const r =
-      l.kind === 'batch'
-        ? (db.prepare('SELECT code,name FROM batches WHERE id=?').get(l.id) as
-            { code: string; name: string } | undefined)
-        : (db.prepare("SELECT name FROM presets WHERE id=? AND segment='stk'").get(l.id) as
-            { name: string } | undefined);
-    out[s] = r
-      ? {
-          ...l,
-          label:
-            l.kind === 'batch'
-              ? `${(r as any).code}${(r as any).name ? ' · ' + (r as any).name : ''}`
-              : (r as any).name,
-        }
-      : null;
+    if (l.kind === 'batch') {
+      const r = db.prepare('SELECT code,name,variants FROM batches WHERE id=?').get(l.id) as
+        { code: string; name: string; variants: string } | undefined;
+      // a variant that was removed from the batch falls back to the batch itself
+      const v = l.variant
+        ? (JSON.parse(r?.variants ?? '{}').list ?? []).find((x: { id: string }) => x.id === l.variant)
+        : null;
+      out[s] = r
+        ? {
+            kind: 'batch',
+            id: l.id,
+            ...(v ? { variant: v.id } : {}),
+            label: v ? `${r.code} · ${v.name}` : `${r.code}${r.name ? ' · ' + r.name : ''}`,
+          }
+        : null;
+      continue;
+    }
+    const r = db.prepare("SELECT name FROM presets WHERE id=? AND segment='stk'").get(l.id) as
+      { name: string } | undefined;
+    out[s] = r ? { kind: 'stack', id: l.id, label: r.name } : null;
   }
   return out;
 }
