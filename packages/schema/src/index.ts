@@ -321,6 +321,8 @@ export const EquipmentIn = z.object({
     .optional(),
   place: z.string().max(120).optional(),
   active: z.boolean().optional(),
+  /** Minutes blocked after each booking for cleaning (gloveboxes: 20). */
+  cleanup: z.number().int().min(0).max(240).optional(),
 });
 /** Outcome of a booking once it has ended; postponing or canceling needs a reason. */
 export const OutcomeIn = z
@@ -363,6 +365,10 @@ export const CmpData = z.object({
   groups: z.array(CmpGroup).max(24),
   dir: z.enum(['rev', 'fwd', 'both']).optional(),
   relative: z.boolean().optional(),
+  metrics: z
+    .array(z.enum(['pce', 'voc', 'jsc', 'ff', 'rs', 'rsh']))
+    .max(6)
+    .optional(),
 });
 export const ComparisonIn = z.object({
   name: z.string().min(1).max(160),

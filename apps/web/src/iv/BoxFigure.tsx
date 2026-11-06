@@ -513,8 +513,12 @@ export function BoxFigure({
   logo?: { watermark?: string; group?: string };
   outliers?: boolean;
 }) {
-  const w = BFW / 2,
-    h = BFH / 2,
+  // 1–6 panels: one row up to 2, a 2 × 2 grid for 3–4, 3 columns for 5–6
+  const n = Math.min(panels.length, 6),
+    cols = n <= 2 ? Math.max(n, 1) : n <= 4 ? 2 : 3,
+    rows = Math.ceil(n / cols) || 1,
+    w = BFW / cols,
+    h = n <= 2 ? BFH : BFH / rows,
     [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
   return (
     <>
@@ -526,10 +530,10 @@ export function BoxFigure({
         xmlns="http://www.w3.org/2000/svg"
         fontFamily={FONT}
         role="img"
-        aria-label="Box plots of Jsc, FF, Voc and PCE"
+        aria-label={`Box plots of ${panels.map((p) => p.key).join(', ')}`}
       >
         <rect width={BFW} height={BFH} fill="#fff" />
-        {panels.slice(0, 4).map((p, i) => (
+        {panels.slice(0, 6).map((p, i) => (
           <PanelSvg
             key={p.key}
             p={p}
@@ -537,8 +541,9 @@ export function BoxFigure({
             digits={p.digits}
             showDensity={showDensity}
             onTip={setTip}
-            x={(i % 2) * w}
-            y={Math.floor(i / 2) * h}
+            log={p.key === 'rsh'}
+            x={(i % cols) * w}
+            y={Math.floor(i / cols) * h}
             w={w}
             h={h}
             logo={logo}

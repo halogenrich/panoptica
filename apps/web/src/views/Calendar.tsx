@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { MeCtx } from '../ctx';
@@ -8,7 +8,17 @@ import { batchesChanged } from './Batches';
 import { ROLE_NAME, bundlesOf, placedOf, type Bundle } from '../lib/bundles';
 import type { StackD } from '../stacks/model';
 
-type Eq = { id: number; name: string; color: string; place: string; pos: number; active: number; role: string };
+type Eq = {
+  id: number;
+  name: string;
+  color: string;
+  place: string;
+  pos: number;
+  active: number;
+  role: string;
+  /** minutes blocked after each booking for cleaning (gloveboxes: 20) */
+  cleanup?: number;
+};
 const USED_FOR: [string, string][] = [
   ['', 'Other'],
   ['scale', 'Solution preparation'],
@@ -48,7 +58,23 @@ type Draft = Partial<Booking> & { start: string; end: string };
 // ------------------------------------------------------------------ dates (local time)
 const DAY = 864e5,
   HOUR_PX = 44,
-  SNAP = 15;
+  SNAP = 15,
+  /** shortest booking, in minutes (the server refuses shorter ones) */
+  MIN_BOOK = 60;
+/**
+ * The booking of the same equipment that a new time would clash with, if any. The cleanup after each booking counts as taken,
+ * both after the existing booking and after the new one.
+ */
+function clashOf(list: Booking[], eqs: Eq[], eq: number | undefined, s: number, e: number, except?: number) {
+  const cl = (eqs.find((x) => x.id === eq)?.cleanup ?? 0) * 6e4;
+  return list.find(
+    (o) =>
+      o.equipment_id === eq &&
+      o.id !== except &&
+      new Date(o.end).getTime() + cl > s &&
+      new Date(o.start).getTime() < e + cl,
+  );
+}
 const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const monday = (d: Date) => addDays(sod(d), -((d.getDay() + 6) % 7));
@@ -260,13 +286,7 @@ export default function Calendar({
     const day = el.dataset.day!,
       start = at(day, '00:00').getTime() + m * 6e4,
       end = start + d.dur * 6e4;
-    const clash = (data?.bookings ?? []).some(
-      (o) =>
-        o.equipment_id === d.eq &&
-        (d.kind !== 'move' || o.id !== d.booking.id) &&
-        new Date(o.end).getTime() > start &&
-        new Date(o.start).getTime() < end,
-    );
+    const clash = !!clashOf(data?.bookings ?? [], eqs, d.eq, start, end, d.kind === 'move' ? d.booking.id : undefined);
     return {
       day,
       eq: d.eq,
@@ -342,15 +362,10 @@ export default function Calendar({
       m = Math.max(0, Math.min(24 * 60, Math.round((((y - rect.top) / HOUR_PX) * 60) / SNAP) * SNAP));
     let s = new Date(r.b.start).getTime(),
       e = new Date(r.b.end).getTime();
-    if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - SNAP * 6e4);
-    else e = Math.max(d0 + m * 6e4, s + SNAP * 6e4);
-    const clash = (data?.bookings ?? []).some(
-      (o) =>
-        o.equipment_id === r.b.equipment_id &&
-        o.id !== r.b.id &&
-        new Date(o.end).getTime() > s &&
-        new Date(o.start).getTime() < e,
-    );
+    // never shorter than the shortest booking
+    if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - MIN_BOOK * 6e4);
+    else e = Math.max(d0 + m * 6e4, s + MIN_BOOK * 6e4);
+    const clash = !!clashOf(data?.bookings ?? [], eqs, r.b.equipment_id, s, e, r.b.id);
     return { s, e, clash };
   };
   useEffect(() => {
@@ -434,7 +449,8 @@ export default function Calendar({
           kind: 'move',
           booking: b,
           eq: b.equipment_id,
-          dur: Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 6e4),
+          // an older booking shorter than an hour becomes an hour when moved
+          dur: Math.max(MIN_BOOK, Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 6e4)),
           color: b.color,
           label: b.equipment,
           grab: g,
@@ -616,7 +632,7 @@ export default function Calendar({
 // ------------------------------------------------------------------ day and week
 const OUTCOME: Record<string, string> = { done: 'Concluded', postponed: 'Postponed', canceled: 'Canceled' };
 /** Everything about a booking, next to its block (right of it, or left when there is no room). */
-function HoverCard({ b, r }: { b: Booking; r: DOMRect }) {
+function HoverCard({ b, r, cleanup = 0 }: { b: Booking; r: DOMRect; cleanup?: number }) {
   const W = 270,
     s = new Date(b.start),
     e = new Date(b.end),
@@ -641,6 +657,14 @@ function HoverCard({ b, r }: { b: Booking; r: DOMRect }) {
             ({mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`})
           </span>
         </dd>
+        {cleanup > 0 && (
+          <>
+            <dt>Cleanup</dt>
+            <dd>
+              until {hm(new Date(e.getTime() + cleanup * 6e4))} <span className="mut">({cleanup} min)</span>
+            </dd>
+          </>
+        )}
         {b.note && (
           <>
             <dt>Note</dt>
@@ -739,7 +763,7 @@ function TimeGrid({
       lo = Math.min(drag.a, drag.b),
       hi = Math.max(drag.a, drag.b);
     const s = lo,
-      e = hi - lo < SNAP ? Math.min(24 * 60, lo + 60) : hi; // a click books an hour
+      e = Math.min(24 * 60, Math.max(hi, lo + MIN_BOOK)); // a click, or a short drag, books the shortest booking (1 h)
     setDrag(null);
     onNew(toDate(c.day, s), toDate(c.day, e), c.eq?.id);
   };
@@ -756,7 +780,11 @@ function TimeGrid({
   const template = `52px ${cols.map((_, i) => (busyCol[i] ? `minmax(${view === 'day' ? 140 : 96}px, 1fr)` : 'minmax(48px, 0.4fr)')).join(' ')}`;
   return (
     <div className={'tg tg-' + view}>
-      {card && createPortal(<HoverCard b={card.b} r={card.r} />, document.body)}
+      {card &&
+        createPortal(
+          <HoverCard b={card.b} r={card.r} cleanup={eqs.find((x) => x.id === card.b.equipment_id)?.cleanup ?? 0} />,
+          document.body,
+        )}
       <div className="tg-scroll" ref={scroller}>
         <div className="tg-head" style={{ gridTemplateColumns: template }}>
           <span />
@@ -822,7 +850,7 @@ function TimeGrid({
                 data-day={ymd(c.day)}
                 data-eq={c.eq?.id ?? ''}
                 onPointerDown={(e) => {
-                  if ((e.target as HTMLElement).closest('.bk') || e.button !== 0) return;
+                  if ((e.target as HTMLElement).closest('.bk, .bk-clean') || e.button !== 0) return;
                   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                   const m = minAt(e, e.currentTarget);
                   setDrag({ col: ci, a: m, b: m });
@@ -851,89 +879,115 @@ function TimeGrid({
                           ?{' '}
                         </span>
                       ) : null;
+                  // cleanup after the booking (gloveboxes): the equipment stays taken, drawn hatched in its colour
+                  const cl = eqs.find((x) => x.id === b.equipment_id)?.cleanup ?? 0,
+                    ce = new Date(b.end).getTime(),
+                    cs2 = Math.max(d0, ce),
+                    ce2 = Math.min(d1, ce + cl * 6e4);
+                  const clean =
+                    cl > 0 && ce2 > cs2 ? (
+                      <div
+                        className="bk-clean"
+                        aria-hidden
+                        title={`${cl} min of cleanup after this booking, until ${hm(new Date(ce + cl * 6e4))}: leave it clean for the next person`}
+                        style={
+                          {
+                            top: ((cs2 - d0) / 3.6e6) * HOUR_PX,
+                            height: Math.max(4, ((ce2 - cs2) / 3.6e6) * HOUR_PX - 2),
+                            left: `calc(${(L.lane / L.of) * 100}% + 2px)`,
+                            width: `calc(${100 / L.of}% - 4px)`,
+                            '--eq': b.color,
+                          } as React.CSSProperties
+                        }
+                      >
+                        {((ce2 - cs2) / 3.6e6) * HOUR_PX >= 13 && <span>Cleanup</span>}
+                      </div>
+                    ) : null;
                   return (
-                    <button
-                      key={b.id}
-                      className={
-                        'bk bk-' +
-                        size +
-                        (b.mine ? ' mine' : '') +
-                        (canEdit ? ' can-edit' : '') +
-                        (b.id === activeId ? ' bk-dim' : '') +
-                        (b.outcome ? ' bk-' + b.outcome : ended(b) ? ' bk-wait' : '')
-                      }
-                      style={
-                        {
-                          top,
-                          height: h,
-                          left: `calc(${(L.lane / L.of) * 100}% + 2px)`,
-                          width: `calc(${100 / L.of}% - 4px)`,
-                          '--eq': b.color,
-                        } as React.CSSProperties
-                      }
-                      onPointerDown={(ev) => {
-                        hoverOut();
-                        onGrab?.(b, ev);
-                      }}
-                      onPointerEnter={(ev) => !busy && hoverIn(b, ev.currentTarget)}
-                      onPointerLeave={hoverOut}
-                      onClick={() => onOpen(b)}
-                      aria-label={`${b.equipment}, ${b.user_name}, ${what(b)}, ${when}`}
-                    >
-                      {size === 'tall' ? (
-                        <>
-                          <b>
-                            {mark}
-                            {what(b)}
-                          </b>
-                          <span className="bk-s">{b.mine ? 'You' : who}</span>
-                          <span className="bk-s">{shortEq(b.equipment)}</span>
-                          <span className="bk-t">{when}</span>
-                        </>
-                      ) : size === 'mid' ? (
-                        <>
-                          <span className="bk-l">
+                    <Fragment key={b.id}>
+                      {clean}
+                      <button
+                        className={
+                          'bk bk-' +
+                          size +
+                          (b.mine ? ' mine' : '') +
+                          (canEdit ? ' can-edit' : '') +
+                          (b.id === activeId ? ' bk-dim' : '') +
+                          (b.outcome ? ' bk-' + b.outcome : ended(b) ? ' bk-wait' : '')
+                        }
+                        style={
+                          {
+                            top,
+                            height: h,
+                            left: `calc(${(L.lane / L.of) * 100}% + 2px)`,
+                            width: `calc(${100 / L.of}% - 4px)`,
+                            '--eq': b.color,
+                          } as React.CSSProperties
+                        }
+                        onPointerDown={(ev) => {
+                          hoverOut();
+                          onGrab?.(b, ev);
+                        }}
+                        onPointerEnter={(ev) => !busy && hoverIn(b, ev.currentTarget)}
+                        onPointerLeave={hoverOut}
+                        onClick={() => onOpen(b)}
+                        aria-label={`${b.equipment}, ${b.user_name}, ${what(b)}, ${when}`}
+                      >
+                        {size === 'tall' ? (
+                          <>
                             <b>
                               {mark}
                               {what(b)}
                             </b>
+                            <span className="bk-s">{b.mine ? 'You' : who}</span>
+                            <span className="bk-s">{shortEq(b.equipment)}</span>
+                            <span className="bk-t">{when}</span>
+                          </>
+                        ) : size === 'mid' ? (
+                          <>
+                            <span className="bk-l">
+                              <b>
+                                {mark}
+                                {what(b)}
+                              </b>
+                              <span className="bk-t">{hm(new Date(b.start))}</span>
+                            </span>
+                            <span className="bk-s">
+                              {shortEq(b.equipment)}, {b.mine ? 'you' : who}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <b>
+                              {mark}
+                              {what(b)}
+                            </b>
+                            <span className="bk-s">
+                              {shortEq(b.equipment)}, {b.mine ? 'you' : who}
+                            </span>
                             <span className="bk-t">{hm(new Date(b.start))}</span>
-                          </span>
-                          <span className="bk-s">
-                            {shortEq(b.equipment)}, {b.mine ? 'you' : who}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <b>
-                            {mark}
-                            {what(b)}
-                          </b>
-                          <span className="bk-s">
-                            {shortEq(b.equipment)}, {b.mine ? 'you' : who}
-                          </span>
-                          <span className="bk-t">{hm(new Date(b.start))}</span>
-                        </>
-                      )}
-                      {canEdit && s === new Date(b.start).getTime() && (
-                        <span
-                          className="bk-edge bk-edge-s"
-                          aria-hidden
-                          title="Drag to change the start"
-                          onPointerDown={(ev) => onResize!(b, 'start', ev)}
-                          onClick={(ev) => ev.stopPropagation()}
-                        />
-                      )}
-                      {canEdit && e === new Date(b.end).getTime() && (
-                        <span
-                          className="bk-edge bk-edge-e"
-                          aria-hidden
-                          title="Drag to change the end"
-                          onPointerDown={(ev) => onResize!(b, 'end', ev)}
-                          onClick={(ev) => ev.stopPropagation()}
-                        />
-                      )}
-                    </button>
+                          </>
+                        )}
+                        {canEdit && s === new Date(b.start).getTime() && (
+                          <span
+                            className="bk-edge bk-edge-s"
+                            aria-hidden
+                            title="Drag to change the start"
+                            onPointerDown={(ev) => onResize!(b, 'start', ev)}
+                            onClick={(ev) => ev.stopPropagation()}
+                          />
+                        )}
+                        {canEdit && e === new Date(b.end).getTime() && (
+                          <span
+                            className="bk-edge bk-edge-e"
+                            aria-hidden
+                            title="Drag to change the end"
+                            onPointerDown={(ev) => onResize!(b, 'end', ev)}
+                            onClick={(ev) => ev.stopPropagation()}
+                          />
+                        )}
+                      </button>
+                    </Fragment>
                   );
                 })}
                 {drag &&
@@ -968,6 +1022,25 @@ function TimeGrid({
                     {!preview.ok && <span>Not free</span>}
                   </div>
                 )}
+                {preview &&
+                  preview.day === ymd(c.day) &&
+                  (!c.eq || c.eq.id === preview.eq) &&
+                  (eqs.find((x) => x.id === preview.eq)?.cleanup ?? 0) > 0 && (
+                    <div
+                      className={'bk-clean bk-clean-drop' + (preview.ok ? '' : ' no')}
+                      style={
+                        {
+                          top: ((preview.start + preview.dur) / 60) * HOUR_PX,
+                          height: ((eqs.find((x) => x.id === preview.eq)!.cleanup ?? 0) / 60) * HOUR_PX - 2,
+                          left: 2,
+                          right: 2,
+                          '--eq': preview.color,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <span>Cleanup</span>
+                    </div>
+                  )}
                 {sameDay(c.day, now) && (
                   <div
                     className="now-line"
@@ -1096,15 +1169,12 @@ function BookingForm({
   const start = at(f.day, f.from),
     end = at(f.to <= f.from ? ymd(addDays(start, 1)) : f.day, f.to); // ending before it starts means the next day
   const clash = useMemo(
-    () =>
-      data.bookings.find(
-        (b) => b.id !== draft.id && b.equipment_id === f.eq && new Date(b.end) > start && new Date(b.start) < end,
-      ),
+    () => clashOf(data.bookings, data.equipment, f.eq, start.getTime(), end.getTime(), draft.id),
     [f.eq, f.day, f.from, f.to, data.bookings],
   );
   const eq = eqs.find((e) => e.id === f.eq),
     hours = (end.getTime() - start.getTime()) / 3.6e6;
-  const ok = !!f.eq && !!f.batch && hours > 0 && (!clash || (isAdmin && f.force));
+  const ok = !!f.eq && !!f.batch && hours >= MIN_BOOK / 60 && (!clash || (isAdmin && f.force));
   const body = () => ({
     equipment_id: f.eq,
     batch_id: f.batch,
@@ -1245,9 +1315,9 @@ function BookingForm({
               </label>
             </div>
             <p className="mut small when-sum">
-              {hours > 0
-                ? `${hours % 1 ? hours.toFixed(2).replace(/0$/, '') : hours} h${!sameDay(start, end) ? ', ending the next day' : ''}`
-                : 'The booking needs some time.'}
+              {hours >= MIN_BOOK / 60
+                ? `${hours % 1 ? hours.toFixed(2).replace(/0$/, '') : hours} h${!sameDay(start, end) ? ', ending the next day' : ''}${eq?.cleanup ? `, then ${eq.cleanup} min of cleanup` : ''}`
+                : 'A booking is at least 1 hour.'}
             </p>
             {start < new Date() && batches.find((b) => b.id === f.batch)?.status !== 'running' && (
               <p className="mut small">This starts in the past, so the batch switches to Running when you book.</p>
@@ -1255,7 +1325,8 @@ function BookingForm({
             {clash && (
               <div className="clash" role="alert">
                 <b>{clash.equipment}</b> is booked by {clash.user_name} for batch {clash.batch_code},{' '}
-                {hm(new Date(clash.start))}–{hm(new Date(clash.end))}.
+                {hm(new Date(clash.start))}–{hm(new Date(clash.end))}
+                {eq?.cleanup ? `, and needs ${eq.cleanup} min of cleanup between bookings` : ''}.
                 {isAdmin ? (
                   <label className="inline small">
                     <input
@@ -1374,7 +1445,7 @@ function Tray({
                   kind: 'bundle',
                   bundle: b,
                   eq: eq.id,
-                  dur: b.minutes,
+                  dur: Math.max(MIN_BOOK, b.minutes),
                   color: eq.color,
                   label: eq.name,
                   grab: Math.min(30, b.minutes / 2),
@@ -1416,7 +1487,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
   }, []);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog wide" role="dialog" aria-label="Equipment">
+      <div className="dialog wide eq-dialog" role="dialog" aria-label="Equipment">
         <div className="dialog-head">
           <h2>Equipment</h2>
           <button className="iconbtn" aria-label="Close" onClick={onClose}>
@@ -1424,14 +1495,16 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
           </button>
         </div>
         <p className="mut small">
-          What can be booked, its colour in the calendar, and the procedure it is used for (the batch scheduler books it
-          for those steps).
+          What can be booked, its colour in the calendar, the procedure it is used for (the batch scheduler books it for
+          those steps), and how long it stays taken after each booking to be cleaned (gloveboxes: 20 min). Bookings are
+          at least 1 hour.
         </p>
         <div className="eq-table" role="table">
           <div className="eq-h" role="row">
             <span>Colour</span>
             <span>Name</span>
             <span>Procedure</span>
+            <span title="Minutes the equipment stays taken after each booking, to clean it">Cleanup after</span>
             <span />
           </div>
           {eqs.map((e) => (
@@ -1462,6 +1535,21 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
                   </option>
                 ))}
               </select>
+              <label className="eq-clean">
+                <input
+                  type="number"
+                  min={0}
+                  max={240}
+                  step={5}
+                  aria-label={`Cleanup after each booking of ${e.name}, minutes`}
+                  defaultValue={e.cleanup ?? 0}
+                  onBlur={(x) => {
+                    const v = Math.max(0, Math.min(240, Math.round(+x.target.value || 0)));
+                    if (v !== (e.cleanup ?? 0)) run(api('/equipment/' + e.id, 'PATCH', { cleanup: v }));
+                  }}
+                />
+                <span className="mut small">min</span>
+              </label>
               <button
                 className="link small danger-link"
                 onClick={() =>
@@ -1500,6 +1588,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
                 </option>
               ))}
             </select>
+            <span className="mut small">{/^GB:/i.test(name) ? '20 min' : '—'}</span>
             <button className="btn" disabled={!name.trim()}>
               Add
             </button>

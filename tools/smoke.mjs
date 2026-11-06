@@ -374,6 +374,37 @@ console.log('Measurements and comparisons');
   );
 }
 
+console.log('Calendar: shortest booking and cleanup');
+{
+  const b = await call('POST', '/api/batches', {
+    code: 'SMOKE-CAL',
+    visibility: 'shared',
+    stack: { arch: 'n-i-p', sl: [] },
+  });
+  ok(b.s === 200, 'batch for bookings made');
+  const eq = await call('POST', '/api/equipment', { name: 'GB: Smoke box' });
+  const plain = await call('POST', '/api/equipment', { name: 'Smoke profilometer' });
+  const eqs = (await call('GET', '/api/calendar?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z')).j.equipment;
+  ok(
+    eqs.find((e) => e.id === eq.j.id)?.cleanup === 20 && eqs.find((e) => e.id === plain.j.id)?.cleanup === 0,
+    'glovebox equipment gets 20 min of cleanup by default, other equipment none',
+  );
+  const book = (equipment_id, s, e) =>
+    call('POST', '/api/bookings', {
+      equipment_id,
+      batch_id: b.j.id,
+      start: `2030-03-04T${s}:00.000Z`,
+      end: `2030-03-04T${e}:00.000Z`,
+    });
+  ok((await book(eq.j.id, '10:00', '10:30')).s === 400, 'a booking shorter than 1 hour is refused');
+  ok((await book(eq.j.id, '10:00', '11:00')).s === 200, 'a 1-hour booking is accepted');
+  ok((await book(eq.j.id, '11:10', '12:10')).s === 409, 'nobody can book during the cleanup after it');
+  ok((await book(eq.j.id, '08:45', '09:45')).s === 409, 'nor end so late that their own cleanup runs into it');
+  ok((await book(eq.j.id, '11:20', '12:20')).s === 200, 'right after the cleanup is fine');
+  ok((await book(plain.j.id, '11:00', '12:00')).s === 200, 'equipment without cleanup can be booked back to back');
+  ok((await book(plain.j.id, '12:00', '13:00')).s === 200, '(second booking)');
+}
+
 console.log('Updates');
 ok(
   (await call('POST', '/api/updates/check')).j.error?.includes('token'),

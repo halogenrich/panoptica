@@ -5,7 +5,7 @@ import { Badge, Empty, Modal, Seg, fmtDate } from '../lib/ui';
 import { Check } from '../views/common';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
-import { BFH, BFW, BoxFigure, OutlierToggle, TITLES, useOutliers } from '../iv/BoxFigure';
+import { BFH, BFW, BoxFigure, BoxPanel, OutlierToggle, TITLES, combinePanels, useOutliers } from '../iv/BoxFigure';
 import { CompareFigure, bestScan, type CmpItem } from '../iv/Compare';
 import { exportSvg } from '../iv/JvFigure';
 import type { BoxGroup } from '../iv/charts';
@@ -39,7 +39,7 @@ import {
   type Member,
 } from './model';
 
-const BOX_KEYS: MetricKey[] = ['jsc', 'ff', 'voc', 'pce'];
+const ALL_KEYS: MetricKey[] = METRICS.map((m) => m.key);
 const DIR_NAME = { rev: 'Backward', fwd: 'Forward', both: 'Both directions' } as const;
 const gColor = (i: number) => SERIES[i % SERIES.length]; // figures (exported, always on white)
 const safe = (s: string) => s.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'comparison';
@@ -71,7 +71,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   useRefresh(load, ['comparisons']);
   const make = () =>
     api<{ id: number }>('/comparisons', 'POST', {
-      name: `Comparison ${new Date().toLocaleDateString()}`,
+      name: 'New comparison',
       visibility: 'private',
       data: { groups: [{ id: newId(), name: 'Reference', ref: true, members: [] }], dir: 'rev' },
     })
@@ -121,8 +121,8 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
           {shown.map((r) => (
             <button key={r.id} className="pcard" onClick={() => onOpen(r.id)}>
               <div className="pcard-art cx-art" aria-hidden>
-                {Array.from({ length: Math.min(r.groups, 6) }, (_, i) => (
-                  <i key={i} style={{ background: seriesColor(i) }} />
+                {Array.from({ length: Math.max(1, Math.min(r.groups, 5)) }, (_, i) => (
+                  <i key={i} style={{ '--g': seriesColor(i), '--y': `${[18, 6, 12, 2, 14][i]}px` } as any} />
                 ))}
               </div>
               <div className="pcard-body">
@@ -152,7 +152,8 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
     [missing, setMissing] = useState<number[]>([]),
     [pick, setPick] = useState<string | null>(null), // group id the picker adds to ('' = by name)
     [odd, setOdd] = useState<{ dev: DeviceRow; why: string }[]>([]),
-    [saved, setSaved] = useState<'' | 'saving' | 'saved'>('');
+    [saved, setSaved] = useState<'' | 'saving' | 'saved'>(''),
+    named = useRef(false);
   const load = () =>
     api<Comparison>('/comparisons/' + id)
       .then(setC)
@@ -271,6 +272,14 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         <input
           className="title-input"
           aria-label="Name"
+          ref={(el) => {
+            // a new comparison opens with its name selected, ready to type over
+            if (el && c.editable && c.name === 'New comparison' && !named.current) {
+              named.current = true;
+              el.focus();
+              el.select();
+            }
+          }}
           value={c.name}
           readOnly={!c.editable}
           onChange={(e) => patch({ name: e.target.value || 'Comparison' })}
@@ -291,15 +300,17 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         ) : (
           <span className="mut small">By {c.owner} · read only</span>
         )}
-        {!c.editable && (
+        {!c.editable ? (
           <button className="btn secondary small-btn" onClick={copy}>
             Make a copy
           </button>
-        )}
-        {c.editable && (
-          <button className="link danger-link" onClick={del}>
-            Delete
-          </button>
+        ) : (
+          <MoreMenu
+            items={[
+              ['Make a copy', copy],
+              ['Move to the trash', del, true],
+            ]}
+          />
         )}
       </div>
       {err && <p className="err">{err}</p>}
@@ -323,6 +334,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
           onDismissOdd={() => setOdd([])}
           setDir={(d) => setData({ dir: d })}
           setRel={(r) => setData({ relative: r })}
+          setMetrics={(m) => setData({ metrics: m })}
         />
       </div>
       {pick !== null && (
@@ -400,10 +412,13 @@ function GroupRail({
               </div>
               <div className="cx-group-meta">
                 <button
-                  className="link small"
+                  className="cx-disclose small"
                   aria-expanded={open === g.id}
                   onClick={() => setOpen(open === g.id ? null : g.id)}
                 >
+                  <span className="cx-chev" aria-hidden>
+                    ›
+                  </span>
                   {g.members.length} device{g.members.length === 1 ? '' : 's'}
                 </button>
                 {strays.length > 0 && (
@@ -418,12 +433,13 @@ function GroupRail({
                 {editable && (
                   <>
                     <button className="link small" onClick={() => onAdd(g.id)}>
-                      Add
+                      + Add
                     </button>
                     {i > 0 && (
                       <button
                         className="iconbtn small"
-                        aria-label="Move up"
+                        title="Move up"
+                        aria-label={`Move ${g.name} up`}
                         onClick={() => {
                           const n = [...groups];
                           [n[i - 1], n[i]] = [n[i], n[i - 1]];
@@ -435,6 +451,7 @@ function GroupRail({
                     )}
                     <button
                       className="iconbtn small"
+                      title="Remove the group"
                       aria-label={`Remove group ${g.name}`}
                       onClick={() =>
                         (!g.members.length || window.confirm(`Remove the group “${g.name}”?`)) &&
@@ -448,7 +465,7 @@ function GroupRail({
               </div>
               {open === g.id && (
                 <ul className="cx-members">
-                  {g.members.length === 0 && <li className="mut small">Empty: use Add to pick devices.</li>}
+                  {g.members.length === 0 && <li className="mut small">Empty: use + Add to pick devices.</li>}
                   {g.members.map((m) => {
                     const s = sets[m.set],
                       stray = strays.includes(m);
@@ -713,6 +730,7 @@ function Results({
   onDismissOdd,
   setDir,
   setRel,
+  setMetrics,
 }: {
   c: Comparison;
   groups: Group[];
@@ -725,39 +743,41 @@ function Results({
   onDismissOdd: () => void;
   setDir: (d: Dir | 'both') => void;
   setRel: (r: boolean) => void;
+  setMetrics: (m: MetricKey[]) => void;
 }) {
   const [dens, setDens] = useState(false),
     [outl, setOutl] = useOutliers(),
     [logo, setLogo] = useLogoChoice(),
     fs = useFigureSettings(),
     hasLogo = !!(fs.watermark || fs.group);
-  const boxRef = useRef<SVGSVGElement>(null),
+  const figs = useRef<Partial<Record<MetricKey, SVGSVGElement | null>>>({}),
     jvRef = useRef<SVGSVGElement>(null),
+    jvOne = useRef<Record<string, SVGSVGElement | null>>({}),
     slide = useSlide(),
     [figErr, setFigErr] = useState('');
   const batches = useBatches(groups, sets);
+  // which parameters are plotted (saved with the comparison, so everyone sees the same plots); METRICS order
+  const show = METRICS.map((m) => m.key).filter((k) => (c.data.metrics ?? ALL_KEYS).includes(k));
+  const toggle = (k: MetricKey) => {
+    const n = show.includes(k) ? show.filter((x) => x !== k) : [...show, k];
+    if (n.length) setMetrics(METRICS.map((m) => m.key).filter((x) => n.includes(x)));
+  };
   const all = useMemo(() => cmpRows(groups, sets), [groups, sets]);
   const anyRev = all.some((r) => r.dir === 'rev');
   const d: Dir | 'both' = anyRev ? dir : 'fwd';
   const dirs: Dir[] = d === 'both' ? ['rev', 'fwd'] : [d];
   const abs = all.filter((r) => dirs.includes(r.dir));
   const { rows, missing: noRef } = useMemo(
-    () =>
-      rel
-        ? relative(
-            abs,
-            refGroup?.id,
-            METRICS.map((m) => m.key),
-          )
-        : { rows: abs, missing: 0 },
+    () => (rel ? relative(abs, refGroup?.id, ALL_KEYS) : { rows: abs, missing: 0 }),
     [abs, rel, refGroup?.id],
   );
   const loading = groups.some((g) => g.members.some((m) => !sets[m.set] && !missing.includes(m.set)));
-  const unit = (k: MetricKey) => (rel ? '× ref' : METRICS.find((m) => m.key === k)!.unit);
-  const digits = (k: MetricKey) => (rel ? 3 : METRICS.find((m) => m.key === k)!.digits);
-  const panels = BOX_KEYS.map((k) => ({
+  const meta = (k: MetricKey) => METRICS.find((m) => m.key === k)!;
+  const unit = (k: MetricKey) => (rel ? '× ref' : meta(k).unit);
+  const digits = (k: MetricKey) => (rel ? 3 : meta(k).digits);
+  const panel = (k: MetricKey) => ({
     key: k,
-    title: rel ? <>{METRICS.find((m) => m.key === k)!.label} relative to the reference</> : TITLES[k],
+    title: rel ? <>{meta(k).label} relative to the reference</> : TITLES[k],
     unit: unit(k),
     digits: digits(k),
     groups: groups
@@ -781,7 +801,8 @@ function Results({
           };
         }),
       })),
-  }));
+  });
+  const panels = show.map(panel);
   // J–V: the best pixel of each group (absolute values), in the group's colour
   const jvItems: CmpItem[] = groups.flatMap((g, gi) => {
     const rs = abs.filter((r) => r.gid === g.id),
@@ -814,7 +835,9 @@ function Results({
       devices: new Set(rs.map((r) => r.dev)).size,
       listed: g.members.length,
       pixels: rs.length,
-      s: Object.fromEntries(METRICS.map((m) => [m.key, stat(g, m.key)])) as Record<MetricKey, ReturnType<typeof stat>>,
+      // in relative mode a group whose measurements hold no reference device has nothing to show
+      noRef: rel && !rs.length && abs.some((r) => r.gid === g.id),
+      s: Object.fromEntries(ALL_KEYS.map((k) => [k, stat(g, k)])) as Record<MetricKey, ReturnType<typeof stat>>,
       best: Math.max(0, ...abs.filter((r) => r.gid === g.id).map((r) => r.m.pce)),
     };
   });
@@ -824,6 +847,7 @@ function Results({
       : rel
         ? (t.s.pce.median - 1) * 100
         : ((t.s.pce.median - refStat.median) / refStat.median) * 100;
+  const pct = (dl: number) => `${dl >= 0 ? '+' : '−'}${Math.abs(dl).toFixed(1)} %`;
   // what changed
   const refF = refGroup ? groupFacts(refGroup, sets, batches) : null;
   const changes = groups
@@ -844,49 +868,83 @@ function Results({
 
   const sub = `${new Set(rows.map((r) => r.gid)).size} groups · ${new Set(rows.map((r) => r.dev)).size} devices · ${DIR_NAME[d].toLowerCase()} scans${rel ? ` · relative to ${refGroup!.name}` : ''}`;
   const fileBase = safe(c.name);
+  // slide: box plots and J–V side by side, the table of parameters across the bottom
+  const tRows = table.filter((t) => t.s.pce).slice(0, 6),
+    rh = tRows.length <= 4 ? 46 : 34,
+    tfs = tRows.length <= 4 ? 26 : 22,
+    mEnd = refGroup ? 1690 : 1830,
+    mw = (mEnd - 700) / Math.max(show.length, 1),
+    // [label, unit, x of the right edge]; the first column (group) starts at the left margin
+    cols: [string, string, number][] = [
+      ['Devices', '', 600],
+      ['Pixels', '', 700],
+      ...show.map((k, i): [string, string, number] => [meta(k).label, unit(k), 700 + (i + 1) * mw]),
+    ];
   const slideEl = (
     <SlideFrame svgRef={slide.ref} title={c.name} sub={sub} compact>
-      <svg x={80} y={210} width={1080} height={(1080 * BFH) / BFW} viewBox={`0 0 ${BFW} ${BFH}`}>
+      <svg x={90} y={190} width={820} height={492} viewBox={`0 0 ${BFW} ${BFH}`}>
         <BoxFigure panels={panels} outliers={outl} />
       </svg>
       {jvItems.length > 0 && (
-        <svg x={1190} y={210} width={640} height={(640 * 520) / 760} viewBox="0 0 760 520">
+        <svg x={1060} y={190} width={719} height={492} viewBox="0 0 760 520">
           <CompareFigure items={jvItems} dir={d} logo={false} />
         </svg>
       )}
-      {/* median PCE of each group under the J–V figure, in the group colour */}
-      <g fontFamily="Inter, 'Segoe UI', Helvetica, Arial, sans-serif">
-        <text x={1210} y={720} fontSize={26} fill="#5f6570">
-          {rel ? 'Median PCE, relative to the reference' : 'Median PCE'}
+      {/* the table of parameters, one row per group */}
+      <g fontSize={tfs} fill="#15171a">
+        <text x={90} y={742} fill="#5f6570" fontSize={tfs - 4}>
+          Group
         </text>
-        {table
-          .filter((t) => t.s.pce)
-          .slice(0, 6)
-          .map((t, i) => {
-            const dl = delta(t),
-              y = 780 + i * 52;
-            return (
-              <g key={t.g.id}>
-                <rect x={1210} y={y - 24} width={16} height={30} rx={4} fill={gColor(t.gi)} />
-                <text x={1240} y={y} fontSize={30} fill="#15171a">
-                  {(t.g.name || 'Unnamed group').slice(0, 22) + (t.g.ref ? ' (ref.)' : '')}
+        {cols.map(([h, u, x]) => (
+          <g key={h} textAnchor="end">
+            <text x={x} y={742} fill="#5f6570" fontSize={tfs - 4}>
+              {h}
+            </text>
+            {u && (
+              <text x={x} y={766} fill="#8a8f98" fontSize={tfs - 8}>
+                {u}
+              </text>
+            )}
+          </g>
+        ))}
+        {refGroup && (
+          <text x={1830} y={742} textAnchor="end" fill="#5f6570" fontSize={tfs - 4}>
+            PCE vs ref.
+          </text>
+        )}
+        <line x1={90} x2={1830} y1={778} y2={778} stroke="#c7cad1" strokeWidth={1.5} />
+        {tRows.map((t, i) => {
+          const y = 778 + rh * (i + 0.8),
+            dl = delta(t);
+          const cells = [t.devices, t.pixels, ...show.map((k) => (t.s[k] ? fmt(t.s[k]!.median, digits(k)) : '—'))];
+          return (
+            <g key={t.g.id}>
+              {i > 0 && <line x1={90} x2={1830} y1={778 + rh * i} y2={778 + rh * i} stroke="#eceef1" strokeWidth={1} />}
+              <rect x={90} y={y - tfs * 0.78} width={12} height={tfs * 0.95} rx={3} fill={gColor(t.gi)} />
+              <text x={114} y={y} fontWeight={t.g.ref ? 600 : 400}>
+                {(t.g.name || 'Unnamed group').slice(0, 26)}
+                {t.g.ref ? ' (ref.)' : ''}
+              </text>
+              {cells.map((v, j) => (
+                <text key={j} x={cols[j][2]} y={y} textAnchor="end" fontWeight={show[j - 2] === 'pce' ? 700 : 400}>
+                  {v}
                 </text>
-                <text x={1700} y={y} fontSize={30} fontWeight={700} fill="#15171a" textAnchor="end">
-                  {rel ? `${fmt(t.s.pce!.median, 3)}×` : `${fmt(t.s.pce!.median)} %`}
+              ))}
+              {refGroup && dl !== null && (
+                <text x={1830} y={y} textAnchor="end" fill={dl >= 0 ? '#1d7a34' : '#d70015'} fontWeight={600}>
+                  {pct(dl)}
                 </text>
-                {dl !== null && (
-                  <text x={1830} y={y} fontSize={26} fill={dl >= 0 ? '#1d7a34' : '#d70015'} textAnchor="end">
-                    {`${dl >= 0 ? '+' : '−'}${Math.abs(dl).toFixed(1)} %`}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+              )}
+            </g>
+          );
+        })}
+        <text x={90} y={1050} fontSize={18} fill="#8a8f98">
+          Medians of the counted pixels; each pixel once per direction with its best scan, never a check sweep.
+        </text>
       </g>
     </SlideFrame>
   );
   const excel = () => {
-    const mk = METRICS.map((m) => m.key);
     const sheets: Sheet[] = [
       {
         name: 'Groups',
@@ -896,7 +954,7 @@ function Results({
             'Reference',
             'Devices',
             'Pixels',
-            ...mk.flatMap((k) => [`${k} median`, `${k} mean`, `${k} sd`]),
+            ...ALL_KEYS.flatMap((k) => [`${k} median`, `${k} mean`, `${k} sd`]),
             'Best PCE (%)',
             'PCE median vs reference (%)',
           ],
@@ -905,7 +963,7 @@ function Results({
             t.g.ref ? 'yes' : '',
             t.devices,
             t.pixels,
-            ...mk.flatMap((k) => [t.s[k]?.median ?? null, t.s[k]?.mean ?? null, t.s[k]?.sd ?? null]),
+            ...ALL_KEYS.flatMap((k) => [t.s[k]?.median ?? null, t.s[k]?.mean ?? null, t.s[k]?.sd ?? null]),
             t.best || null,
             delta(t),
           ]),
@@ -917,7 +975,7 @@ function Results({
       {
         name: 'Pixels',
         rows: [
-          ['Group', 'Measurement', 'Date', 'Sample', 'Substrate', 'Pixel', 'Scan', 'Direction', ...mk],
+          ['Group', 'Measurement', 'Date', 'Sample', 'Substrate', 'Pixel', 'Scan', 'Direction', ...ALL_KEYS],
           ...rows.map((r) => [
             r.group,
             r.set,
@@ -927,7 +985,7 @@ function Results({
             r.pixel,
             r.scan,
             r.dir === 'rev' ? 'backward' : 'forward',
-            ...mk.map((k) => (Number.isFinite(r.m[k] as number) ? (r.m[k] as number) : null)),
+            ...ALL_KEYS.map((k) => (Number.isFinite(r.m[k] as number) ? (r.m[k] as number) : null)),
           ]),
         ],
         widths: [20, 24, 11, 24, 9, 6, 6, 10],
@@ -946,13 +1004,21 @@ function Results({
     ];
     downloadBytes(`${fileBase}.xlsx`, xlsx(sheets));
   };
-  const fig = (r: React.RefObject<SVGSVGElement | null>, name: string, as: 'png' | 'svg') =>
-    r.current && exportSvg(r.current, name, as).catch((e) => setFigErr(e.message));
+  const save = (svg: SVGSVGElement | null | undefined, name: string, as: 'png' | 'svg') =>
+    svg ? exportSvg(svg, name, as).catch((e) => setFigErr(e.message)) : Promise.resolve();
+  // several files one after the other (browsers drop downloads started in the same instant)
+  const each = async (list: [SVGSVGElement | null | undefined, string][], as: 'png' | 'svg') => {
+    for (const [svg, name] of list) {
+      await save(svg, name, as);
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  };
+  const boxSvgs = () => show.map((k) => figs.current[k]).filter((x): x is SVGSVGElement => !!x);
 
   const nothing = !groups.some((g) => g.members.length);
   return (
     <section className="cx-results" aria-label="Results">
-      <div className="inline cx-controls">
+      <div className="cx-toolbar">
         {anyRev && (
           <Seg
             small
@@ -974,32 +1040,53 @@ function Results({
             ['rel', 'Relative to reference'],
           ]}
         />
-        <label className="inline small">
-          <Check v={dens} on={setDens} /> Density curve
-        </label>
-        <OutlierToggle v={outl} on={setOutl} />
-        {hasLogo && (
-          <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
-          </label>
-        )}
         <div className="grow" />
         <ExportMenu
           disabled={!rows.length}
-          items={[
-            ['Slide (16:9)', (as) => slide.make(slideEl, `${fileBase}-slide`, as)],
-            ['Box plots', (as) => fig(boxRef, `${fileBase}-boxplots`, as)],
-            ['J–V curves', (as) => fig(jvRef, `${fileBase}-jv`, as)],
+          sections={[
+            ['Slide (16:9)', [['Box plots, J–V and table', (as) => slide.make(slideEl, `${fileBase}-slide`, as)]]],
+            [
+              'Box plots',
+              [
+                [
+                  'All in one image',
+                  (as) => void save(boxSvgs().length ? combinePanels(boxSvgs()) : null, `${fileBase}-boxplots`, as),
+                ],
+                [
+                  `Each plot (${show.length} files)`,
+                  (as) =>
+                    each(
+                      show.map((k) => [figs.current[k], `${fileBase}-${k}`]),
+                      as,
+                    ),
+                ],
+              ],
+            ],
+            [
+              'J–V curves',
+              [
+                ['All curves in one plot', (as) => save(jvRef.current, `${fileBase}-jv`, as)],
+                [
+                  `Each group (${jvItems.length} files)`,
+                  (as) =>
+                    each(
+                      jvItems.map((it) => [jvOne.current[it.key], `${fileBase}-jv-${safe(it.label)}`]),
+                      as,
+                    ),
+                ],
+              ],
+            ],
           ]}
           onExcel={excel}
         />
       </div>
       {!refGroup && c.data.relative && (
-        <p className="mut small">Mark one group as the reference to see values relative to it.</p>
+        <p className="cx-note small">Set one group as the reference to see values relative to it.</p>
       )}
       {rel && noRef > 0 && (
         <p className="cx-note small">
-          {noRef} pixel curve{noRef > 1 ? 's are' : ' is'} left out: no reference device in the same measurement.
+          {noRef} pixel curve{noRef > 1 ? 's are' : ' is'} left out: their measurements have no device of the reference
+          group, so there is nothing to divide by.
         </p>
       )}
       {missing.length > 0 && (
@@ -1028,7 +1115,7 @@ function Results({
       {nothing ? (
         <Empty
           title="Pick the devices to compare"
-          text="Use Add devices to choose devices from any measurement. Group them by name (batch_mod: one group per modification) or put them in a group yourself, then mark the reference."
+          text="Use Add devices to choose devices from any measurement. Group them by name (batch_mod: one group per modification) or put them in a group yourself, then set the reference."
         />
       ) : loading && !rows.length ? (
         <p className="mut">Loading measurements…</p>
@@ -1038,82 +1125,185 @@ function Results({
         </p>
       ) : (
         <>
-          <figure className="cx-fig">
-            <div className="fig-wrap">
-              <BoxFigure
-                svgRef={boxRef}
-                panels={panels}
-                showDensity={dens}
-                outliers={outl}
-                logo={logo && hasLogo ? fs : undefined}
-              />
+          <section className="cx-card" aria-labelledby="cx-box">
+            <header className="cx-card-head">
+              <h3 id="cx-box">Box plots</h3>
+              <div className="chips" role="group" aria-label="Parameters to plot">
+                {METRICS.map((m) => (
+                  <button
+                    key={m.key}
+                    className={'chip' + (show.includes(m.key) ? ' on' : '')}
+                    aria-pressed={show.includes(m.key)}
+                    onClick={() => toggle(m.key)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grow" />
+              <div className="cx-figopts">
+                <label className="inline small">
+                  <Check v={dens} on={setDens} /> Density curve
+                </label>
+                <OutlierToggle v={outl} on={setOutl} />
+                {hasLogo && (
+                  <label className="inline small">
+                    <Check v={logo} on={setLogo} /> Group logo
+                  </label>
+                )}
+              </div>
+            </header>
+            <div className="plot-grid cx-plots">
+              {panels.map((p) => (
+                <figure key={p.key} className="plot-card">
+                  <div className="fig-wrap">
+                    <BoxPanel
+                      svgRef={(el) => {
+                        figs.current[p.key] = el;
+                      }}
+                      showDensity={dens}
+                      outliers={outl}
+                      log={p.key === 'rsh'}
+                      logo={hasLogo && logo ? fs : undefined}
+                      panel={p}
+                    />
+                  </div>
+                  <figcaption className="inline">
+                    <div className="grow" />
+                    <button
+                      className="link small"
+                      onClick={() => save(figs.current[p.key], `${fileBase}-${p.key}`, 'png')}
+                    >
+                      PNG
+                    </button>
+                    <button
+                      className="link small"
+                      onClick={() => save(figs.current[p.key], `${fileBase}-${p.key}`, 'svg')}
+                    >
+                      SVG
+                    </button>
+                  </figcaption>
+                </figure>
+              ))}
             </div>
-          </figure>
-          <div className="cx-table scroll">
-            <table className="stat-table">
-              <thead>
-                <tr>
-                  <th>Group</th>
-                  <th className="num">Devices</th>
-                  <th className="num">Pixels</th>
-                  <th className="num">PCE {rel ? '(× ref)' : '(%)'}</th>
-                  <th className="num">Voc</th>
-                  <th className="num">Jsc</th>
-                  <th className="num">FF</th>
-                  <th className="num">vs ref.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {table.map((t) => {
-                  const dl = delta(t),
-                    med = (k: MetricKey) => (t.s[k] ? fmt(t.s[k]!.median, digits(k)) : '—');
-                  return (
-                    <tr key={t.g.id}>
-                      <td>
-                        <i className="cx-sw" style={{ background: seriesColor(t.gi) }} />
-                        {t.g.name || 'Unnamed group'}
-                        {t.g.ref && <span className="mut small"> · reference</span>}
-                      </td>
-                      <td className="num">
-                        {t.devices}
-                        {t.devices < t.listed && <span className="mut small"> of {t.listed}</span>}
-                      </td>
-                      <td className="num">{t.pixels}</td>
-                      <td className="num">
-                        <b>{med('pce')}</b>
-                        {t.s.pce && t.s.pce.n > 1 && (
-                          <span className="mut small"> ± {fmt(t.s.pce.sd, rel ? 3 : 2)}</span>
-                        )}
-                      </td>
-                      <td className="num">{med('voc')}</td>
-                      <td className="num">{med('jsc')}</td>
-                      <td className="num">{med('ff')}</td>
-                      <td className={'num' + (dl === null ? '' : dl >= 0 ? ' up' : ' down')}>
-                        {dl === null ? '' : `${dl >= 0 ? '+' : '−'}${Math.abs(dl).toFixed(1)} %`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="mut small">
-              Medians of the counted pixels (± standard deviation for PCE); each pixel once per direction with its best
-              scan, never a check sweep.
-              {rel ? ' Each value is divided by the reference median of its own measurement.' : ''}
+            <p className="mut small cx-caption">
+              Dots: pixels (gold ring = best of the group) ·{' '}
+              {outl
+                ? 'triangles: outliers (beyond 1.5 × IQR)'
+                : 'arrow with a number: outliers beyond the axis (still counted)'}
+              {dirs.length > 1 ? ' · forward lighter' : ''}
+              {show.includes('rsh') ? ' · Rsh on a log axis' : ''}
             </p>
-          </div>
+          </section>
+
+          <section className="cx-card cx-table" aria-labelledby="cx-tab">
+            <header className="cx-card-head">
+              <h3 id="cx-tab">Parameters</h3>
+              <span className="mut small">
+                Medians of the counted pixels
+                {rel ? ', each divided by the reference median of its own measurement' : ''}
+              </span>
+            </header>
+            <div className="scroll">
+              <table className="stat-table">
+                <thead>
+                  <tr>
+                    <th>Group</th>
+                    <th className="num">Devices</th>
+                    <th className="num">Pixels</th>
+                    {show.map((k) => (
+                      <th key={k} className="num">
+                        {meta(k).label} <span className="mut">({unit(k)})</span>
+                      </th>
+                    ))}
+                    {refGroup && <th className="num">PCE vs reference</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {table.map((t) => {
+                    const dl = delta(t);
+                    return (
+                      <tr key={t.g.id}>
+                        <td>
+                          <i className="cx-sw" style={{ background: seriesColor(t.gi) }} />
+                          {t.g.name || 'Unnamed group'}
+                          {t.g.ref && <span className="mut small"> · reference</span>}
+                        </td>
+                        <td className="num">
+                          {t.devices}
+                          {t.devices < t.listed && <span className="mut small"> of {t.listed}</span>}
+                        </td>
+                        <td className="num">{t.pixels}</td>
+                        {t.noRef ? (
+                          <td colSpan={show.length + (refGroup ? 1 : 0)} className="mut small">
+                            No reference device in its measurements
+                          </td>
+                        ) : (
+                          <>
+                            {show.map((k) => (
+                              <td key={k} className="num">
+                                {t.s[k] ? (
+                                  <>
+                                    {k === 'pce' ? (
+                                      <b>{fmt(t.s[k]!.median, digits(k))}</b>
+                                    ) : (
+                                      fmt(t.s[k]!.median, digits(k))
+                                    )}
+                                    {t.s[k]!.n > 1 && (
+                                      <span className="mut small"> ± {fmt(t.s[k]!.sd, digits(k))}</span>
+                                    )}
+                                  </>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                            ))}
+                            {refGroup && (
+                              <td className={'num' + (dl === null ? '' : dl >= 0 ? ' up' : ' down')}>
+                                {dl === null ? '' : pct(dl)}
+                              </td>
+                            )}
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <div className="cx-split">
             {jvItems.length > 0 && (
-              <figure className="cx-fig">
-                <div className="fig-wrap">
+              <section className="cx-card" aria-labelledby="cx-jv">
+                <header className="cx-card-head">
+                  <h3 id="cx-jv">Best J–V of each group</h3>
+                </header>
+                <div className="fig-wrap cx-white">
                   <CompareFigure items={jvItems} dir={d} svgRef={jvRef} logo={logo && hasLogo} />
                 </div>
-                <figcaption className="mut small">Best pixel of each group, its best scan.</figcaption>
-              </figure>
+                <p className="mut small cx-caption">The best pixel of each group, its best scan.</p>
+                {/* one figure per group, for "Each group" in Export */}
+                <div className="slide-holder" aria-hidden>
+                  {jvItems.map((it) => (
+                    <CompareFigure
+                      key={it.key}
+                      items={[it]}
+                      dir={d}
+                      logo={logo && hasLogo}
+                      svgRef={(el: SVGSVGElement | null) => {
+                        jvOne.current[it.key] = el;
+                      }}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
             {refGroup && changes.length > 0 && (
-              <section className="cx-changes" aria-label="What changed">
-                <h3>What changed against {refGroup.name || 'the reference'}</h3>
+              <section className="cx-card cx-changes" aria-labelledby="cx-chg">
+                <header className="cx-card-head">
+                  <h3 id="cx-chg">What changed against {refGroup.name || 'the reference'}</h3>
+                </header>
                 {changes.map((x) => (
                   <div key={x.g.id} className="cx-change" style={{ '--g': seriesColor(groups.indexOf(x.g)) } as any}>
                     <h4>{x.g.name || 'Unnamed group'}</h4>
@@ -1130,8 +1320,7 @@ function Results({
                     ) : x.same ? (
                       <p className="mut small">
                         Same batch as the reference: the recipes are the same, so what differs is not recorded in the
-                        app
-                        {x.names ? ' beyond the sample names' : ''}.
+                        app{x.names ? ' beyond the sample names' : ''}.
                       </p>
                     ) : x.diff.length === 0 ? (
                       <p className="mut small">Different batches with the same recipes.</p>
@@ -1167,15 +1356,7 @@ function Results({
   );
 }
 
-function ExportMenu({
-  items,
-  onExcel,
-  disabled,
-}: {
-  items: [string, (as: 'png' | 'svg') => void][];
-  onExcel: () => void;
-  disabled: boolean;
-}) {
+function MoreMenu({ items }: { items: [string, () => void, boolean?][] }) {
   const [open, setOpen] = useState(false),
     ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1184,38 +1365,89 @@ function ExportMenu({
     document.addEventListener('mousedown', f);
     return () => document.removeEventListener('mousedown', f);
   }, [open]);
+  return (
+    <div className="ov-exp" ref={ref}>
+      <button className="iconbtn" aria-label="More" title="More" aria-expanded={open} onClick={() => setOpen(!open)}>
+        ⋯
+      </button>
+      {open && (
+        <div className="ov-exp-menu cx-more" role="menu">
+          {items.map(([label, fn, danger]) => (
+            <button
+              key={label}
+              role="menuitem"
+              className={'cx-more-item' + (danger ? ' danger-link' : '')}
+              onClick={() => {
+                setOpen(false);
+                fn();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExportMenu({
+  sections,
+  onExcel,
+  disabled,
+}: {
+  sections: [string, [string, (as: 'png' | 'svg') => void][]][];
+  onExcel: () => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false),
+    ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const f = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', f);
+    document.addEventListener('keydown', k);
+    return () => {
+      document.removeEventListener('mousedown', f);
+      document.removeEventListener('keydown', k);
+    };
+  }, [open]);
   const pick = (fn: () => void) => () => {
     fn();
     setOpen(false);
   };
   return (
     <div className="ov-exp" ref={ref}>
-      <button
-        className="btn secondary small-btn"
-        disabled={disabled}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
+      <button className="btn small-btn" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
         Export
       </button>
       {open && (
-        <div className="ov-exp-menu" role="menu">
-          {items.map(([label, fn]) => (
-            <div key={label} className="ov-exp-row">
-              <span>{label}</span>
-              <button className="link" onClick={pick(() => fn('png'))}>
-                PNG
-              </button>
-              <button className="link" onClick={pick(() => fn('svg'))}>
-                SVG
-              </button>
+        <div className="ov-exp-menu cx-exp-menu" role="menu">
+          {sections.map(([title, items]) => (
+            <div key={title} className="cx-exp-sec">
+              <div className="cx-exp-title">{title}</div>
+              {items.map(([label, fn]) => (
+                <div key={label} className="ov-exp-row">
+                  <span>{label}</span>
+                  <button className="link" onClick={pick(() => fn('png'))}>
+                    PNG
+                  </button>
+                  <button className="link" onClick={pick(() => fn('svg'))}>
+                    SVG
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
-          <div className="ov-exp-row">
-            <span>Table and every pixel</span>
-            <button className="link" onClick={pick(onExcel)}>
-              Excel
-            </button>
+          <div className="cx-exp-sec">
+            <div className="cx-exp-title">Spreadsheet</div>
+            <div className="ov-exp-row">
+              <span>Groups, every pixel, what changed</span>
+              <button className="link" onClick={pick(onExcel)}>
+                Excel
+              </button>
+            </div>
           </div>
         </div>
       )}
