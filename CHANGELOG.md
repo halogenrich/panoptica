@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.31.0 (2026-11-06)
+
+- **Glovebox cleanup**: each booking of glovebox equipment (GB:) is followed by 20 minutes of cleanup, shown hatched in the calendar. The equipment stays taken, so nobody can start right after someone else; a booking whose own cleanup would run into the next one is refused too. Per equipment, set by admins under Equipment (Cleanup after).
+- **Bookings are at least 1 hour** (calendar, batch scheduler, resizing; an older shorter booking becomes an hour when moved).
+- **Comparisons**:
+  - Box plots of the parameters you choose, now including R<sub>S</sub> and R<sub>SH</sub> (log axis); the choice is saved with the comparison. Each plot has its own PNG and SVG.
+  - Export the box plots all in one image or each plot as its own file, and the J–V curves all in one plot or one file per group.
+  - The slide shows the parameters table (devices, pixels, median of each chosen parameter, change against the reference) instead of the median PCE list.
+  - Design pass: analysis controls (direction, absolute or relative) on top and figure options with the box plots; headed sections (Box plots, Parameters, Best J–V of each group, What changed); groups show their devices behind a disclosure, "Set as reference" appears on hover; Make a copy and Move to the trash in a ⋯ menu; a new comparison opens with its name selected; box-plot glyphs in the group colours on the list cards; in relative mode a group without a reference in its measurements says so.
+- Slides: no blue bar at the top (all exported slides).
+
 ## 0.30.0 (2026-11-06)
 
 - **Comparisons** (sidebar › Measurements): groups of devices from any measurements side by side, private until you share them. Pick devices from a list of every measurement (filter by text, measurement, person, dates); group them by name (`batch_mod`: one group per modification, "Padrão"/"ref"/"control" as the reference) with likely typos flagged, or put them in a group yourself. Box plots, the J–V curve of each group's best pixel, a table with medians and the change against the reference, values **relative to the reference of the same measurement**, and **what changed** between the groups' batches (recipes per layer, from the batch snapshots). Export a 16:9 slide, the figures (PNG, SVG) or an Excel file.

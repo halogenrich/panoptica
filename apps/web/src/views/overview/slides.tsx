@@ -41,7 +41,6 @@ export function SlideFrame({
       fontFamily={SF}
     >
       <rect width={SW} height={SH} fill="#fff" />
-      <rect x={0} y={0} width={SW} height={10} fill={BLUE} />
       <text x={110} y={compact ? 112 : 150} fontSize={compact ? 52 : 64} fontWeight={700} fill={INK}>
         {title}
       </text>

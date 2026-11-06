@@ -23,7 +23,7 @@ export interface DeviceRow {
 }
 export type Member = { set: number; sample: string; substrate: string };
 export type Group = { id: string; name: string; ref?: boolean; members: Member[] };
-export type CmpData = { groups: Group[]; dir?: Dir | 'both'; relative?: boolean };
+export type CmpData = { groups: Group[]; dir?: Dir | 'both'; relative?: boolean; metrics?: MetricKey[] };
 export interface Comparison {
   id: number;
   name: string;
