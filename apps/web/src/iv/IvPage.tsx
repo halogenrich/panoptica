@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
-import { Badge, Empty, Seg, fmtDate } from '../lib/ui';
+import { Badge, Empty, LayoutToggle, Seg, fmtDate, useLayout } from '../lib/ui';
 import { type BoxGroup } from './charts';
 import { BoxPanel, OutlierToggle, TITLES, combinePanels, lighter, useOutliers } from './BoxFigure';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
+import ExportMenu, { pngSvg } from '../lib/ExportMenu';
 import { exportSvg } from './JvFigure';
 import ImportIv from './Import';
 import { Check } from '../views/common';
@@ -35,7 +36,7 @@ import { DeviceTable, devKey } from './Devices';
 
 const fdate = (d: string) =>
   d
-    ? new Date(d + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : 'no date';
 
 export default function IvPage({ openId, onOpen }: { openId: number | null; onOpen: (id: number | null) => void }) {
@@ -47,7 +48,8 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   const [rows, setRows] = useState<IvSet[] | null>(null),
     [tab, setTab] = useState<'list' | 'stats'>('list'),
     [imp, setImp] = useState(false),
-    [q, setQ] = useState('');
+    [q, setQ] = useState(''),
+    [layout, setLayout] = useLayout();
   const load = () =>
     api<IvSet[]>('/iv')
       .then(setRows)
@@ -91,6 +93,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
           />
         )}
         <div className="grow" />
+        {tab === 'list' && <LayoutToggle v={layout} on={setLayout} />}
         <button className="btn" onClick={() => setImp(true)}>
           Import measurements
         </button>
@@ -112,6 +115,44 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
               : 'Use Import measurements and drop the folder the J–V system saved (or a .zip of it).'
           }
         />
+      ) : layout === 'list' ? (
+        <section className="group scroll flush">
+          <table className="list">
+            <thead>
+              <tr>
+                <th>Measurement</th>
+                <th>Samples</th>
+                <th className="num">Best PCE (%)</th>
+                <th className="num">Substrates</th>
+                <th className="num">Working curves</th>
+                <th />
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                  <td>
+                    <b>{r.name}</b>
+                  </td>
+                  <td className="mut">{r.samples.map((s) => r.links[s]?.label ?? s.replace(/_/g, ' ')).join(', ')}</td>
+                  <td className="num">{r.best ? r.best.toFixed(1) : '—'}</td>
+                  <td className="num">{r.substrates}</td>
+                  <td className="num">{r.working}</td>
+                  <td>
+                    {r.stabilityOf ? (
+                      <Badge tone="warn">Stability follow-up</Badge>
+                    ) : r.followUps ? (
+                      <Badge tone="ac">Stability series</Badge>
+                    ) : null}{' '}
+                    {r.visibility === 'shared' && <Badge>Shared</Badge>}
+                  </td>
+                  <td className="mut">{fdate(r.date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       ) : (
         <div className="cards">
           {shown.map((r) => (
@@ -212,7 +253,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
       .catch(() => {});
   }, [id]);
   const hasRev = !!s?.curves.some((c) => c.dir === 'rev'),
-    [dir, setDir] = useState<Dir>('rev');
+    [dir, setDir] = useState<Dir | 'both'>('rev');
   const load = () =>
     api<IvSetFull>('/iv/' + id)
       .then((x) => {
@@ -256,16 +297,14 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         {s.editable && (
           <button
             className="link danger-link"
+            title="Moves it to the trash: Undo right after, or restore it from Trash for 30 days"
             onClick={() =>
-              window.confirm(
-                `Move the measurement "${s.name}" (${s.curves.length} curves) to the trash? You can restore it for 30 days.`,
-              ) &&
               api('/iv/' + id, 'DELETE')
                 .then(() => trashed('iv', id, s.name))
                 .then(onBack)
             }
           >
-            Delete
+            Move to trash
           </button>
         )}
       </div>
@@ -281,7 +320,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
             <span className="mut small">
               {' '}
               · follow-up of {others.find((o) => o.id === s.stabilityOf)?.name ?? 'an earlier measurement'}, measured{' '}
-              {new Date(s.measuredAt!).toLocaleString(undefined, {
+              {new Date(s.measuredAt!).toLocaleString('en-GB', {
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric',
@@ -356,13 +395,14 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
             opts={[
               ['rev', 'Backward scan'],
               ['fwd', 'Forward scan'],
+              ['both', 'Both (backward / forward)'],
             ]}
           />
         )}
         {tab === 'cells' && (
           <span className="mut small legend-px">
             <i className="k-ok" />
-            PCE in % (darker = higher) <i className="k-dead" />
+            PCE in % (darker = higher){dir === 'both' ? ', backward above forward' : ''} <i className="k-dead" />
             dead <i className="k-short" />
             short · click a pixel for its curves, Shift-click to compare pixels
           </span>
@@ -503,6 +543,18 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
       /* ignore */
     }
   };
+  const stamp = () => new Date().toISOString().slice(0, 10),
+    svgs = () => show.map((k) => figs.current[k]).filter((x): x is SVGSVGElement => !!x);
+  const allAs = (as: 'png' | 'svg') =>
+    svgs().length && exportSvg(combinePanels(svgs()), `jv-boxplots-${stamp()}`, as).catch((e) => setFigErr(e.message));
+  // one file per plot, one after the other (browsers drop downloads started in the same instant)
+  const eachAs = async (as: 'png' | 'svg') => {
+    for (const k of show) {
+      const el = figs.current[k];
+      if (el) await exportSvg(el, `jv-${k}-${stamp()}`, as).catch((e) => setFigErr(e.message));
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  };
   const anyRev = sets.some((s) => s.curves.some((c) => c.dir === 'rev'));
   const rows = useMemo(() => statRows(sets, anyRev ? dir : dir === 'rev' ? 'fwd' : dir), [sets, dir, anyRev]);
   // groups keep the order they first appear in (by measurement, then sample) so a colour always means the same group
@@ -558,13 +610,27 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
           it per pixel in Cells)
         </span>
         <div className="grow" />
-        <button
-          className="link"
+        <ExportMenu
           disabled={!rows.length}
-          onClick={() => download(`jv-statistics-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows))}
-        >
-          Export CSV
-        </button>
+          sections={[
+            [
+              'Box plots',
+              [
+                ['All in one image', pngSvg((as) => void allAs(as))],
+                [`Each plot (${show.length} files)`, pngSvg((as) => void eachAs(as))],
+              ],
+            ],
+            [
+              'Data',
+              [
+                [
+                  'Every counted pixel',
+                  [['CSV', () => download(`jv-statistics-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows))]],
+                ],
+              ],
+            ],
+          ]}
+        />
       </div>
       {champ && (
         <p className="champ">
@@ -600,35 +666,6 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
           </label>
         )}
         <div className="grow" />
-        {show.length > 1 && rows.length > 0 && (
-          <span className="inline small">
-            <span className="mut">All plots as one image</span>
-            <button
-              className="link small"
-              onClick={() =>
-                exportSvg(
-                  combinePanels(show.map((k) => figs.current[k]).filter((x): x is SVGSVGElement => !!x)),
-                  `jv-boxplots-${new Date().toISOString().slice(0, 10)}`,
-                  'png',
-                ).catch((e) => setFigErr(e.message))
-              }
-            >
-              PNG
-            </button>
-            <button
-              className="link small"
-              onClick={() =>
-                exportSvg(
-                  combinePanels(show.map((k) => figs.current[k]).filter((x): x is SVGSVGElement => !!x)),
-                  `jv-boxplots-${new Date().toISOString().slice(0, 10)}`,
-                  'svg',
-                )
-              }
-            >
-              SVG
-            </button>
-          </span>
-        )}
         {figErr && <span className="err small">{figErr}</span>}
       </div>
       {rows.length > 0 && (
@@ -638,7 +675,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
             ? 'triangles: outliers (beyond 1.5 × IQR)'
             : 'axis fitted to the boxes; an arrow with a number marks outliers beyond it (still counted)'}
           {dirs.length > 1 ? ' · bwd = backward, fwd = forward (lighter)' : ''} · hover for values · each plot exports
-          on its own, or all together{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
+          on its own (PNG and SVG under it), or from Export{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
         </p>
       )}
       {rows.length > 0 && (

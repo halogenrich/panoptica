@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { spinPlan, type Dispense, type SpinStep } from '@psc/core';
-import { Check, Num } from '../views/common';
+import { Check, DragHandle, Num, RemoveRow, useReorder } from '../views/common';
 import { Section, T } from './shared';
 import type { Ctx, Kind } from './types';
 
@@ -176,6 +176,8 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   const upS = (i: number, p: Partial<SpinStep>) =>
     set({ steps: d.steps.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const upD = (i: number, p: Partial<Dispense>) => set({ dp: d.dp.map((x, j) => (j === i ? { ...x, ...p } : x)) });
+  const rs = useReorder(d.steps, (steps) => set({ steps }), 'step'),
+    rd = useReorder(d.dp, (dp) => set({ dp }), 'dispense');
   return (
     <>
       <Section title="Spin steps">
@@ -184,6 +186,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
         <table className="tight">
           <thead>
             <tr>
+              <th />
               <th>#</th>
               <th>Time (s)</th>
               <th>rpm</th>
@@ -194,7 +197,10 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           </thead>
           <tbody>
             {d.steps.map((x, i) => (
-              <tr key={i}>
+              <tr key={i} ref={rs.rowRef(i)} className={rs.drag === i ? 'dragging' : ''}>
+                <td>
+                  <DragHandle h={rs.handle(i)} show={d.steps.length > 1} />
+                </td>
                 <td>{i + 1}</td>
                 <td>
                   <Num v={x.t} on={(t) => upS(i, { t })} />
@@ -228,14 +234,17 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
       </Section>
       <Section title="Dispenses">
         {d.dp.map((x, i) => (
-          <div className="disp" key={i}>
-            <select value={x.src} onChange={(e) => upD(i, { src: e.target.value })}>
-              {src.map((o) => (
-                <option key={o} value={o}>
-                  {o || 'Choose solution or solvent…'}
-                </option>
-              ))}
-            </select>
+          <div className={'disp' + (rd.drag === i ? ' dragging' : '')} key={i} ref={rd.rowRef(i)}>
+            <span className="inline">
+              <DragHandle h={rd.handle(i)} show={d.dp.length > 1} />
+              <select value={x.src} onChange={(e) => upD(i, { src: e.target.value })}>
+                {src.map((o) => (
+                  <option key={o} value={o}>
+                    {o || 'Choose solution or solvent…'}
+                  </option>
+                ))}
+              </select>
+            </span>
             <div className="inline">
               <Num v={x.v} on={(v) => upD(i, { v })} w={80} /> µL
               <label className="inline">
@@ -251,9 +260,10 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
                 </>
               )}
               <div className="grow" />
-              <button className="link" onClick={() => set({ dp: d.dp.filter((_, j) => j !== i) })}>
-                Remove
-              </button>
+              <RemoveRow
+                label={`Remove dispense ${i + 1}`}
+                onClick={() => set({ dp: d.dp.filter((_, j) => j !== i) })}
+              />
             </div>
           </div>
         ))}

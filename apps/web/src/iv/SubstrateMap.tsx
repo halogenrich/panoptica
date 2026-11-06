@@ -97,7 +97,8 @@ export function SubstrateMap({
   set: IvSetFull;
   sample: string;
   substrate: string;
-  dir: Dir;
+  /** 'both': each pixel shows backward / forward */
+  dir: Dir | 'both';
   geom: CellGeom | null;
   max: number;
   sel: string | null;
@@ -107,7 +108,8 @@ export function SubstrateMap({
   mark?: (pixel: string) => string | undefined;
 }) {
   const curves = set.curves.filter((c) => c.sample === sample && c.substrate === substrate),
-    devInfo = set.devices?.[`${sample}|${substrate}`];
+    devInfo = set.devices?.[`${sample}|${substrate}`],
+    dirs: Dir[] = dir === 'both' ? ['rev', 'fwd'] : [dir];
   const pixels = [...new Set(curves.map((c) => c.pixel))].sort(pixelOrder);
   const dev: Device =
     geom && geom.pixels.length === pixels.length
@@ -132,11 +134,13 @@ export function SubstrateMap({
     let b: string | null = null,
       v = -1;
     for (const p of pixels) {
-      const pc = curves.filter((c) => c.pixel === p),
-        c = shownCurve(pc, set.curves, dir);
-      if (c && inStats(c, set.curves) && c.m.pce > v) {
-        v = c.m.pce;
-        b = p;
+      const pc = curves.filter((c) => c.pixel === p);
+      for (const dd of dirs) {
+        const c = shownCurve(pc, set.curves, dd);
+        if (c && inStats(c, set.curves) && c.m.pce > v) {
+          v = c.m.pce;
+          b = p;
+        }
       }
     }
     return b;
@@ -152,15 +156,27 @@ export function SubstrateMap({
     minH = Math.min(...pixels.map((p) => box(p).bh));
   const fit = (chars: number, rows: number) => Math.min((minW * 0.9) / (chars * 0.6), minH / (rows * 1.5), k * 0.08);
   const longest = Math.max(...pixels.map((p) => pid(p).length)) + 8;
-  const inline = fit(longest, 1) >= fit(4.6, 2.2),
-    fs = Math.max(fit(longest, 1), fit(4.6, 2.2)); // whichever gives the larger text
+  // both directions: "18.9 / 17.2" under the pixel id
+  const inline = dir !== 'both' && fit(longest, 1) >= fit(4.6, 2.2),
+    fs = dir === 'both' ? fit(4.6, 3.4) : Math.max(fit(longest, 1), fit(4.6, 2.2)); // whichever gives the larger text
   const tile = (p: string) => {
     const pc = curves.filter((c) => c.pixel === p),
-      c = shownCurve(pc, set.curves, dir) ?? shownCurve(pc, set.curves, dir === 'rev' ? 'fwd' : 'rev');
+      one = (dd: Dir) => shownCurve(pc, set.curves, dd),
+      // both: the colour follows the better direction
+      c =
+        dir === 'both'
+          ? [one('rev'), one('fwd')]
+              .filter((x): x is NonNullable<typeof x> => !!x)
+              .sort((a, b) => (b.m.status === 'ok' ? b.m.pce : -1) - (a.m.status === 'ok' ? a.m.pce : -1))[0]
+          : (one(dir) ?? one(dir === 'rev' ? 'fwd' : 'rev'));
     const st = c?.m.status ?? 'dead',
       col = st === 'ok' ? pceFill(c!.m.pce, max) : STATUS_FILL[st],
       counted = c ? inStats(c, set.curves) : false;
-    const val = st === 'ok' ? fmt(c!.m.pce, 1) : STATUS_FILL[st].text; // the % sign is in the legend: more room for the number
+    const v1 = (x: ReturnType<typeof one>) =>
+      !x ? '—' : x.m.status === 'ok' ? fmt(x.m.pce, 1) : STATUS_FILL[x.m.status as 'dead' | 'short'].text;
+    // the % sign is in the legend: more room for the number
+    const val = st === 'ok' ? fmt(c!.m.pce, 1) : STATUS_FILL[st].text,
+      both = [v1(one('rev')), v1(one('fwd'))];
     const aria = `Pixel ${p}: ${st === 'ok' ? `PCE ${fmt(c!.m.pce, 2)} %` : st === 'dead' ? 'dead' : 'short circuit'}${counted ? '' : st === 'ok' ? ', not in statistics' : ''}`;
     const gp = dev.px.get(p)!,
       [cx, cy] = gp.at;
@@ -216,7 +232,37 @@ export function SubstrateMap({
             vectorEffect="non-scaling-stroke"
           />
         )}
-        {inline ? (
+        {dir === 'both' ? (
+          // both directions: the id, then backward above forward
+          <>
+            <text
+              x={cx}
+              y={cy - fs * 1.15}
+              fill={col.ink}
+              fontSize={fs * 0.72}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="px-id"
+            >
+              {pid(p)}
+            </text>
+            {both.map((t, j) => (
+              <text
+                key={j}
+                x={cx}
+                y={cy + fs * (j === 0 ? 0 : 1.15)}
+                fill={col.ink}
+                fontSize={fs}
+                textAnchor="middle"
+                dominantBaseline="central"
+                className="px-val"
+                opacity={j === 1 ? 0.85 : 1}
+              >
+                {t}
+              </text>
+            ))}
+          </>
+        ) : inline ? (
           <text
             x={cx}
             y={cy}
@@ -293,7 +339,9 @@ export function SubstrateMap({
       </g>
     );
   };
-  const best = curves.filter((c) => c.dir === dir && inStats(c, set.curves)).reduce((b, c) => Math.max(b, c.m.pce), 0);
+  const best = curves
+    .filter((c) => dirs.includes(c.dir) && inStats(c, set.curves))
+    .reduce((b, c) => Math.max(b, c.m.pce), 0);
   return (
     <figure
       className={
@@ -564,7 +612,7 @@ export function SampleMaps({
   set: IvSetFull;
   sample: string;
   link: Link;
-  dir: Dir;
+  dir: Dir | 'both';
   onCurve: (c: Curve) => void;
 }) {
   const [geom, setGeom] = useState<CellGeom | null>(null),
@@ -598,7 +646,10 @@ export function SampleMaps({
     Math.max(
       0,
       ...set.curves
-        .filter((c) => c.sample === sample && c.substrate === sub && c.dir === dir && inStats(c, set.curves))
+        .filter(
+          (c) =>
+            c.sample === sample && c.substrate === sub && (dir === 'both' || c.dir === dir) && inStats(c, set.curves),
+        )
         .map((c) => c.m.pce),
     );
   const bestSub =

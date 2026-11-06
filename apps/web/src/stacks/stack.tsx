@@ -4,6 +4,7 @@ import { api } from '../api';
 import { PrefCtx } from '../ctx';
 import { PresetSheet } from '../lib/Library';
 import { usePrint } from '../lib/ui';
+import { DragHandle, useReorder } from '../views/common';
 import { KINDS } from '../recipes';
 import { Section } from '../recipes/shared';
 import { norm, type Ctx, type Kind, type Rec } from '../recipes/types';
@@ -251,6 +252,8 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
     setPlaced(j + 1);
     setStep(j + 2);
   };
+  // reordering the review list, which shows the top layer first; the substrate (first slot) never moves
+  const reorder = useReorder(st.sl.slice(1).reverse(), (l) => set({ sl: [st.sl[0], ...[...l].reverse()] }), 'layer');
   const removeAt = (j: number) => {
     if (!window.confirm(`Remove “${st.sl[j].n}” from this stack?`)) return;
     set({ sl: st.sl.filter((_, k) => k !== j) });
@@ -458,7 +461,13 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                   .map((s, j) => ({ s, j }))
                   .reverse()
                   .map(({ s, j }) => (
-                    <div key={slotKey(s, j)} className="layer-row">
+                    <div
+                      key={slotKey(s, j)}
+                      className={'layer-row' + (j > 0 && reorder.drag === n - 1 - j ? ' dragging' : '')}
+                      ref={j > 0 ? reorder.rowRef(n - 1 - j) : undefined}
+                    >
+                      {/* the substrate stays at the bottom; the layers above it can be dragged into another order */}
+                      <DragHandle h={reorder.handle(n - 1 - j)} show={j > 0 && n > 2} />
                       <span className="num">{j + 1}</span>
                       <span>
                         <b>{s.n}</b> <span className="mut small">· {s.m}</span>
@@ -495,15 +504,16 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                 </p>
               )}
               <p className="small mut">
-                Use Insert above to add a layer and Remove to drop an unused one (for example an optional passivation).
-                Save, then use Print run sheet or Start batch from the stack’s page.
+                Drag a layer by its handle to change the order, Insert above to add one, Remove to drop an unused one
+                (for example an optional passivation). Save, then use Print run sheet or Start batch from the stack’s
+                page.
               </p>
             </Section>
           )}
           {nav}
         </div>
         <div className="stack-view">
-          <View3D st={st} ctx={ctx} placed={review ? Infinity : placed} current={i} height={560} />
+          <View3D st={st} ctx={ctx} placed={review ? Infinity : placed} current={i} height={560} cog />
         </div>
       </div>
       {nested && (
@@ -529,7 +539,7 @@ function Output({ d: raw, ctx }: { d: StackD; ctx: Ctx; blanks?: boolean }) {
   const st = nstack(raw);
   return (
     <div className="stack-out">
-      <View3D st={st} ctx={ctx} height={480} />
+      <View3D st={st} ctx={ctx} height={480} cog />
       <div className="layer-list">
         {[...st.sl]
           .map((s, j) => ({ s, j }))

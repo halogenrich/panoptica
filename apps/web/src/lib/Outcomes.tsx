@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Booking } from '../views/Calendar';
+import { snapCtx, type Batch } from '../views/Batches';
+import { KINDS } from '../recipes';
+import { norm } from '../recipes/types';
+import { RunForm } from './Library';
+import { stepPresets, type StepPreset } from './stepRuns';
 
 type Pending = Booking & { batch_name: string };
 type Kind = 'done' | 'postponed' | 'canceled';
@@ -8,7 +13,7 @@ const when = (b: Pending) => {
   const s = new Date(b.start),
     e = new Date(b.end),
     t = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `${s.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, ${t(s)}–${t(e)}`;
+  return `${s.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${t(s)}–${t(e)}`;
 };
 
 /**
@@ -21,7 +26,9 @@ export default function Outcomes() {
     [pick, setPick] = useState<Record<number, Kind>>({}),
     [why, setWhy] = useState<Record<number, string>>({}),
     [err, setErr] = useState(''),
-    [busy, setBusy] = useState(0);
+    [busy, setBusy] = useState(0),
+    // after "Concluded": the run data of the step's recipes, one form after the other
+    [capture, setCapture] = useState<{ k: Pending; b: Batch; items: StepPreset[]; at: number } | null>(null);
   const load = () =>
     api<Pending[]>('/bookings/pending')
       .then(setList)
@@ -37,6 +44,49 @@ export default function Outcomes() {
       window.removeEventListener('psc-refresh', load);
     };
   }, []);
+  if (capture) {
+    const it = capture.items[capture.at],
+      k = KINDS[it.seg],
+      d = norm(k, (capture.b.snapshot.resolved[it.slot] ?? {})[it.seg === 's2' ? 'b' : 'a']?.data ?? {}),
+      next = () =>
+        capture.at + 1 < capture.items.length ? setCapture({ ...capture, at: capture.at + 1 }) : setCapture(null);
+    return (
+      <div className="scrim outcome-scrim">
+        <div className="dialog wide outcomes" role="dialog" aria-modal="true" aria-labelledby="runs-h">
+          <div className="dialog-head">
+            <h2 id="runs-h">Run data: {it.name}</h2>
+            {capture.items.length > 1 && (
+              <span className="mut small">
+                {capture.at + 1} of {capture.items.length}
+              </span>
+            )}
+          </div>
+          <p className="mut small">
+            {capture.k.batch_code}, {it.layer}. The step is concluded; write down what the run actually was. If the
+            notebook is not at hand, choose Add it later: the batch page keeps asking for it and you get a reminder.
+          </p>
+          <RunForm
+            key={capture.at}
+            kind={k}
+            ctx={snapCtx(capture.b)}
+            d={d}
+            presetId={+it.id}
+            batch={capture.k.batch_code}
+            required
+            onCancel={next}
+            onDone={() => {
+              window.dispatchEvent(new Event('psc-batches'));
+              next();
+            }}
+            onLater={() => {
+              api(`/bookings/${capture.k.id}/runs-later`, 'POST', {}).catch(() => {});
+              setCapture(null);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
   if (!list.length) return null;
   const send = (b: Pending, outcome: Kind) => {
     setBusy(b.id);
@@ -45,6 +95,11 @@ export default function Outcomes() {
         setErr('');
         setList((l) => l.filter((x) => x.id !== b.id));
         window.dispatchEvent(new Event('psc-batches'));
+        if (outcome === 'done')
+          return api<Batch>('/batches/' + b.batch_id).then((bt) => {
+            const items = stepPresets(bt, b.step);
+            if (items.length) setCapture({ k: b, b: bt, items, at: 0 });
+          });
       })
       .catch((e) => setErr(e.message))
       .finally(() => setBusy(0));
@@ -65,9 +120,9 @@ export default function Outcomes() {
           return (
             <section key={b.id} className="outcome" style={{ '--eq': b.color } as React.CSSProperties}>
               <div className="outcome-what">
-                <i />
                 <div>
                   <b>{b.equipment}</b>
+                  <i className="cbar" />
                   <span>
                     {b.batch_code}
                     {b.step ? ` (${b.step})` : ''}

@@ -4,7 +4,7 @@ import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
 import { batchUses, type BatchUse } from '../lib/consumption';
-import type { Chemical } from './common';
+import { DragHandle, useReorder, type Chemical } from './common';
 import Chemicals from './Chemicals';
 
 type Shelf = { id: number; name: string; pos: number };
@@ -203,7 +203,7 @@ function Dialog({
 }
 
 /** Inventory: storage places with divisions, containers, consumption from batches, the chemical list and the storage types. */
-export default function Inventory({ canEdit }: { canEdit: boolean }) {
+export default function Inventory({ canEdit, openId = null }: { canEdit: boolean; openId?: number | null }) {
   type Tab = 'storage' | 'containers' | 'use' | 'chems' | 'types';
   const [tab, setTab] = useState<Tab>(() => {
     try {
@@ -229,6 +229,11 @@ export default function Inventory({ canEdit }: { canEdit: boolean }) {
     load();
   }, []);
   useRefresh(load, ['inventory', 'batches']);
+  // a container found with the search (Ctrl K) opens directly
+  useEffect(() => {
+    const c = openId && inv?.containers.find((x) => x.id === openId);
+    if (c) setEdit(c);
+  }, [openId, inv === null]);
   const go = (t: Tab) => {
     setTab(t);
     setArea(null);
@@ -563,8 +568,27 @@ function AreaView({
       .catch((e) => setErr(e.message));
   const t = typeOf(inv, a),
     here = inv.containers.filter((c) => c.area_id === a.id && (showEmpty || c.status !== 'empty'));
+  // divisions are reordered by dragging their handle ("Not in a division" stays last); saved when the dragging pauses
+  const [local, setLocal] = useState<Shelf[] | null>(null),
+    saveT = useRef(0);
+  const shelves = local ?? a.shelves;
+  const order = useReorder(
+    shelves,
+    (l) => {
+      setLocal(l);
+      window.clearTimeout(saveT.current);
+      saveT.current = window.setTimeout(
+        () =>
+          run(api(`/inventory/areas/${a.id}/shelves/order`, 'PUT', { ids: l.map((x) => x.id) })).finally(() =>
+            setLocal(null),
+          ),
+        500,
+      );
+    },
+    'division',
+  );
   const groups: { s: Shelf | null; list: Box[] }[] = [
-    ...a.shelves.map((s) => ({ s, list: here.filter((c) => c.shelf_id === s.id) })),
+    ...(local ?? a.shelves).map((s) => ({ s, list: here.filter((c) => c.shelf_id === s.id) })),
     { s: null, list: here.filter((c) => !c.shelf_id || !a.shelves.some((s) => s.id === c.shelf_id)) },
   ];
   const addDivision = (e: React.FormEvent) => {
@@ -612,10 +636,16 @@ function AreaView({
           .filter((g) => g.s || g.list.length)
           .map((g) => {
             const id = g.s?.id ?? 0,
-              open = !closed.includes(id);
+              open = !closed.includes(id),
+              k = g.s ? shelves.indexOf(g.s) : -1;
             return (
-              <section key={id} className={'division' + (open ? ' open' : '')}>
+              <section
+                key={id}
+                ref={k >= 0 ? order.rowRef(k) : undefined}
+                className={'division' + (open ? ' open' : '') + (k >= 0 && order.drag === k ? ' dragging' : '')}
+              >
                 <div className="div-head">
+                  {canEdit && <DragHandle h={order.handle(k)} show={k >= 0 && shelves.length > 1} />}
                   {renaming === id && g.s ? (
                     <form
                       className="div-rename"
@@ -1639,8 +1669,8 @@ function UseDetail({ r, p }: { r: Row; p: Period }) {
   const ticks = [0, 0.5, 1].map((k) => k * max);
   const lab = (s: string) =>
     p === 'month'
-      ? new Date(s + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' })
-      : new Date(s + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      ? new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+      : new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const step = Math.ceil(n / 9);
   return (
     <section className="group use-detail">

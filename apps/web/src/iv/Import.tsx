@@ -9,7 +9,7 @@ import { SYSTEM, type Link } from './model';
 const dec = new TextDecoder('windows-1252'); // instrument files are plain ASCII / Latin-1 (e.g. "mA/cm²")
 const fdate = (d: string) =>
   d
-    ? new Date(d + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : 'no date';
 
 /** Every file inside dropped files, folders and .zip archives. */

@@ -7,6 +7,7 @@ import { showToast, useRefresh } from '../lib/trash';
 import { batchesChanged } from './Batches';
 import { ROLE_NAME, bundlesOf, placedOf, type Bundle } from '../lib/bundles';
 import type { StackD } from '../stacks/model';
+import { DragHandle, useReorder } from './common';
 
 type Eq = {
   id: number;
@@ -21,6 +22,7 @@ type Eq = {
 };
 const USED_FOR: [string, string][] = [
   ['', 'Other'],
+  ['prep', 'Substrate preparation'],
   ['scale', 'Solution preparation'],
   ['spinner', 'Spin coating'],
   ['organic', 'Organic evaporation'],
@@ -91,20 +93,19 @@ function range(v: View, d: Date): [Date, Date] {
   return [first, addDays(first, 42)];
 }
 function title(v: View, d: Date, short = false) {
-  if (short && v === 'day')
-    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (short && v === 'day') return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
   if (short && v === 'week') {
     const [a, b] = range('week', d);
-    return `${a.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${addDays(b, -1).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+    return `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${addDays(b, -1).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
   }
   if (v === 'day')
-    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  if (v === 'month') return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (v === 'month') return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const [a, b] = range('week', d),
     e = addDays(b, -1);
   return a.getMonth() === e.getMonth()
-    ? `${a.getDate()}–${e.getDate()} ${e.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`
-    : `${a.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${e.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    ? `${a.getDate()}–${e.getDate()} ${e.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+    : `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 /** First name, or first and second name when two people in view share the first one. */
 function namer(list: Booking[]) {
@@ -541,8 +542,8 @@ export default function Calendar({
                 style={{ '--eq': e.color } as React.CSSProperties}
                 onClick={() => toggleEq(e.id)}
               >
-                <i />
                 {e.name}
+                <i />
               </button>
             );
           })}
@@ -642,8 +643,8 @@ function HoverCard({ b, r, cleanup = 0 }: { b: Booking; r: DOMRect; cleanup?: nu
   return (
     <div className="bk-card" style={{ left, top, width: W, '--eq': b.color } as React.CSSProperties} role="tooltip">
       <div className="bk-card-h">
-        <i />
         <b>{b.equipment}</b>
+        <i className="cbar" />
       </div>
       <dl>
         <dt>Experiment</dt>
@@ -652,7 +653,7 @@ function HoverCard({ b, r, cleanup = 0 }: { b: Booking; r: DOMRect; cleanup?: nu
         <dd>{b.user_name}</dd>
         <dt>When</dt>
         <dd>
-          {s.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, {hm(s)}–{hm(e)}{' '}
+          {s.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, {hm(s)}–{hm(e)}{' '}
           <span className="mut">
             ({mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`})
           </span>
@@ -802,7 +803,7 @@ function TimeGrid({
                   'tg-col-h day' + (sameDay(c.day, today) ? ' today' : '') + (busyCol[cols.indexOf(c)] ? '' : ' slim')
                 }
               >
-                <span className="mut small">{c.day.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+                <span className="mut small">{c.day.toLocaleDateString('en-GB', { weekday: 'short' })}</span>
                 <b>{c.day.getDate()}</b>
               </div>
             ),
@@ -892,8 +893,9 @@ function TimeGrid({
                         title={`${cl} min of cleanup after this booking, until ${hm(new Date(ce + cl * 6e4))}: leave it clean for the next person`}
                         style={
                           {
-                            top: ((cs2 - d0) / 3.6e6) * HOUR_PX,
-                            height: Math.max(4, ((ce2 - cs2) / 3.6e6) * HOUR_PX - 2),
+                            // starts 1 px inside the booking so the two read as one block
+                            top: ((cs2 - d0) / 3.6e6) * HOUR_PX - 1,
+                            height: Math.max(4, ((ce2 - cs2) / 3.6e6) * HOUR_PX - 1),
                             left: `calc(${(L.lane / L.of) * 100}% + 2px)`,
                             width: `calc(${100 / L.of}% - 4px)`,
                             '--eq': b.color,
@@ -913,6 +915,7 @@ function TimeGrid({
                           (b.mine ? ' mine' : '') +
                           (canEdit ? ' can-edit' : '') +
                           (b.id === activeId ? ' bk-dim' : '') +
+                          (clean && e === ce ? ' has-clean' : '') +
                           (b.outcome ? ' bk-' + b.outcome : ended(b) ? ' bk-wait' : '')
                         }
                         style={
@@ -1076,7 +1079,7 @@ function Month({
     <div className="month">
       {days.slice(0, 7).map((d) => (
         <div key={'h' + d.getDay()} className="month-h">
-          {d.toLocaleDateString(undefined, { weekday: 'short' })}
+          {d.toLocaleDateString('en-GB', { weekday: 'short' })}
         </div>
       ))}
       {days.map((d) => {
@@ -1237,7 +1240,7 @@ function BookingForm({
               <b>
                 {hm(s0)}–{hm(e0)}
               </b>
-              , {s0.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+              , {s0.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
             <p>
               Batch {draft.batch_code}
@@ -1268,8 +1271,8 @@ function BookingForm({
                     style={{ '--eq': e.color } as React.CSSProperties}
                     onClick={() => setF({ ...f, eq: e.id })}
                   >
-                    <i />
                     {e.name}
+                    <i />
                   </button>
                 ))}
               </div>
@@ -1435,7 +1438,7 @@ function Tray({
                 !eq
                   ? `No equipment is set up for ${ROLE_NAME[b.role].toLowerCase()} (an admin sets the procedure under Equipment)`
                   : placed
-                    ? `Placed: ${new Date(placed.start).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                    ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                     : 'Drag onto the calendar'
               }
               onPointerDown={(e) => {
@@ -1456,7 +1459,7 @@ function Tray({
               <span>{b.layers.join(', ')}</span>
               <span className="tray-t">
                 {placed
-                  ? `✓ ${new Date(placed.start).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })} ${hm(new Date(placed.start))}`
+                  ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })} ${hm(new Date(placed.start))}`
                   : `${b.minutes >= 60 ? `${Math.floor(b.minutes / 60)} h${b.minutes % 60 ? ` ${b.minutes % 60}` : ''}` : `${b.minutes} min`}`}
               </span>
             </button>
@@ -1469,6 +1472,25 @@ function Tray({
 
 // ------------------------------------------------------------------ equipment (admins)
 function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => void; reload: () => void }) {
+  // the order is the order of the Day view's columns and of the pickers; dragged here, saved when the dragging pauses
+  const [local, setLocal] = useState<Eq[] | null>(null),
+    saveT = useRef(0);
+  const list = local ?? eqs;
+  const order = useReorder(
+    list,
+    (l) => {
+      setLocal(l);
+      window.clearTimeout(saveT.current);
+      saveT.current = window.setTimeout(
+        () =>
+          api('/equipment/order', 'PUT', { ids: l.map((x) => x.id) })
+            .then(reload)
+            .finally(() => setLocal(null)),
+        500,
+      );
+    },
+    'equipment',
+  );
   const [name, setName] = useState(''),
     [color, setColor] = useState('#2563eb'),
     [role, setRole] = useState(''),
@@ -1501,14 +1523,16 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
         </p>
         <div className="eq-table" role="table">
           <div className="eq-h" role="row">
+            <span />
             <span>Colour</span>
             <span>Name</span>
             <span>Procedure</span>
             <span title="Minutes the equipment stays taken after each booking, to clean it">Cleanup after</span>
             <span />
           </div>
-          {eqs.map((e) => (
-            <div key={e.id} className="eq-r" role="row">
+          {list.map((e, i) => (
+            <div key={e.id} className={'eq-r' + (order.drag === i ? ' dragging' : '')} role="row" ref={order.rowRef(i)}>
+              <DragHandle h={order.handle(i)} show={list.length > 1} />
               <input
                 type="color"
                 aria-label={`Colour of ${e.name}`}
@@ -1574,6 +1598,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
               );
             }}
           >
+            <span />
             <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
             <input
               aria-label="Name"
