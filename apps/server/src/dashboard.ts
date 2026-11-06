@@ -154,7 +154,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
     // ---- equipment
     const wh = workHours(from, to);
     const equipment = (
-      db.prepare('SELECT id,name,color FROM equipment WHERE active=1 ORDER BY pos,id').all() as any[]
+      db.prepare('SELECT id,name,color,role,art FROM equipment WHERE active=1 ORDER BY pos,id').all() as any[]
     ).map((e) => {
       const ks = books.filter((k) => k.equipment_id === e.id),
         hours = ks.reduce((a, k) => a + hoursOf(k), 0);

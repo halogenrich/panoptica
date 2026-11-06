@@ -1,3 +1,7 @@
+import { openDataPackage } from '../lib/DataPackage';
+import ExportMenu from '../lib/ExportMenu';
+import { useItemRoute } from '../lib/route';
+import CopyLink from '../lib/CopyLink';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { MeCtx } from '../ctx';
 import { api } from '../api';
@@ -139,6 +143,9 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
         />
         <div className="grow" />
         <LayoutToggle v={layout} on={setLayout} />
+        <button className="link" onClick={() => openDataPackage()}>
+          Data package
+        </button>
       </div>
       {rows === null ? (
         <div className="cards">
@@ -282,6 +289,7 @@ function Detail({
     [msg, setMsg] = useState(''),
     [adding, setAdding] = useState<{ slot: number; id: string; seg: string } | null>(null);
   const { me } = useContext(MeCtx);
+  useItemRoute('batches', id);
   const pr = usePrint(),
     saved = useRef(''),
     [busyRep, setBusyRep] = useState<'' | 'pdf' | 'xlsx'>('');
@@ -397,6 +405,7 @@ function Detail({
             ['shared', 'Shared'],
           ]}
         />
+        <CopyLink view="batches" id={b.id} what={`batch ${b.code}`} />
         <button
           className="btn"
           onClick={() =>
@@ -405,32 +414,50 @@ function Detail({
         >
           Print sheet
         </button>
-        <button
-          className="link"
+        <ExportMenu
+          label={busyRep ? 'Preparing…' : 'Export'}
           disabled={!!busyRep}
-          onClick={() => {
-            setBusyRep('pdf');
-            batchMeasurements(b.id)
-              .then((sets) => pr.print(<BatchReport b={b} ctx={ctx} runs={runs} sets={sets} books={books} />))
-              .catch((e) => setMsg(e.message))
-              .finally(() => setBusyRep(''));
-          }}
-        >
-          {busyRep === 'pdf' ? 'Preparing…' : 'Report (PDF)'}
-        </button>
-        <button
-          className="link"
-          disabled={!!busyRep}
-          onClick={() => {
-            setBusyRep('xlsx');
-            batchMeasurements(b.id)
-              .then((sets) => batchSpreadsheet(b, ctx, runs, sets, books))
-              .catch((e) => setMsg(e.message))
-              .finally(() => setBusyRep(''));
-          }}
-        >
-          {busyRep === 'xlsx' ? 'Preparing…' : 'Spreadsheet'}
-        </button>
+          sections={[
+            [
+              'This batch',
+              [
+                [
+                  'Report',
+                  [
+                    [
+                      'PDF',
+                      () => {
+                        setBusyRep('pdf');
+                        batchMeasurements(b.id)
+                          .then((sets) =>
+                            pr.print(<BatchReport b={b} ctx={ctx} runs={runs} sets={sets} books={books} />),
+                          )
+                          .catch((e) => setMsg(e.message))
+                          .finally(() => setBusyRep(''));
+                      },
+                    ],
+                  ],
+                ],
+                [
+                  'Spreadsheet',
+                  [
+                    [
+                      'Excel',
+                      () => {
+                        setBusyRep('xlsx');
+                        batchMeasurements(b.id)
+                          .then((sets) => batchSpreadsheet(b, ctx, runs, sets, books))
+                          .catch((e) => setMsg(e.message))
+                          .finally(() => setBusyRep(''));
+                      },
+                    ],
+                  ],
+                ],
+                ['Data package, with its measurements', [['ZIP', () => openDataPackage({ batches: [b.id] })]]],
+              ],
+            ],
+          ]}
+        />
         {b.editable && (
           <button
             className="link danger-link"

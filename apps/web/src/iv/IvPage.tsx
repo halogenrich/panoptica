@@ -1,3 +1,6 @@
+import { openDataPackage } from '../lib/DataPackage';
+import { useItemRoute } from '../lib/route';
+import CopyLink from '../lib/CopyLink';
 import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
@@ -95,6 +98,9 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
         )}
         <div className="grow" />
         {tab === 'list' && <LayoutToggle v={layout} on={setLayout} />}
+        <button className="link" onClick={() => openDataPackage()}>
+          Data package
+        </button>
         <button className="btn" onClick={() => setImp(true)}>
           Import measurements
         </button>
@@ -222,6 +228,7 @@ function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: 
 }
 
 function Detail({ id, onBack }: { id: number; onBack: () => void }) {
+  useItemRoute('iv', id);
   const [s, setS] = useState<IvSetFull | null>(null),
     [msg, setMsg] = useState(''),
     [tab, setTab] = useState<'cells' | 'stats' | 'stability'>('cells');
@@ -274,6 +281,10 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
             ['shared', 'Shared'],
           ]}
         />
+        <CopyLink view="iv" id={id} what="this measurement" />
+        <button className="link" onClick={() => openDataPackage({ iv: [id] })}>
+          Data package
+        </button>
         {s.editable && (
           <button
             className="link danger-link"

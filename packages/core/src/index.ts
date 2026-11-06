@@ -584,3 +584,4 @@ export * from './iv';
 export * from './mask';
 export * from './stack3d';
 export * from './variants';
+export * from './sha256';

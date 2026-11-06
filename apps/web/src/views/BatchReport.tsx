@@ -330,6 +330,10 @@ function variantRecipes(b: Batch) {
 }
 
 export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []) {
+  downloadBytes(`batch-${b.code.replace(/[^\w.-]+/g, '_')}.xlsx`, xlsx(batchSheets(b, ctx, runs, sets, books)));
+}
+/** The batch record as tables (the spreadsheet's sheets; the data package writes them as CSV files). */
+export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []): Sheet[] {
   const st = b.snapshot.stack,
     rec = b.record ?? {},
     dataOf = (id: string | number) => ctx.all.find((p) => String(p.id) === String(id));
@@ -504,5 +508,5 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
       ),
     ],
   });
-  downloadBytes(`batch-${b.code.replace(/[^\w.-]+/g, '_')}.xlsx`, xlsx(sheets));
+  return sheets;
 }

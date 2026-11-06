@@ -1,3 +1,6 @@
+import { openDataPackage } from '../lib/DataPackage';
+import { useItemRoute } from '../lib/route';
+import CopyLink from '../lib/CopyLink';
 import { applyVariant } from '@psc/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
@@ -179,6 +182,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
 
 // ------------------------------------------------------------------ one comparison
 function Detail({ id, onBack }: { id: number; onBack: () => void }) {
+  useItemRoute('cmp', id);
   const [c, setC] = useState<Comparison | null>(null),
     [err, setErr] = useState(''),
     [sets, setSets] = useState<Record<number, IvSetFull>>({}),
@@ -332,6 +336,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         ) : (
           <span className="mut small">By {c.owner} · read only</span>
         )}
+        <CopyLink view="cmp" id={id} what="this comparison" />
         {!c.editable ? (
           <button className="btn secondary small-btn" onClick={copy}>
             Make a copy
@@ -1127,6 +1132,10 @@ function Results({
               ],
             ],
             ['Spreadsheet', [['Groups, every pixel, what changed', [['Excel', excel]]]]],
+            [
+              'Data package',
+              [['For a data repository, with its measurements', [['ZIP', () => openDataPackage({ cmp: [c.id] })]]]],
+            ],
           ]}
         />
       </div>

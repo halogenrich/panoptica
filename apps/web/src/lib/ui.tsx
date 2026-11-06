@@ -36,7 +36,17 @@ let modalSeq = 0;
  * Centered sheet on desktop, full screen on phones, rendered on top of the page so sheets can open inside other sheets.
  * Escape and the backdrop close only the topmost one (the caller guards unsaved changes).
  */
-export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Modal({
+  children,
+  onClose,
+  wide,
+  className = '',
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+  className?: string;
+}) {
   const id = useRef(++modalSeq).current,
     close = useRef(onClose);
   close.current = onClose;
@@ -61,7 +71,11 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true">
+      <div
+        className={'modal' + (wide ? ' wide' : '') + (className ? ' ' + className : '')}
+        role="dialog"
+        aria-modal="true"
+      >
         {children}
       </div>
     </div>,
@@ -136,6 +150,9 @@ export function Empty({ title, text, action }: { title: string; text: string; ac
 }
 
 export const fmtDate = (s: string) => {
+  // a date without a time (a measurement day) is that calendar day, not midnight UTC (the day before in Brazil)
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (day) return `${day[3]}/${day[2]}/${day[1]}`;
   const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
   return isNaN(+d) ? s : d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
