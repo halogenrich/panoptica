@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useRefresh } from '../lib/trash';
 import { api } from '../api';
 import { Badge, Seg } from '../lib/ui';
 import { Activity, Security, Updates } from './AdminSecurity';
@@ -118,6 +119,7 @@ function Users({ meId }: { meId: number }) {
   useEffect(() => {
     load();
   }, []);
+  useRefresh(load, ['users']);
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     try {

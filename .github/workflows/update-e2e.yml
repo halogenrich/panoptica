@@ -1,0 +1,43 @@
+name: Update end-to-end
+# Installs the app from this commit, starts it with its own start script, and updates it from the app
+# (Admin settings › Updates) to a newer test release served by a fake GitHub: download, checksum, install, restart.
+# Runs on Windows (the lab computers) and Linux, for pull requests that touch the update path, and on demand.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'update.*'
+      - 'start.*'
+      - 'apps/server/src/updates.ts'
+      - 'apps/server/src/backup.ts'
+      - 'apps/server/db-tools.cjs'
+      - 'tools/stamp.cjs'
+      - 'tools/update-e2e.mjs'
+      - '.github/workflows/update-e2e.yml'
+permissions:
+  contents: read
+jobs:
+  update:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installed copy and a newer release zip
+        shell: bash
+        run: |
+          T="$RUNNER_TEMP"
+          git archive --format=zip --prefix=perovskite-lab/ -o "$T/base.zip" HEAD
+          mkdir -p "$T/inst" "$T/new" "$T/out"
+          (cd "$T/inst" && unzip -q ../base.zip)
+          (cd "$T/new" && unzip -q ../base.zip && node -e "const f='perovskite-lab/package.json',p=require('fs');const j=JSON.parse(p.readFileSync(f,'utf8'));j.version='99.0.0';p.writeFileSync(f,JSON.stringify(j,null,2)+'\n')")
+          (cd "$T/new" && 7z a -tzip -bso0 "$T/out/perovskite-lab.zip" perovskite-lab || zip -qr "$T/out/perovskite-lab.zip" perovskite-lab)
+      - name: Update from the app
+        shell: bash
+        run: node tools/update-e2e.mjs "$RUNNER_TEMP/inst/perovskite-lab" "$RUNNER_TEMP/out/perovskite-lab.zip" 99.0.0

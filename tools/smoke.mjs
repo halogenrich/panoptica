@@ -4,14 +4,23 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = mkdtempSync(join(tmpdir(), 'psc-smoke-')),
-  PORT = 3900 + Math.floor(Math.random() * 90),
-  GH = PORT + 100;
+  // free ports from the system (fixed ones can fall in ranges Windows reserves)
+  freePort = () =>
+    new Promise((res) => {
+      const s = createNetServer().listen(0, '127.0.0.1', () => {
+        const p = s.address().port;
+        s.close(() => res(p));
+      });
+    }),
+  PORT = await freePort(),
+  GH = await freePort();
 const base = `http://127.0.0.1:${PORT}`,
   PW = 'Admin-pass-for-tests-26';
 let failed = 0;
@@ -55,7 +64,7 @@ const gh = createServer((req, res) => {
   }
   res.writeHead(404);
   res.end('{}');
-}).listen(GH);
+}).listen(GH, '127.0.0.1');
 
 const env = {
   ...process.env,
@@ -257,6 +266,35 @@ ok((await call('GET', '/api/audit/verify')).j.ok === true, 'log chain intact');
 db.prepare("UPDATE audit SET username='someone' WHERE id=2").run();
 const v = (await call('GET', '/api/audit/verify')).j;
 ok(v.ok === false && v.brokenAt?.id === 2, 'edited log entry detected');
+
+console.log('Live updates');
+{
+  const ac = new AbortController();
+  const es = await fetch(base + '/api/events', { headers: { cookie }, signal: ac.signal });
+  ok(
+    es.status === 200 && (es.headers.get('content-type') ?? '').startsWith('text/event-stream'),
+    'event stream opens for a signed-in user',
+  );
+  const reader = es.body.getReader(),
+    dec = new TextDecoder();
+  let got = '';
+  const wait = (async () => {
+    for (let i = 0; i < 20 && !got.includes('"topics"'); i++) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      got += dec.decode(value);
+    }
+  })();
+  await call('POST', '/api/tags', { name: 'live-test', kind: 'label' }, { 'x-tab': 'other-tab' });
+  await Promise.race([wait, new Promise((r) => setTimeout(r, 3000))]);
+  ok(
+    /"topics":\["users"\]/.test(got) && got.includes('"tab":"other-tab"'),
+    'a change is announced to open pages, without its data',
+  );
+  ac.abort();
+  const anon = await fetch(base + '/api/events');
+  ok(anon.status === 401, 'no event stream without signing in');
+}
 
 console.log('Updates');
 ok(

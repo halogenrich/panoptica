@@ -94,7 +94,7 @@ export default function Library({
     setRows(null);
     load();
   }, [kind.segment]);
-  useRefresh(load);
+  useRefresh(load, ['presets']);
   useEffect(() => {
     if (openId) setOpen({ id: openId });
   }, [openId]);
