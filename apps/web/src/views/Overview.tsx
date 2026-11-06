@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useRefresh } from '../lib/trash';
 import { api } from '../api';
 import Avatar from '../lib/Avatar';
 import { Seg, fmtDate } from '../lib/ui';
@@ -177,12 +178,15 @@ export default function Overview({
     [person, setPerson] = useState<number | null>(null);
   const s = startOf(start, unit),
     e = endOf(s, unit);
-  useEffect(() => {
-    setD(null);
+  const loadDash = () =>
     api<Dash>(`/dashboard?from=${s.toISOString()}&to=${e.toISOString()}&unit=${unit}`)
       .then(setD)
       .catch((x) => setErr(x.message));
+  useEffect(() => {
+    setD(null);
+    loadDash();
   }, [s.getTime(), unit]);
+  useRefresh(loadDash, ['batches', 'iv', 'calendar', 'users']);
   const pickUnit = (u: Unit) => {
     setUnit(u);
     setStart(startOf(start, u));

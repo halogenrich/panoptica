@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import { MeCtx, PrefCtx, type Me, type Prefs } from './ctx';
 import Shell from './Shell';
+import { live, stopLive } from './lib/live';
 
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined),
@@ -18,6 +19,12 @@ export default function App() {
       })
       .catch(() => setMe(null));
   }, []);
+  // live updates while signed in (and the password is not waiting to be changed)
+  const signedIn = !!me && !me.mustChange;
+  useEffect(() => {
+    if (signedIn) live(true);
+    else stopLive();
+  }, [signedIn]);
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.theme === 'system' ? '' : prefs.theme;
   }, [prefs.theme]);

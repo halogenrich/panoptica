@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useRefresh } from './trash';
 import { api } from '../api';
 
 export type Note = {
@@ -34,6 +35,7 @@ export function useNotifications() {
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   }, []);
+  useRefresh(load, ['notifications', 'presets', 'iv']);
   return { ...d, load, read: (ids?: number[]) => api('/notifications/read', 'POST', ids ? { ids } : {}).then(load) };
 }
 
