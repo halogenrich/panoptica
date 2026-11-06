@@ -133,6 +133,7 @@ This section describes the facts; the legal assessment belongs to UNICAMP's data
 - **Access**: admins and the Professor (section 3). The Overview shows activity per person to the Professor and Managers.
 - **Retention**: activity log two years; accounts until deleted by an admin (the work stays under "username (former)"; the photo and preferences are removed). Backups age out as in section 5.
 - **Rights** (access, correction, deletion): a member sees and edits their name and photo in Edit profile; an admin exports a person's activity (Activity log › filter by person › Export CSV) or deletes the account.
+- **Data packages** (for depositing research data): built in the browser from what the person can already see, and downloaded to their computer; the app sends nothing anywhere. A package names the authors typed in its dialog and the owners of its items (display names only, no usernames, addresses or log entries). Depositing it in a repository is the authors' decision and follows the repository's terms.
 - **Security incidents**: the activity log, refused requests and failed sign-ins support the investigation; the response follows the university's procedure.
 
 ## 9. What is not covered yet

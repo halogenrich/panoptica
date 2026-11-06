@@ -21,7 +21,10 @@ import { Toaster } from './lib/trash';
 import { NotificationList, useNotifications } from './lib/Notifications';
 import IvPage from './iv/IvPage';
 import Comparisons from './compare/Comparisons';
+import { parseRoute, pushRoute } from './lib/route';
 const Invite = lazy(() => import('./lib/Invite'));
+const DataPackage = lazy(() => import('./lib/DataPackage'));
+import type { PackSel } from './lib/datapack';
 
 type Key =
   | 'dash'
@@ -127,16 +130,29 @@ const Soon = ({ title, text }: { title: string; text: string }) => (
   </>
 );
 
+const KEYS = new Set<string>([...Object.keys(LABEL), 'dash', 'users']);
+
 export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { prefs, set } = useContext(PrefCtx);
-  const [view, setView] = useState<Key>('stk'),
-    [bid, setBid] = useState<number | null>(null),
+  // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
+  const start = (() => {
+    const r = parseRoute();
+    if (!r || !KEYS.has(r.view)) return null;
+    if (r.view === 'dash' && !(me.role === 'admin' || me.professor || me.manager)) return null;
+    if (r.view === 'users' && me.role !== 'admin') return null;
+    return r as { view: Key; id: number | null };
+  })();
+  const [view, setView] = useState<Key>(start?.view ?? 'stk'),
+    [bid, setBid] = useState<number | null>(start?.view === 'batches' ? start.id : null),
+    [nav, setNav] = useState(0),
     [pal, setPal] = useState(false),
     [pop, setPop] = useState<'' | 'bell' | 'me'>(''),
     [ver, setVer] = useState(''),
-    [focus, setFocus] = useState<number | null>(null),
+    [focus, setFocus] = useState<number | null>(
+      start && start.view !== 'batches' && start.view !== 'iv' ? start.id : null,
+    ),
     [menu, setMenu] = useState(false),
-    [ivId, setIvId] = useState<number | null>(null),
+    [ivId, setIvId] = useState<number | null>(start?.view === 'iv' ? start.id : null),
     [invite, setInvite] = useState(false),
     [lastIn, setLastIn] = useState<Record<string, Key>>({});
   useEffect(() => {
@@ -156,9 +172,35 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
     return () => window.removeEventListener('keydown', h);
   }, []);
   const seesOverview = me.role === 'admin' || !!me.professor || !!me.manager;
+  // the page's address follows the page (open items add their id themselves, lib/route.ts)
+  useEffect(() => {
+    if (parseRoute()?.view !== view) pushRoute(view);
+  }, [view]);
+  // Back and Forward: open what the address says (the page is drawn again so open sheets follow)
+  useEffect(() => {
+    const f = () => {
+      const r = parseRoute();
+      if (!r || !KEYS.has(r.view)) return;
+      setView(r.view as Key);
+      if (r.view === 'batches') setBid(r.id);
+      else if (r.view === 'iv') setIvId(r.id);
+      else setFocus(r.id);
+      setPop('');
+      setMenu(false);
+      setNav((n) => n + 1);
+    };
+    window.addEventListener('popstate', f);
+    return () => window.removeEventListener('popstate', f);
+  }, []);
   const notes = useNotifications(),
     profs = usePresence(),
-    [schedId, setSchedId] = useState<number | null>(null);
+    [schedId, setSchedId] = useState<number | null>(null),
+    [pack, setPack] = useState<PackSel | null>(null);
+  useEffect(() => {
+    const f = (e: Event) => setPack((e as CustomEvent<PackSel>).detail);
+    window.addEventListener('psc-datapack', f);
+    return () => window.removeEventListener('psc-datapack', f);
+  }, []);
   const openLink = (l: { view: string; id: number }) => {
     setPop('');
     if (l.view === 'users') {
@@ -420,7 +462,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
             ))}
           </div>
         )}
-        <div key={view} className="page">
+        <div key={view + ':' + nav} className="page">
           {page()}
         </div>
       </main>
@@ -494,6 +536,11 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       )}
       <Toaster />
       <Outcomes />
+      {pack && (
+        <Suspense fallback={null}>
+          <DataPackage initial={pack} onClose={() => setPack(null)} />
+        </Suspense>
+      )}
       {invite && (
         <Suspense fallback={null}>
           <Invite onClose={() => setInvite(false)} />

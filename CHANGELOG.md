@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.34.0 (2026-11-06)
+
+Sharing, and the major library updates.
+
+- **A link to everything**: every page and item has its own address (`#/batches/12`, `#/iv/5`, `#/cmp/3`, `#/s1/7`, `#/chem/9`). **Copy link** in the header of batches, measurements, comparisons, recipes, designs and containers; Back and Forward move between what was opened; a link opens the item after signing in. Copying works on plain-HTTP lab addresses too.
+- **Data package** for a data repository (FAPESP data management plans): choose batches, measurements and comparisons (with what they are linked to), describe them (title, description, authors, affiliation, FAPESP process, licence, keywords) and download one .zip with a README (what, who, when, folder layout, units, methods), metadata.json with the fields of a REDU / Dataverse deposit, CSV and JSON for every item, one CSV per J–V curve, and SHA-256 checksums of every file. Made in the browser; nothing leaves the computer. From a batch's or comparison's **Export**, a measurement's header, or the Batches and Electric measurements lists.
+- **Equipment drawings**: line drawings of the equipment (balance, spin coater, small and thermal evaporator, UV-ozone cleaner, hotplate, glovebox, solar simulator, profilometer, ultrasonic bath, other), the working part in the equipment's colour, in the Day view's columns, the booking form, the hover card and the Overview's equipment use (the dot there is gone). Chosen from use and name; admins pick another under Equipment.
+- Batch page: **Export** menu (report PDF, spreadsheet, data package) instead of separate buttons.
+- Fixes: a measurement day was shown as the day before in some lists (dates without a time are now that calendar day); file names from .zip archives without the UTF-8 flag ("PadraÌo") are read as UTF-8 on import.
+- **Library updates**, each tested on its own before joining: React 19, Vite 8 (with @vitejs/plugin-react 6; builds in under a second), TypeScript 6.0, three.js 0.187, emoji-picker-element 1.29, GitHub actions checkout and setup-node v7. TypeScript 7 waits until typescript-eslint supports it.
+
 ## 0.33.0 (2026-11-06)
 
 Batches: variants, locking and mentions.

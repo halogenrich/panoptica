@@ -1,3 +1,4 @@
+import { fixName } from '../lib/names';
 import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
@@ -21,7 +22,7 @@ async function collect(items: { name: string; file: File }[]): Promise<IvFile[]>
     if (/\.zip$/i.test(name)) {
       for (const [n, data] of Object.entries(unzipSync(buf)))
         if (!n.endsWith('/') && /\.(csv|txt)$/i.test(n) && !/(^|\/)(__MACOSX\/|\._)/.test(n))
-          out.push({ name: n, text: dec.decode(data) }); // skip macOS resource copies
+          out.push({ name: fixName(n), text: dec.decode(data) }); // skip macOS resource copies
     } else if (/\.(csv|txt)$/i.test(name) && !/(^|\/)(__MACOSX\/|\._)/.test(name))
       out.push({ name, text: dec.decode(buf) });
   }

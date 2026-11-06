@@ -5470,7 +5470,7 @@ body.dragging-block * {
   display: grid;
 }
 .dialog.eq-dialog {
-  width: min(760px, 100%);
+  width: min(820px, 100%);
 }
 .eq-clean {
   display: flex;
@@ -5483,7 +5483,7 @@ body.dragging-block * {
 .eq-h,
 .eq-r {
   display: grid;
-  grid-template-columns: 22px 44px minmax(0, 1fr) 190px 96px 70px;
+  grid-template-columns: 22px 44px 52px minmax(0, 1fr) 180px 96px 70px;
   gap: 10px;
   align-items: center;
   padding: 7px 0;
@@ -5833,11 +5833,9 @@ body.dragging-block * {
   align-items: center;
   gap: 8px;
 }
-.eq-use-name i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--eq);
+.eq-use-name .eq-art {
+  flex: none;
+  color: var(--mut);
 }
 .eq-use-bar {
   grid-area: bar;
@@ -5859,6 +5857,7 @@ body.dragging-block * {
 }
 .eq-use-who {
   grid-area: who;
+  padding-left: 50px;
 }
 .slide-btns {
   gap: 8px;
@@ -7094,4 +7093,172 @@ body.dragging-block * {
   margin-left: 5px;
   vertical-align: -1px;
   opacity: 0.75;
+}
+
+/* 0.34: data package dialog */
+.modal.dp-modal {
+  width: min(1040px, 100%);
+}
+.dp-linked {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: var(--mut);
+}
+.dp {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 22px;
+  padding-top: 14px;
+  padding-bottom: 6px;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+}
+.dp-pick,
+.dp-meta {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+.dp-sec-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--sep);
+}
+.dp-list {
+  max-height: 168px;
+  overflow: auto;
+  display: grid;
+  padding-top: 2px;
+}
+.dp-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  cursor: pointer;
+}
+.dp-row + .dp-row {
+  border-top: 1px solid color-mix(in srgb, var(--sep) 60%, transparent);
+}
+.dp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dp-row.auto .dp-name {
+  color: var(--mut);
+}
+.dp-foot {
+  padding-top: 12px;
+  padding-bottom: 14px;
+  border-top: 1px solid var(--sep);
+}
+@media (max-width: 760px) {
+  .dp {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+  }
+}
+
+/* 0.34: equipment drawings (outline in the text colour, the working part in the equipment's colour) */
+.eq-art {
+  display: block;
+  flex: none;
+}
+.tg-col-h.eq {
+  gap: 2px;
+  padding-top: 6px;
+}
+.tg-col-h.eq .eq-art {
+  color: var(--mut);
+}
+.eq-pick {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+.eq-pick button {
+  justify-items: center;
+  align-content: start;
+  text-align: center;
+}
+.eq-pick button .eq-art {
+  color: var(--mut);
+  margin: 2px auto 0;
+}
+.eq-pick button.on .eq-art {
+  color: var(--fg);
+}
+.eq-pick button i {
+  width: 100%;
+}
+.bk-card-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bk-card-h > span {
+  display: grid;
+  justify-items: start;
+}
+.bk-card-h .eq-art {
+  color: var(--mut);
+}
+.eq-art-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  color: var(--mut);
+}
+.art-btn {
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 8px;
+  padding: 2px;
+  color: inherit;
+  cursor: pointer;
+}
+.art-btn:hover,
+.art-btn[aria-expanded='true'] {
+  border-color: var(--sep);
+  color: var(--fg);
+}
+.art-menu {
+  position: fixed;
+  z-index: 300;
+  width: 372px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+  background: var(--card);
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+.art-menu button {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--mut);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.art-menu button:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.art-menu button.on {
+  color: var(--fg);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
