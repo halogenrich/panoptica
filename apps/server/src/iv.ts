@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ivMetrics } from '@psc/core';
+import { checkSweeps, ivMetrics } from '@psc/core';
 import { IvCurvePatch, IvSetIn, IvSetPatch } from '@psc/schema';
 import { db, tx } from './db.js';
 import { checkRecord } from './social.js';
@@ -12,7 +12,7 @@ const editable = (u: U, r: { owner_id: number }) => r.owner_id === u.id || u.rol
 const fin = (x: number) => (Number.isFinite(x) ? x : null); // JSON has no NaN/Infinity
 
 /** Names for the batches and stacks samples are linked to (the groups shown in the statistics). */
-function linkNames(links: Record<string, Link>) {
+export function linkNames(links: Record<string, Link>) {
   const out: Record<string, { kind: string; id: number; label: string } | null> = {};
   for (const [s, l] of Object.entries(links)) {
     if (!l) {
@@ -59,6 +59,25 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
     db.exec('ALTER TABLE iv_sets ADD COLUMN stability_of INTEGER REFERENCES iv_sets(id) ON DELETE SET NULL');
     db.exec('ALTER TABLE iv_sets ADD COLUMN measured_at TEXT');
   }
+  /**
+   * 0.30: check sweeps. kind = 'check' marks a quick exploratory scan (e.g. 0.05 V, forward only) run before the real measurement
+   * of the same pixel; it is shown but never counted (best, statistics, records, comparisons) unless someone ticks it in by hand.
+   */
+  const classify = (setId: number) => {
+    const rows = db
+      .prepare('SELECT id,sample,substrate,pixel,scan,dir,data FROM iv_curves WHERE set_id=?')
+      .all(setId) as any[];
+    const cs = rows.map((r) => ({ ...r, V: (JSON.parse(r.data) as { V: number[] }).V }));
+    const chk = checkSweeps(cs);
+    const up = db.prepare('UPDATE iv_curves SET kind=? WHERE id=?');
+    for (const c of cs) up.run(chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`) ? 'check' : null, c.id);
+  };
+  if (!(db.prepare('PRAGMA table_info(iv_curves)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
+    db.exec('ALTER TABLE iv_curves ADD COLUMN kind TEXT');
+    tx(() => {
+      for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) classify(r.id); // existing data
+    });
+  }
   /** The first measurement of a series (follow-ups may point at another follow-up). */
   const baseOf = (id: number) => {
     let cur = id;
@@ -81,14 +100,15 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       )
       .get(id) as any;
   const summary = (s: any) => {
-    const c = db.prepare('SELECT sample,substrate,metrics,use FROM iv_curves WHERE set_id=?').all(s.id) as {
+    const c = db.prepare('SELECT sample,substrate,metrics,use,kind FROM iv_curves WHERE set_id=?').all(s.id) as {
       sample: string;
       substrate: string;
       metrics: string;
       use: number | null;
+      kind: string | null;
     }[];
-    const ms = c.map((x) => ({ ...JSON.parse(x.metrics), use: x.use }));
-    const ok = ms.filter((m) => m.status === 'ok' && m.use !== 0);
+    const ms = c.map((x) => ({ ...JSON.parse(x.metrics), use: x.use, kind: x.kind }));
+    const ok = ms.filter((m) => m.status === 'ok' && (m.use === 1 || (m.use === null && m.kind !== 'check')));
     return {
       id: s.id,
       name: s.name,
@@ -149,6 +169,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       m: JSON.parse(c.metrics),
       inst: c.inst ? JSON.parse(c.inst) : null,
       use: c.use === null ? null : !!c.use,
+      kind: c.kind ?? null,
     }));
     return { ...summary(s), notes: s.notes, editable: editable(req.user, s), rawLinks: JSON.parse(s.links), curves };
   });
@@ -195,6 +216,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
           c.inst ? JSON.stringify(c.inst) : null,
         );
       }
+      classify(Number(r.lastInsertRowid));
       return Number(r.lastInsertRowid);
     });
     const record = d.stability_of ? null : checkRecord(id, req.user); // a follow-up of an aged device is no record
@@ -288,7 +310,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       points: sets.flatMap((s) =>
         (
           db
-            .prepare('SELECT sample,substrate,pixel,scan,dir,metrics,use FROM iv_curves WHERE set_id=?')
+            .prepare('SELECT sample,substrate,pixel,scan,dir,metrics,use,kind FROM iv_curves WHERE set_id=?')
             .all(s.id) as any[]
         ).map((c) => ({
           set: s.id,
@@ -299,6 +321,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
           dir: c.dir,
           m: JSON.parse(c.metrics),
           use: c.use === null ? null : !!c.use,
+          kind: c.kind ?? null,
         })),
       ),
     };

@@ -20,6 +20,7 @@ import Trash from './views/Trash';
 import { Toaster } from './lib/trash';
 import { NotificationList, useNotifications } from './lib/Notifications';
 import IvPage from './iv/IvPage';
+import Comparisons from './compare/Comparisons';
 const Invite = lazy(() => import('./lib/Invite'));
 
 type Key =
@@ -28,6 +29,7 @@ type Key =
   | 'batches'
   | 'cal'
   | 'iv'
+  | 'cmp'
   | 'sub'
   | 'mask'
   | 's0'
@@ -54,7 +56,13 @@ const NAV: { group: string; items: [Key, string][] }[] = [
       ['cal', 'Calendar'],
     ],
   },
-  { group: 'Measurements', items: [['iv', 'Electric measurements']] },
+  {
+    group: 'Measurements',
+    items: [
+      ['iv', 'Electric measurements'],
+      ['cmp', 'Comparisons'],
+    ],
+  },
   {
     group: 'Recipes',
     items: [
@@ -86,7 +94,7 @@ const LABEL: Record<string, string> = {
 /** Phone tab bar, the same groups as the side menu: Fabrication, Measurements, Recipes, then Menu for the rest. */
 const TABS: { key: string; label: string; items: Key[] }[] = [
   { key: 'stacks', label: 'Fabrication', items: ['stk', 'batches', 'cal'] },
-  { key: 'iv', label: 'Measurements', items: ['iv'] },
+  { key: 'iv', label: 'Measurements', items: ['iv', 'cmp'] },
   { key: 'recipes', label: 'Recipes', items: ['s0', 's1', 's2', 's3', 's4', 's5'] },
 ];
 const SHORT: Partial<Record<Key, string>> = {
@@ -280,6 +288,8 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
         );
       case 'iv':
         return <IvPage openId={ivId} onOpen={setIvId} />;
+      case 'cmp':
+        return <Comparisons openId={focus} onOpen={setFocus} />;
       case 'sub':
         return <Library kind={KINDS.sub} openId={focus} />;
       case 'mask':

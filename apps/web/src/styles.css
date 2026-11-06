@@ -906,6 +906,24 @@ tr.click:hover td {
 .pstat.short {
   color: var(--err);
 }
+/* check sweep: a quick exploratory scan, shown but not counted */
+.sweep-row td {
+  color: var(--mut);
+}
+.sweep-row td b {
+  font-weight: 500;
+}
+.sweep-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px dashed var(--c-axis);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--mut);
+  vertical-align: 1px;
+}
 .chart {
   position: relative;
   width: 100%;
@@ -6365,4 +6383,342 @@ body.dragging-block * {
   background: color-mix(in srgb, var(--fg) 4%, var(--card));
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+/* ============ comparisons ============ */
+/* The group colour is the thread: the bar beside each group, its boxes, its J–V line and its row in the table. */
+.cx-art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 0 0;
+}
+.cx-art i {
+  width: 18px;
+  border-radius: 5px 5px 0 0;
+  opacity: 0.9;
+}
+.cx-art i:nth-child(1) {
+  height: 54px;
+}
+.cx-art i:nth-child(2) {
+  height: 76px;
+}
+.cx-art i:nth-child(3) {
+  height: 64px;
+}
+.cx-art i:nth-child(4) {
+  height: 84px;
+}
+.cx-art i:nth-child(5) {
+  height: 58px;
+}
+.cx-art i:nth-child(6) {
+  height: 70px;
+}
+.cx-head .title-input {
+  min-width: 0;
+}
+.cx-saved {
+  min-width: 52px;
+}
+.cx-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.cx-rail {
+  position: sticky;
+  top: 12px;
+  background: var(--card);
+  border-radius: var(--r);
+  padding: 12px 12px 10px;
+  display: grid;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.cx-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cx-rail-head h3 {
+  margin: 0;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.cx-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.cx-group {
+  border-left: 4px solid var(--g);
+  border-radius: 4px 10px 10px 4px;
+  padding: 6px 4px 4px 10px;
+  background: color-mix(in srgb, var(--g) 7%, var(--card));
+}
+.cx-group-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cx-gname {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  font-weight: 600;
+  background: none;
+  border-color: transparent;
+  padding: 0 6px;
+  margin-left: -6px;
+}
+.cx-gname:hover:not([readonly]),
+.cx-gname:focus {
+  border-color: var(--sep);
+  background: var(--card);
+}
+.cx-ref {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  border: 1px dashed var(--c-axis);
+  background: none;
+  color: var(--mut);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.cx-ref.on {
+  border: 1px solid var(--g);
+  background: var(--g);
+  color: #fff;
+  font-weight: 600;
+}
+.cx-ref:disabled:not(.on) {
+  visibility: hidden;
+}
+.cx-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.cx-rail .iconbtn {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  color: var(--mut);
+}
+.cx-members {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+  max-height: 260px;
+  overflow: auto;
+}
+.cx-members li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 0;
+  border-top: 1px solid var(--sep);
+}
+.cx-members li.stray b {
+  color: var(--warn);
+}
+.cx-warn {
+  color: var(--warn);
+}
+.cx-results {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.cx-controls {
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.cx-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--card));
+}
+.cx-note ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.cx-fig {
+  margin: 0;
+  background: #fff;
+  border-radius: var(--r);
+  padding: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.cx-fig .fig-wrap {
+  max-width: none;
+  border: 0;
+  padding: 0;
+}
+.cx-fig .fig-wrap svg {
+  width: 100%;
+  height: auto;
+}
+.cx-fig figcaption {
+  padding: 4px 6px 0;
+  color: #5f6570;
+}
+.cx-split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 12px;
+  align-items: start;
+}
+.cx-table {
+  background: var(--card);
+  border-radius: var(--r);
+  padding: 10px 12px;
+}
+.cx-table table {
+  width: 100%;
+}
+.cx-table .num,
+.cx-devs .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cx-table td.up {
+  color: var(--ok);
+  font-weight: 600;
+}
+.cx-table td.down {
+  color: var(--err);
+  font-weight: 600;
+}
+.cx-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 7px;
+  vertical-align: -1px;
+}
+.cx-changes {
+  background: var(--card);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+.cx-changes h3 {
+  margin: 0;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.cx-change {
+  border-left: 4px solid var(--g);
+  padding-left: 12px;
+}
+.cx-change h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.cx-change p {
+  margin: 2px 0;
+}
+.cx-diff {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cx-diff th {
+  text-align: left;
+  font-weight: 500;
+  padding: 3px 14px 3px 0;
+  color: var(--fg);
+}
+.cx-diff td {
+  padding: 3px 14px 3px 0;
+}
+.cx-diff thead th {
+  font-size: 12px;
+  color: var(--mut);
+}
+.cx-diff tr + tr > * {
+  border-top: 1px solid var(--sep);
+}
+.cx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 12px;
+}
+.cx-filters select,
+.cx-filters .lib-search {
+  width: auto;
+  max-width: 260px;
+}
+.cx-filters input[type='date'] {
+  width: 150px;
+}
+.cx-devs {
+  width: 100%;
+}
+.cx-devs tbody tr {
+  cursor: pointer;
+}
+.cx-devs tbody tr:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.cx-devs tbody tr.mut {
+  cursor: default;
+}
+.cx-pick-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--sep);
+  background: var(--card);
+}
+.cx-pick-foot select {
+  width: auto;
+  margin-left: 6px;
+}
+@media (max-width: 1100px) {
+  .cx-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .cx-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cx-rail {
+    position: static;
+  }
+  .cx-head {
+    flex-wrap: wrap;
+  }
+  .cx-head .title-input {
+    flex: 1 1 100%;
+    order: -1;
+    margin-left: 0;
+  }
 }

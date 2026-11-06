@@ -97,6 +97,13 @@ const LABEL: Record<string, string> = {
   'POST /api/batches': 'Started a batch',
   'PATCH /api/batches/:id': 'Edited a batch',
   'DELETE /api/batches/:id': 'Moved a batch to the trash',
+  'POST /api/iv': 'Imported a measurement',
+  'PATCH /api/iv/:id': 'Edited a measurement',
+  'PATCH /api/iv/curves/:cid': 'Changed which curves count',
+  'DELETE /api/iv/:id': 'Moved a measurement to the trash',
+  'POST /api/comparisons': 'Created a comparison',
+  'PATCH /api/comparisons/:id': 'Edited a comparison',
+  'DELETE /api/comparisons/:id': 'Moved a comparison to the trash',
   'POST /api/chemicals': 'Added a chemical',
   'PUT /api/chemicals/:id': 'Edited a chemical',
   'DELETE /api/chemicals/:id': 'Deleted a chemical',
@@ -137,11 +144,15 @@ function nameOf(route: string, params: Record<string, string>): string {
         ? q('SELECT code AS n FROM batches WHERE id=?')
         : route.startsWith('/api/chemicals/')
           ? q('SELECT name AS n FROM chemicals WHERE id=?')
-          : route.startsWith('/api/tags/')
-            ? q('SELECT name AS n FROM tags WHERE id=?')
-            : route.startsWith('/api/backups/:name')
-              ? params.name
-              : undefined;
+          : route.startsWith('/api/comparisons/')
+            ? q('SELECT name AS n FROM comparisons WHERE id=?')
+            : route.startsWith('/api/iv/:id')
+              ? q('SELECT name AS n FROM iv_sets WHERE id=?')
+              : route.startsWith('/api/tags/')
+                ? q('SELECT name AS n FROM tags WHERE id=?')
+                : route.startsWith('/api/backups/:name')
+                  ? params.name
+                  : undefined;
   const rest = Object.entries(params)
     .filter(([k]) => k !== 'id' && k !== 'name')
     .map(([k, v]) => `${k} ${v}`)

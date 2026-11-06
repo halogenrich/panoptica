@@ -8,7 +8,7 @@ A web app for one research group: recipes and designs for perovskite solar cell 
 
 - **Users**: the group's members (tens of people). No public access, no self-registration: an admin creates every account.
 - **Software**: Node.js 22 (LTS), Fastify web server, SQLite database built into Node, React web interface. One process, one database file. No external services are called, except GitHub when an admin checks for updates.
-- **Source**: private GitHub repository `halogenrich/panoptica`. Every change is checked automatically (types, tests, security checks, build, known-vulnerability scan) before a release is published.
+- **Source**: GitHub repository `halogenrich/panoptica`, public (open source code; no data, passwords or keys are in it: those exist only on the lab computer). Every change is checked automatically (types, tests, security checks, build, known-vulnerability scan) before a release is published.
 
 ## 2. What is stored
 
@@ -22,7 +22,7 @@ A web app for one research group: recipes and designs for perovskite solar cell 
 
 **Not stored**: CPF, email addresses, phone numbers, health data or any other sensitive personal data (LGPD art. 5 II). Passwords are never stored, only a salted hash.
 
-**Where**: one SQLite file (`apps/server/data.db`) on the computer that runs the app. Backups in `backups/` there, and optionally an encrypted second copy in a folder off that computer. Secrets of that computer (backup key, update token) are in `config/`, never in the database, the backups or the repository.
+**Where**: one SQLite file (`apps/server/data.db`) on the computer that runs the app. Backups in `backups/` there, and optionally an encrypted second copy in a folder off that computer. Secrets of that computer (backup key, an update token if one is used) are in `config/`, never in the database, the backups or the repository.
 
 ## 3. Who can see what
 
@@ -88,7 +88,8 @@ The app supports HTTPS in two ways (section 7). **Without HTTPS, passwords and d
 - Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `perovskite-lab.zip` and its SHA-256.
 - The app downloads a release only when an admin asks, verifies the SHA-256, backs up the database, and replaces only program files; the data, backups and `config/` are never touched.
 - Dependabot opens weekly pull requests for library updates; each runs the same checks.
-- The app reads GitHub with a fine-grained token limited to reading this one repository, kept in `config/update.json` on the lab computer; it is never sent to browsers and never stored in the database or backups.
+- The repository is public, so the app reads the releases without any credential. If it is made private, the app needs a fine-grained token limited to reading this one repository, kept in `config/update.json` on the lab computer; it is never sent to browsers and never stored in the database or backups.
+- A public repository means anyone can read the code, never the data: the database, backups, `config/` (backup key, any token) and uploaded files stay on the lab computer, and `.gitignore` keeps them out of commits. Releases can only be published by the repository's owner, through the checked workflow.
 - Dependencies are few: Fastify (with its cookie and static-file plugins), zod, React, three.js, and small libraries for geometry, zip, QR codes and the emoji picker; all are bundled with the app, nothing loads from other sites at run time. The database engine is part of Node itself (no native modules).
 
 ## 7. Hosting: what the app needs
