@@ -1,3 +1,5 @@
+import { useItemRoute } from '../lib/route';
+import CopyLink from '../lib/CopyLink';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRefresh } from '../lib/trash';
 import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
@@ -216,6 +218,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
     [chems, setChems] = useState<Chemical[]>([]),
     [err, setErr] = useState(''),
     [edit, setEdit] = useState<Partial<Box> | null>(null),
+    routeId = edit?.id ?? null,
     [area, setArea] = useState<number | null>(null);
   const load = () => {
     api<Inv>('/inventory')
@@ -229,6 +232,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
     load();
   }, []);
   useRefresh(load, ['inventory', 'batches']);
+  useItemRoute('chem', routeId);
   // a container found with the search (Ctrl K) opens directly
   useEffect(() => {
     const c = openId && inv?.containers.find((x) => x.id === openId);
@@ -1236,8 +1240,14 @@ function ContainerForm({
           </p>
         )}
         {err && <p className="err small">{err}</p>}
+        {!canEdit && f.id && (
+          <div className="dialog-actions">
+            <CopyLink view="chem" id={f.id} what={`this container of ${f.name}`} />
+          </div>
+        )}
         {canEdit && (
           <div className="dialog-actions">
+            {f.id && <CopyLink view="chem" id={f.id} what={`this container of ${f.name}`} />}
             {f.id && (
               <button
                 type="button"

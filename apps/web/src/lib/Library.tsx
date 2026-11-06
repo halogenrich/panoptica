@@ -1,3 +1,5 @@
+import { useItemRoute } from './route';
+import CopyLink from './CopyLink';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Chem } from '@psc/core';
 import { api } from '../api';
@@ -240,6 +242,7 @@ export function PresetSheet({
   onChanged: (msg?: string) => void;
 }) {
   const isNew = !('id' in open);
+  useItemRoute(kind.segment, 'id' in open ? open.id : null);
   const [det, setDet] = useState<Detail | null>(null),
     [err, setErr] = useState('');
   const [mode, setMode] = useState<'view' | 'edit'>(isNew ? 'edit' : 'view');
@@ -518,6 +521,7 @@ export function PresetSheet({
         <div className="grow" />
         <div className="head-actions">
           {kind.viewActions?.({ id: p.id, name: p.name, d, ctx })}
+          <CopyLink view={kind.segment} id={p.id} what={`“${p.name}”`} />
           <button className="link" onClick={dup}>
             Duplicate
           </button>

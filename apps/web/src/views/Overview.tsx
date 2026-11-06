@@ -1,3 +1,4 @@
+import EquipmentArt, { artOf } from '../lib/EquipmentArt';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRefresh } from '../lib/trash';
 import { api } from '../api';
@@ -1040,7 +1041,7 @@ function Equipment({ d, label }: { d: Dash; label: string }) {
           {d.equipment.map((e) => (
             <div key={e.id} className="eq-use-row" style={{ '--eq': e.color } as React.CSSProperties}>
               <div className="eq-use-name">
-                <i />
+                <EquipmentArt kind={artOf(e)} size={40} />
                 <b>{e.name}</b>
               </div>
               <div

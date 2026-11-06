@@ -1,3 +1,4 @@
+import EquipmentArt, { ARTS, artOf, type ArtKind } from '../lib/EquipmentArt';
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
@@ -19,6 +20,8 @@ type Eq = {
   role: string;
   /** minutes blocked after each booking for cleaning (gloveboxes: 20) */
   cleanup?: number;
+  /** the drawing ('' = from its use and name) */
+  art?: string;
 };
 const USED_FOR: [string, string][] = [
   ['', 'Other'],
@@ -633,7 +636,7 @@ export default function Calendar({
 // ------------------------------------------------------------------ day and week
 const OUTCOME: Record<string, string> = { done: 'Concluded', postponed: 'Postponed', canceled: 'Canceled' };
 /** Everything about a booking, next to its block (right of it, or left when there is no room). */
-function HoverCard({ b, r, cleanup = 0 }: { b: Booking; r: DOMRect; cleanup?: number }) {
+function HoverCard({ b, r, cleanup = 0, eq }: { b: Booking; r: DOMRect; cleanup?: number; eq?: Eq }) {
   const W = 270,
     s = new Date(b.start),
     e = new Date(b.end),
@@ -643,8 +646,11 @@ function HoverCard({ b, r, cleanup = 0 }: { b: Booking; r: DOMRect; cleanup?: nu
   return (
     <div className="bk-card" style={{ left, top, width: W, '--eq': b.color } as React.CSSProperties} role="tooltip">
       <div className="bk-card-h">
-        <b>{b.equipment}</b>
-        <i className="cbar" />
+        {eq && <EquipmentArt kind={artOf(eq)} size={40} />}
+        <span>
+          <b>{b.equipment}</b>
+          <i className="cbar" />
+        </span>
       </div>
       <dl>
         <dt>Experiment</dt>
@@ -783,7 +789,12 @@ function TimeGrid({
     <div className={'tg tg-' + view}>
       {card &&
         createPortal(
-          <HoverCard b={card.b} r={card.r} cleanup={eqs.find((x) => x.id === card.b.equipment_id)?.cleanup ?? 0} />,
+          <HoverCard
+            b={card.b}
+            r={card.r}
+            eq={eqs.find((x) => x.id === card.b.equipment_id)}
+            cleanup={eqs.find((x) => x.id === card.b.equipment_id)?.cleanup ?? 0}
+          />,
           document.body,
         )}
       <div className="tg-scroll" ref={scroller}>
@@ -791,8 +802,8 @@ function TimeGrid({
           <span />
           {cols.map((c) =>
             c.eq ? (
-              <div key={c.key} className="tg-col-h">
-                <i style={{ background: c.eq.color }} />
+              <div key={c.key} className="tg-col-h eq">
+                <EquipmentArt kind={artOf(c.eq)} color={c.eq.color} size={44} />
                 <b>{c.eq.name}</b>
                 {c.eq.place && <span className="mut small">{c.eq.place}</span>}
               </div>
@@ -1271,7 +1282,8 @@ function BookingForm({
                     style={{ '--eq': e.color } as React.CSSProperties}
                     onClick={() => setF({ ...f, eq: e.id })}
                   >
-                    {e.name}
+                    <EquipmentArt kind={artOf(e)} size={52} />
+                    <span>{e.name}</span>
                     <i />
                   </button>
                 ))}
@@ -1525,6 +1537,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
           <div className="eq-h" role="row">
             <span />
             <span>Colour</span>
+            <span>Drawing</span>
             <span>Name</span>
             <span>Procedure</span>
             <span title="Minutes the equipment stays taken after each booking, to clean it">Cleanup after</span>
@@ -1539,6 +1552,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
                 defaultValue={e.color}
                 onChange={(x) => run(api('/equipment/' + e.id, 'PATCH', { color: x.target.value }))}
               />
+              <ArtPick eq={e} onPick={(art) => run(api('/equipment/' + e.id, 'PATCH', { art }))} />
               <input
                 aria-label="Name"
                 defaultValue={e.name}
@@ -1600,6 +1614,9 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
           >
             <span />
             <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
+            <span className="eq-art-cell" style={{ '--eq': color } as React.CSSProperties}>
+              <EquipmentArt kind={artOf({ name, role })} size={40} />
+            </span>
             <input
               aria-label="Name"
               value={name}
@@ -1622,5 +1639,78 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
         {err && <p className="err small">{err}</p>}
       </div>
     </div>
+  );
+}
+
+/** The drawing of one equipment: the current one, a click away from the others ("Automatic" follows its use and name). */
+function ArtPick({ eq, onPick }: { eq: Eq; onPick: (art: string) => void }) {
+  const [open, setOpen] = useState<DOMRect | null>(null),
+    ref = useRef<HTMLSpanElement>(null),
+    menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const f = (e: MouseEvent) =>
+      !ref.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setOpen(null);
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(null);
+      }
+    };
+    document.addEventListener('mousedown', f);
+    document.addEventListener('keydown', k, true);
+    return () => {
+      document.removeEventListener('mousedown', f);
+      document.removeEventListener('keydown', k, true);
+    };
+  }, [open]);
+  const auto = artOf({ name: eq.name, role: eq.role });
+  return (
+    <span className="eq-art-cell" ref={ref} style={{ '--eq': eq.color } as React.CSSProperties}>
+      <button
+        type="button"
+        className="art-btn"
+        aria-label={`Drawing of ${eq.name}`}
+        aria-expanded={!!open}
+        aria-haspopup="listbox"
+        onClick={(e) => setOpen(open ? null : e.currentTarget.getBoundingClientRect())}
+      >
+        <EquipmentArt kind={artOf(eq)} size={40} />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menu}
+            className="art-menu"
+            role="listbox"
+            aria-label={`Drawing of ${eq.name}`}
+            style={
+              {
+                '--eq': eq.color,
+                left: Math.min(open.left - 8, window.innerWidth - 384),
+                top: open.bottom + 380 < window.innerHeight ? open.bottom + 4 : Math.max(8, open.top - 384),
+              } as React.CSSProperties
+            }
+          >
+            {[['', `Automatic (${ARTS.find(([k]) => k === auto)?.[1]})`] as [string, string], ...ARTS].map(([k, l]) => (
+              <button
+                key={k || 'auto'}
+                type="button"
+                role="option"
+                aria-selected={(eq.art ?? '') === k}
+                className={(eq.art ?? '') === k ? 'on' : ''}
+                onClick={() => {
+                  onPick(k);
+                  setOpen(null);
+                }}
+              >
+                <EquipmentArt kind={(k || auto) as ArtKind} size={44} />
+                <span>{l}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </span>
   );
 }
