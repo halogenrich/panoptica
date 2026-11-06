@@ -385,6 +385,23 @@ export const EquipmentIn = z.object({
   active: z.boolean().optional(),
   /** Minutes blocked after each booking for cleaning (gloveboxes: 20). */
   cleanup: z.number().int().min(0).max(240).optional(),
+  /** The drawing shown for it ('' = chosen from its use and name). */
+  art: z
+    .enum([
+      '',
+      'balance',
+      'spincoater',
+      'organic',
+      'metal',
+      'uvozone',
+      'hotplate',
+      'glovebox',
+      'solarsim',
+      'profilometer',
+      'ultrasonic',
+      'generic',
+    ])
+    .optional(),
 });
 /** Outcome of a booking once it has ended; postponing or canceling needs a reason. */
 export const OutcomeIn = z

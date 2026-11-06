@@ -51,6 +51,8 @@ if (!ecols.includes('cleanup')) {
   db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
   db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'");
 }
+// 0.34: the drawing shown for each equipment ('' = chosen from its use and name)
+if (!ecols.includes('art')) db.exec("ALTER TABLE equipment ADD COLUMN art TEXT NOT NULL DEFAULT ''");
 // 0.32: the UV-ozone cleaner does the substrate preparation in the batch scheduler (once; admins can change it under Equipment)
 if (!db.prepare("SELECT 1 FROM meta WHERE key='prep-equipment'").get()) {
   db.exec(
@@ -371,7 +373,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         id: Number(
           db
             .prepare(
-              'INSERT INTO equipment(name,color,place,role,cleanup,pos) VALUES(?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
+              'INSERT INTO equipment(name,color,place,role,cleanup,art,pos) VALUES(?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
             )
             .run(
               p.data.name,
@@ -379,6 +381,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
               p.data.place ?? '',
               p.data.role ?? '',
               p.data.cleanup ?? (/^GB:/i.test(p.data.name) ? 20 : 0), // gloveboxes are cleaned after each use
+              p.data.art ?? '',
             ).lastInsertRowid,
         ),
       };
@@ -398,7 +401,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const p = EquipmentIn.partial().safeParse(req.body);
     if (!p.success) return bad(reply, p);
     try {
-      for (const k of ['name', 'color', 'place', 'role', 'cleanup'] as const)
+      for (const k of ['name', 'color', 'place', 'role', 'cleanup', 'art'] as const)
         if (p.data[k] !== undefined)
           db.prepare(`UPDATE equipment SET ${k}=? WHERE id=?`).run(p.data[k]!, +req.params.id);
       if (p.data.active !== undefined)
