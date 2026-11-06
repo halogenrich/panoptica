@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.34.1 (2026-11-06)
+
+- **Toggles** you can pick several of (parameters to plot, ions, solution type, tags): plain text without a grey track, a light highlight on hover, filled in the accent colour with white text when picked.
+- **Comparisons**: the colour bar under a group's name is as wide as the name (groups and What changed), as in the calendar.
+- **3D views fit the window**: the stack's page, the stack editor and the batch page size the view to the screen, so nothing needs scrolling and the batch's Schedule button stays in view.
+- **Batch layers** listed in the order they are made: substrate first.
+- Fix: the stack editor's Review list had its rows out of line (the drag handle took the number's column).
+
 ## 0.34.0 (2026-11-06)
 
 Sharing, and the major library updates.
