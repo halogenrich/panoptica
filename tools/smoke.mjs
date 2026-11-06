@@ -296,10 +296,88 @@ console.log('Live updates');
   ok(anon.status === 401, 'no event stream without signing in');
 }
 
+console.log('Measurements and comparisons');
+{
+  // a diode-like cell: the quick check sweep (0.05 V, forward only) is better than the real measurement (0.02 V, both ways),
+  // so it would be "best" if it were counted
+  const cell = (step, jsc, sample = 'Batch_ref') => {
+    const V = [];
+    for (let v = 0; v <= 1.15 + 1e-9; v += step) V.push(+v.toFixed(3));
+    return { V, J: V.map((v) => jsc - 1e-10 * (Math.exp(v / 0.04) - 1)), sample };
+  };
+  const curve = (c, scan, dir, substrate = '1') => ({
+    file: `${c.sample}_${substrate}_${scan}`,
+    sample: c.sample,
+    substrate,
+    scan,
+    pixel: '1',
+    dir,
+    area: 0.1,
+    pin: 100,
+    V: dir === 'rev' ? [...c.V].reverse() : c.V,
+    J: dir === 'rev' ? [...c.J].reverse() : c.J,
+  });
+  const quick = cell(0.05, 30),
+    real = cell(0.02, 22),
+    mod = cell(0.02, 24, 'Batch_mod');
+  const r = await call('POST', '/api/iv', {
+    name: 'smoke J-V',
+    date: '2026-11-06',
+    system: 'padrao',
+    visibility: 'shared',
+    curves: [
+      curve(quick, '01', 'fwd'),
+      curve(real, '02', 'fwd'),
+      curve(real, '02', 'rev'),
+      curve(mod, '01', 'fwd', '2'),
+      curve(mod, '01', 'rev', '2'),
+    ],
+  });
+  ok(r.s === 200, 'measurement imported');
+  const full = (await call('GET', '/api/iv/' + r.j.id)).j;
+  const kinds = Object.fromEntries(full.curves.map((c) => [`${c.substrate}|${c.scan}|${c.dir}`, c.kind]));
+  ok(
+    kinds['1|01|fwd'] === 'check' && !kinds['1|02|fwd'] && !kinds['2|01|fwd'],
+    'quick scan before the real one is a check sweep',
+  );
+  const pce = (f) => Math.max(...full.curves.filter(f).map((c) => c.m.pce));
+  ok(
+    full.best === pce((c) => c.kind !== 'check') && full.best < pce((c) => c.kind === 'check'),
+    'a check sweep never gives the best PCE',
+  );
+  const devs = (await call('GET', '/api/comparisons/devices')).j;
+  ok(devs.length === 2 && devs.every((d) => d.pixels === 1), 'devices to compare listed, check sweeps not counted');
+  const cmp = await call('POST', '/api/comparisons', {
+    name: 'smoke comparison',
+    data: {
+      groups: [{ id: 'a', name: 'ref', ref: true, members: [{ set: r.j.id, sample: 'Batch_ref', substrate: '1' }] }],
+    },
+  });
+  ok(cmp.s === 200, 'comparison saved');
+  const asAna = (path, method = 'GET', body) =>
+    fetch(base + path, {
+      method,
+      headers: { cookie: anaCookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  ok((await asAna('/api/comparisons/' + cmp.j.id)).status === 404, 'a comparison is private by default');
+  await call('PATCH', '/api/comparisons/' + cmp.j.id, { visibility: 'shared' });
+  ok((await asAna('/api/comparisons/' + cmp.j.id)).status === 200, 'shared comparison readable by others');
+  ok(
+    (await asAna('/api/comparisons/' + cmp.j.id, 'PATCH', { name: 'mine now' })).status === 403,
+    'but only its owner (or an admin) can change it',
+  );
+  ok((await call('DELETE', '/api/comparisons/' + cmp.j.id)).s === 200, 'comparison moved to the trash');
+  ok(
+    (await call('GET', '/api/trash')).j.items.some((i) => i.kind === 'cmp' && i.id === cmp.j.id),
+    'and listed there, to restore',
+  );
+}
+
 console.log('Updates');
 ok(
-  (await call('POST', '/api/updates/check')).j.error?.includes('private'),
-  'private repository without token: clear message',
+  (await call('POST', '/api/updates/check')).j.error?.includes('token'),
+  'repository refused without a token: clear message',
 );
 const u = await call('PUT', '/api/updates/settings', { token: 'test-token' });
 ok(u.j.tokenSet && u.j.available && u.j.latest?.version === '99.0.0', 'new version found with the token');

@@ -3,7 +3,7 @@ import { useFigureSettings, useLogoChoice } from '../../lib/figure';
 import { exportSvg, JvFigure } from '../../iv/JvFigure';
 import { api } from '../../api';
 import { Modal } from '../../lib/ui';
-import { BFH, BFW, BoxFigure, TITLES } from '../../iv/BoxFigure';
+import { BFH, BFW, BoxFigure, OutlierToggle, TITLES, useOutliers } from '../../iv/BoxFigure';
 import { boxes, dirsOf } from '../../iv/boxes';
 import { METRICS, fmt, inStats, statRows, type Curve, type IvSetFull, type MetricKey } from '../../iv/model';
 
@@ -343,7 +343,8 @@ export function PresentationExport({
   const cell = useBestCell(top),
     ok = cell && typeof cell === 'object' ? cell : null,
     fs = useFigureSettings(),
-    [logo] = useLogoChoice();
+    [logo] = useLogoChoice(),
+    [outl, setOutl] = useOutliers();
   const refs = {
     slide: useRef<SVGSVGElement>(null),
     trend: useRef<SVGSVGElement>(null),
@@ -404,7 +405,7 @@ export function PresentationExport({
             {`Its batch: ${ok.group}`}
           </text>
           <svg x={1040} y={260} width={BW} height={BH} viewBox={`0 0 ${BFW} ${BFH}`}>
-            <BoxFigure panels={panels} />
+            <BoxFigure panels={panels} outliers={outl} />
           </svg>
           <g fontSize={26} fill={INK}>
             <text x={1050} y={BH + 320}>
@@ -495,6 +496,7 @@ export function PresentationExport({
               2,
             )}
         </ul>
+        {ok && <OutlierToggle v={outl} on={setOutl} />}
         <p className="mut small">
           PNG for PowerPoint or Google Slides; SVG stays sharp at any size and can be edited (Inkscape, Illustrator).{' '}
           {label}.
@@ -515,7 +517,7 @@ export function PresentationExport({
         )}
         {ok && (
           <div style={{ width: BFW }}>
-            <BoxFigure svgRef={refs.box} panels={panels} logo={figLogo} />
+            <BoxFigure svgRef={refs.box} panels={panels} logo={figLogo} outliers={outl} />
           </div>
         )}
         {extra?.render(refs.extra)}

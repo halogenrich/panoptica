@@ -23,8 +23,8 @@ import { backupNow } from './backup.js';
  * SHA-256. Once a day the app asks GitHub for the latest release; when it is newer, admins get a notification. In Admin settings ›
  * Updates an admin downloads it (checked against its SHA-256) and installs it: the app backs up the database, stops, and the
  * update script replaces the program files (never the data) and starts it again.
- * The repository is private, so the app needs a read-only GitHub token (fine-grained, this repository, Contents: read). It is kept
- * in config/update.json on this computer, never in the database, backups or the repository.
+ * A public repository needs no token. A private one needs a read-only GitHub token (fine-grained, this repository, Contents:
+ * read), kept in config/update.json on this computer, never in the database, backups or the repository.
  */
 type Settings = { repo: string; token?: string };
 type Release = {
@@ -86,7 +86,7 @@ async function gh(path: string, accept = 'application/vnd.github+json') {
     signal: AbortSignal.timeout(120_000),
   });
   if (!s.token && [401, 403, 404].includes(r.status))
-    throw new Error('the repository is private: add a GitHub token below');
+    throw new Error('GitHub refused the request: if the repository is private, add a read-only token below');
   if (r.status === 404) throw new Error('no release found, or the token cannot read this repository');
   if (r.status === 401 || r.status === 403)
     throw new Error('GitHub refused the token (expired, or without access to this repository)');

@@ -268,6 +268,53 @@ export function boxStats(values: number[]): BoxStats | null {
   };
 }
 
+// ------------------------------------------------------------------ check sweeps
+/** Voltage step of a sweep: the median |ΔV| between points (V). */
+export function sweepStep(V: number[]): number {
+  const d = V.slice(1)
+    .map((v, i) => Math.abs(v - V[i]))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+  return d.length ? d[d.length >> 1] : NaN;
+}
+
+type SweepKey = { sample: string; substrate: string; pixel: string; scan: string; dir: Dir; V: number[] };
+/**
+ * Check (exploratory) sweeps: quick scans run before the real measurement, e.g. on the 8-pixel system 0.05 V steps forward only,
+ * then the measurement at 0.02 V with both directions. Per pixel, a scan is a check sweep when another scan of the same pixel
+ * is at least as fine and either clearly finer (step under 0.8×) or has both directions where this one has one. A scan that is
+ * alone, or not beaten by another, is never a check sweep. Returns the keys `sample|substrate|pixel|scan` of the check sweeps.
+ */
+export function checkSweeps(curves: SweepKey[]): Set<string> {
+  const scans = new Map<string, Map<string, { step: number; dirs: Set<Dir> }>>();
+  for (const c of curves) {
+    const px = `${c.sample}|${c.substrate}|${c.pixel}`;
+    const m = scans.get(px) ?? new Map();
+    scans.set(px, m);
+    const s = m.get(c.scan) ?? { step: NaN, dirs: new Set<Dir>() };
+    const st = sweepStep(c.V);
+    s.step = Number.isFinite(s.step) ? Math.min(s.step, st) : st;
+    s.dirs.add(c.dir);
+    m.set(c.scan, s);
+  }
+  const out = new Set<string>();
+  for (const [px, m] of scans) {
+    if (m.size < 2) continue;
+    for (const [scan, a] of m)
+      for (const [other, b] of m) {
+        if (other === scan || !Number.isFinite(a.step) || !Number.isFinite(b.step)) continue;
+        const asFine = b.step <= a.step * 1.02,
+          finer = b.step < a.step * 0.8,
+          bothDirs = b.dirs.size > 1 && a.dirs.size < 2;
+        if (asFine && (finer || bothDirs)) {
+          out.add(`${px}|${scan}`);
+          break;
+        }
+      }
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ readers
 const PADRAO = / (J-V Data|Metrics|J-V Settings|Light Temperature Data)\.csv$/i;
 const DATE_PREFIX = String.raw`(\d{1,2}-[A-Za-z]{3}-\d{4}|\d{2}_\d{2}_\d{2})`;

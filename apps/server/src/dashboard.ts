@@ -13,6 +13,7 @@ type Curve = {
   dir: string;
   metrics: string;
   use: number | null;
+  kind?: string | null;
 };
 const median = (a: number[]) => {
   if (!a.length) return null;
@@ -29,7 +30,8 @@ function devicesOf(curves: Curve[]) {
   const by = new Map<string, number>();
   for (const c of curves) {
     const m = JSON.parse(c.metrics);
-    if (m.status !== 'ok' || c.use === 0 || !Number.isFinite(m.pce)) continue;
+    // counted: ok, not left out by hand, and not a check sweep unless ticked in by hand
+    if (m.status !== 'ok' || c.use === 0 || (c.kind === 'check' && c.use !== 1) || !Number.isFinite(m.pce)) continue;
     const k = `${c.set_id}|${c.sample}|${c.substrate}`;
     by.set(k, Math.max(by.get(k) ?? 0, m.pce));
   }
@@ -78,7 +80,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       ids.length
         ? (db
             .prepare(
-              `SELECT set_id,sample,substrate,pixel,dir,metrics,use FROM iv_curves WHERE set_id IN (${ids.map(() => '?').join(',')})`,
+              `SELECT set_id,sample,substrate,pixel,dir,metrics,use,kind FROM iv_curves WHERE set_id IN (${ids.map(() => '?').join(',')})`,
             )
             .all(...ids) as Curve[])
         : [];
@@ -241,7 +243,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
     const curves = sets.length
       ? (db
           .prepare(
-            `SELECT set_id,sample,substrate,pixel,dir,metrics,use FROM iv_curves WHERE set_id IN (${sets.map(() => '?').join(',')})`,
+            `SELECT set_id,sample,substrate,pixel,dir,metrics,use,kind FROM iv_curves WHERE set_id IN (${sets.map(() => '?').join(',')})`,
           )
           .all(...sets.map((s) => s.id)) as Curve[])
       : [];

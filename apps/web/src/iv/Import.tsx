@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
 import { DeviceTable, type DeviceMap } from './Devices';
-import { ivMetrics, parseIvFiles, type IvCurve, type IvFile } from '@psc/core';
+import { checkSweeps, ivMetrics, parseIvFiles, type IvCurve, type IvFile } from '@psc/core';
 import { api } from '../api';
 import { Modal } from '../lib/ui';
 import { SYSTEM, type Link } from './model';
@@ -268,21 +268,25 @@ function DraftCard({
   };
   up: (p: Partial<Draft>) => void;
 }) {
+  // check sweeps (quick scans before the real measurement) are found the same way the server does, and never give the best
+  const chk = useMemo(() => checkSweeps(d.curves), [d.curves]);
+  const real = (c: IvCurve) => !chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`);
   const samples = useMemo(
     () =>
       [...new Set(d.curves.map((c) => c.sample))].map((s) => {
         const cs = d.curves.filter((c) => c.sample === s),
-          ms = cs.map((c) => ivMetrics(c.V, c.J, c.pin));
+          ms = cs.map((c) => ({ ...ivMetrics(c.V, c.J, c.pin), real: real(c) }));
         return {
           s,
           subs: new Set(cs.map((c) => c.substrate)).size,
           px: new Set(cs.map((c) => c.substrate + '|' + c.pixel)).size,
-          ok: ms.filter((m) => m.status === 'ok').length,
+          ok: ms.filter((m) => m.status === 'ok' && m.real).length,
           n: ms.length,
-          best: Math.max(0, ...ms.filter((m) => m.status === 'ok').map((m) => m.pce)),
+          checks: ms.filter((m) => !m.real).length,
+          best: Math.max(0, ...ms.filter((m) => m.status === 'ok' && m.real).map((m) => m.pce)),
         };
       }),
-    [d.curves],
+    [d.curves, chk],
   );
   const val = (l: Link) => (l ? `${l.kind}:${l.id}` : '');
   const devs = useMemo(
@@ -290,11 +294,11 @@ function DraftCard({
       [...new Set(d.curves.map((c) => c.sample + '|' + c.substrate))].map((k) => {
         const [sample, substrate] = k.split('|'),
           ms = d.curves
-            .filter((c) => c.sample === sample && c.substrate === substrate)
+            .filter((c) => c.sample === sample && c.substrate === substrate && real(c))
             .map((c) => ivMetrics(c.V, c.J, c.pin));
         return { sample, substrate, best: Math.max(0, ...ms.filter((m) => m.status === 'ok').map((m) => m.pce)) };
       }),
-    [d.curves],
+    [d.curves, chk],
   );
   return (
     <section className="group">
@@ -328,7 +332,18 @@ function DraftCard({
                   <b>{r.s.replace(/_/g, ' ')}</b>
                 </td>
                 <td>{r.subs}</td>
-                <td>{r.n}</td>
+                <td>
+                  {r.n}
+                  {r.checks > 0 && (
+                    <span
+                      className="mut small"
+                      title="Quick exploratory scans before the real measurement: kept, not counted"
+                    >
+                      {' '}
+                      ({r.checks} check sweep{r.checks > 1 ? 's' : ''})
+                    </span>
+                  )}
+                </td>
                 <td>{r.ok}</td>
                 <td>{r.best ? r.best.toFixed(2) + ' %' : '—'}</td>
                 <td>

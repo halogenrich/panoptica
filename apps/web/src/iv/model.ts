@@ -28,6 +28,8 @@ export interface Curve {
   m: IvMetrics;
   inst: { pce?: number | null; ff?: number | null; jsc?: number | null; voc?: number | null } | null;
   use: boolean | null;
+  /** 'check': a quick exploratory scan before the real measurement of the pixel (set by the server); never counted unless ticked in */
+  kind?: 'check' | null;
 }
 export type Link = { kind: 'batch' | 'stack'; id: number; label?: string } | null;
 export interface IvSet {
@@ -74,25 +76,35 @@ export type MetricKey = (typeof METRICS)[number]['key'];
 export const pixelOrder = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 export const scanOrder = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 
+export const isCheck = (c: { kind?: string | null }) => c.kind === 'check';
+/** May count: ticked in by hand, or (not left out) a working pixel that is not a check sweep. For "best of" picks. */
+export const counts = (c: { kind?: string | null; use: boolean | null; m: { status?: string } }) =>
+  c.use === true || (c.use === null && c.m.status === 'ok' && !isCheck(c));
+/** Counted unless a person decided otherwise: working pixel, not a check sweep. */
+const candidate = (c: Curve) => c.use !== false && c.m.status === 'ok' && !isCheck(c) && Number.isFinite(c.m.pce);
 /**
- * Whether a curve counts in the statistics. Explicit choice wins; otherwise only working pixels (not dead or shorted),
- * and when a pixel was measured more than once, only its latest scan.
+ * Whether a curve counts in the statistics. An explicit choice wins; otherwise only working pixels (not dead or shorted), never a
+ * check sweep, and when a pixel was measured more than once, its best scan (highest PCE) in each direction.
  */
 export function inStats(c: Curve, all: Curve[]): boolean {
   if (c.use !== null) return c.use;
-  if (c.m.status !== 'ok') return false;
+  if (!candidate(c)) return false;
   const same = all.filter(
-    (x) =>
-      x.sample === c.sample && x.substrate === c.substrate && x.pixel === c.pixel && x.dir === c.dir && x.use !== false,
+    (x) => x.sample === c.sample && x.substrate === c.substrate && x.pixel === c.pixel && x.dir === c.dir,
   );
   if (same.some((x) => x.use === true)) return false;
-  return same.sort((a, b) => scanOrder(a.scan, b.scan)).pop()?.id === c.id;
+  const best = same
+    .filter(candidate)
+    .sort((a, b) => a.m.pce - b.m.pce || scanOrder(a.scan, b.scan))
+    .pop();
+  return best?.id === c.id;
 }
 
-/** The curve shown for a pixel on the substrate map: the one used in the statistics, else the latest scan. */
+/** The curve shown for a pixel on the substrate map: the one used in the statistics, else the latest real (not check) scan. */
 export function shownCurve(curves: Curve[], all: Curve[], dir: Dir): Curve | undefined {
   const d = curves.filter((c) => c.dir === dir);
-  return d.find((c) => inStats(c, all)) ?? d.sort((a, b) => scanOrder(a.scan, b.scan)).pop();
+  const late = (xs: Curve[]) => [...xs].sort((a, b) => scanOrder(a.scan, b.scan)).pop();
+  return d.find((c) => inStats(c, all)) ?? late(d.filter((c) => !isCheck(c))) ?? late(d);
 }
 
 export const groupKey = (l: Link, sample: string) => (l ? `${l.kind}:${l.id}` : `sample:${sample}`);

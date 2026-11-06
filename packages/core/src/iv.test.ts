@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { boxStats, despike, hysteresisIndex, ivDate, ivMetrics, parseIvFiles, splitId } from './iv';
+import type { Dir } from './iv';
+import {
+  boxStats,
+  checkSweeps,
+  despike,
+  hysteresisIndex,
+  ivDate,
+  ivMetrics,
+  parseIvFiles,
+  splitId,
+  sweepStep,
+} from './iv';
 
 // real exports from the lab's two J–V systems (copied from a measurement day)
 const dir = join(__dirname, '..', 'test-data', 'iv');
@@ -129,5 +140,35 @@ describe('stability', () => {
         0.8,
       ),
     ).toBeCloseTo(10 + (0.25 / 0.35) * 10);
+  });
+});
+
+describe('check sweeps', () => {
+  const { curves } = parseIvFiles(load('padrao'));
+  it('reads the voltage step of a sweep', () => {
+    near(sweepStep(curves.find((c) => c.scan === '01')!.V), 0.05, 0.001);
+    near(sweepStep(curves.find((c) => c.scan === '02')!.V), 0.02, 0.001);
+  });
+  it('marks the quick 0.05 V forward-only scan before the 0.02 V measurement with hysteresis', () => {
+    const k = checkSweeps(curves);
+    expect([...k].filter((x) => x.endsWith('|01'))).toHaveLength(8);
+    expect([...k].some((x) => x.endsWith('|02'))).toBe(false);
+  });
+  it('never marks a scan that is alone, or two equal repeats', () => {
+    expect(checkSweeps(curves.filter((c) => c.scan === '01')).size).toBe(0);
+    const twin = curves.filter((c) => c.scan === '02').map((c) => ({ ...c, scan: '03' }));
+    expect(checkSweeps([...curves.filter((c) => c.scan === '02'), ...twin]).size).toBe(0);
+  });
+  it('a finer scan with one direction does not make a coarser one with both a check sweep, nor the other way round', () => {
+    const fwd = (scan: string, step: number, dir: Dir = 'fwd') => ({
+      sample: 's',
+      substrate: '1',
+      pixel: '1',
+      scan,
+      dir,
+      V: Array.from({ length: 20 }, (_, i) => i * step),
+    });
+    // 0.02 fwd only vs 0.05 with both: the 0.05 one is coarser, so it is the check sweep (clearly finer wins)
+    expect([...checkSweeps([fwd('1', 0.02), fwd('2', 0.05), fwd('2', 0.05, 'rev')])]).toEqual(['s|1|1|2']);
   });
 });

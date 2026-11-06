@@ -5,14 +5,14 @@ import { SEG, type Slot } from '../stacks/model';
 import { fmtDate } from '../lib/ui';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
-import { BoxFigure, TITLES } from '../iv/BoxFigure';
+import { BoxFigure, TITLES, useOutliers } from '../iv/BoxFigure';
 import { METRICS, fmt, statRows, summarize, type IvSetFull, type MetricKey, type StatRow, type Dir } from '../iv/model';
 import { boxes, dirsOf, groupsOf } from '../iv/boxes';
 import type { Batch, BRun } from './Batches';
 import { fmtRun, parseSci } from '../lib/RunInputs';
 
 const STATUS: Record<string, string> = { planned: 'Planned', running: 'Running', done: 'Done' };
-const presets = (s: Slot) =>
+export const slotPresets = (s: Slot) =>
   s.m === 'Spin'
     ? [
         { id: s.a, seg: 's1' },
@@ -38,7 +38,8 @@ export async function batchMeasurements(batchId: number): Promise<IvSetFull[]> {
 /** Printable batch report (save as PDF from the print dialog): stack, recipes, checklist, notes, run data and J–V results. */
 export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: BRun[]; sets: IvSetFull[] }) {
   const fs = useFigureSettings(),
-    [logo] = useLogoChoice();
+    [logo] = useLogoChoice(),
+    [outl] = useOutliers(); // as last chosen with "Show outliers" in the statistics
   const st = b.snapshot.stack,
     rec = b.record ?? {},
     dataOf = (id: string | number) => ctx.all.find((p) => String(p.id) === String(id));
@@ -79,7 +80,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
               <td>
                 {s.m === 'Manual'
                   ? s.t
-                  : presets(s)
+                  : slotPresets(s)
                       .map((p) => dataOf(p.id)?.name ?? '—')
                       .join(' + ')}
               </td>
@@ -91,7 +92,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
 
       <h2>Recipes</h2>
       {st.sl.flatMap((s, i) =>
-        presets(s).map((p) => {
+        slotPresets(s).map((p) => {
           const r = dataOf(p.id),
             k = KINDS[p.seg];
           if (!r || !k) return null;
@@ -232,6 +233,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
                 return { key: k, title: TITLES[k], groups: boxes(rows, dirs, k), unit: m.unit, digits: m.digits };
               })}
               logo={logo && (fs.watermark || fs.group) ? fs : undefined}
+              outliers={outl}
             />
           </div>
         </>
@@ -271,7 +273,7 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
         s.m,
         s.m === 'Manual'
           ? s.t
-          : presets(s)
+          : slotPresets(s)
               .map((p) => dataOf(p.id)?.name ?? '')
               .join(' + '),
         s.th ?? '',
@@ -284,7 +286,7 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
     rows: [
       ['Layer', 'Recipe', 'Field', 'Value'],
       ...st.sl.flatMap((s, i) =>
-        presets(s).flatMap((p) => {
+        slotPresets(s).flatMap((p) => {
           const r = dataOf(p.id),
             k = KINDS[p.seg];
           if (!r || !k) return [];

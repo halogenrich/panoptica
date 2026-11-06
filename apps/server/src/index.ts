@@ -27,6 +27,7 @@ import { db, tx, perms, tagsOf } from './db.js';
 import { hash, verify } from './auth.js';
 import { registerPresets } from './presets.js';
 import { registerIv } from './iv.js';
+import { registerComparisons } from './comparisons.js';
 import { registerSocial } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
@@ -378,6 +379,7 @@ app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) 
 
 registerPresets(app, auth, bad);
 registerIv(app, auth, bad);
+registerComparisons(app, auth, bad);
 registerEvents(app, auth);
 registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);

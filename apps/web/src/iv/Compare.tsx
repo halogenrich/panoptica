@@ -3,10 +3,10 @@ import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { Check } from '../views/common';
 import { Seg } from '../lib/ui';
 import { JvFigure, exportSvg } from './JvFigure';
-import { fmt, type Curve, type Link } from './model';
+import { counts, fmt, isCheck, type Curve, type Link } from './model';
 
 /** One pixel picked for comparison (Shift-click): its curves, and a label naming sample, substrate and pixel. */
-export type CmpItem = { key: string; label: string; curves: Curve[]; link?: Link };
+export type CmpItem = { key: string; label: string; curves: Curve[]; link?: Link; color?: string };
 export const CompareCtx = createContext<{
   items: CmpItem[];
   toggle: (it: CmpItem) => void;
@@ -27,12 +27,10 @@ export const CMP = [
   '#6b8e23',
 ];
 
-/** Best scan of a pixel: the scan holding its highest-PCE working curve; both directions of that scan. */
+/** Best scan of a pixel: the scan holding its highest-PCE counted curve (never a check sweep); both directions of that scan. */
 export function bestScan(cs: Curve[]) {
-  const best = cs
-    .filter((c) => c.m.status === 'ok')
-    .reduce<Curve | undefined>((b, c) => (!b || c.m.pce > b.m.pce ? c : b), undefined);
-  const scan = best?.scan ?? cs[0]?.scan;
+  const best = cs.filter(counts).reduce<Curve | undefined>((b, c) => (!b || c.m.pce > b.m.pce ? c : b), undefined);
+  const scan = best?.scan ?? cs.filter((c) => !isCheck(c)).pop()?.scan ?? cs[0]?.scan;
   return { best, curves: cs.filter((c) => c.scan === scan) };
 }
 
@@ -60,7 +58,7 @@ const FW = 760,
   FONT = 'Inter, "Segoe UI", Helvetica, Arial, sans-serif';
 
 /** J–V curves of several pixels on one set of axes (journal style): one colour per pixel, forward solid, backward dashed. */
-function CompareFigure({
+export function CompareFigure({
   items,
   dir,
   svgRef,
@@ -68,14 +66,14 @@ function CompareFigure({
 }: {
   items: CmpItem[];
   dir: 'both' | 'rev' | 'fwd';
-  svgRef: React.Ref<SVGSVGElement>;
+  svgRef?: React.Ref<SVGSVGElement>;
   logo: boolean;
 }) {
   const fs = useFigureSettings(),
     wm = logo ? fs.watermark : '',
     grp = logo ? fs.group : '';
   const shown = items
-    .map((it, i) => ({ it, color: CMP[i % CMP.length], ...bestScan(it.curves) }))
+    .map((it, i) => ({ it, color: it.color ?? CMP[i % CMP.length], ...bestScan(it.curves) }))
     .map((x) => ({ ...x, curves: x.curves.filter((c) => dir === 'both' || c.dir === dir) }));
   const all = shown.flatMap((x) => x.curves);
   const jmax = Math.max(0, ...all.flatMap((c) => c.J.filter((j, i) => c.V[i] >= -0.05 && Number.isFinite(j))));
@@ -104,7 +102,7 @@ function CompareFigure({
       xmlns="http://www.w3.org/2000/svg"
       fontFamily={FONT}
       role="img"
-      aria-label={`J–V curves of ${items.length} pixels`}
+      aria-label={`J–V curves of ${items.length} ${items.length === 1 ? 'pixel' : 'pixels'}`}
     >
       <rect width={FW} height={FH} fill="#fff" />
       <defs>
