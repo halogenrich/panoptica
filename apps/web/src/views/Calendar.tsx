@@ -84,6 +84,15 @@ function namer(list: Booking[]) {
   };
 }
 const what = (b: Booking) => `${b.batch_code}${b.step ? ` (${b.step})` : ''}`;
+/** Equipment names as said in the lab: "GB: Minivap (Organic Evaporator)" → "Minivap". The full name is in headers and the hover card. */
+const shortEq = (n: string) =>
+  n
+    .replace(/^GB:\s*/i, '')
+    .replace(/\s*\(.*\)\s*$/, '')
+    .trim() || n;
+/** Lab hours (weekdays 08–18): the rest of the day is shaded, as in the Overview's equipment use. */
+const LAB_FROM = 8,
+  LAB_TO = 18;
 const ended = (b: Booking) => new Date(b.end) < new Date();
 
 /** Side-by-side lanes for overlapping bookings in one column. */
@@ -202,7 +211,10 @@ export default function Calendar({
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   });
-  useRefresh(load);
+  useRefresh(() => {
+    load();
+    loadSb();
+  }, ['calendar', 'batches']);
   const pickView = (v: View) => {
     setView(v);
     try {
@@ -726,14 +738,21 @@ function TimeGrid({
     onNew(toDate(c.day, s), toDate(c.day, e), c.eq?.id);
   };
   const today = sod(new Date());
+  // empty Saturday and Sunday columns are narrow, so the working days get the room
+  const busyCol = cols.map(
+    (c) =>
+      view === 'day' ||
+      ![0, 6].includes(c.day.getDay()) ||
+      list.some(
+        (b) => new Date(b.end).getTime() > c.day.getTime() && new Date(b.start).getTime() < c.day.getTime() + DAY,
+      ),
+  );
+  const template = `52px ${cols.map((_, i) => (busyCol[i] ? `minmax(${view === 'day' ? 140 : 96}px, 1fr)` : 'minmax(48px, 0.4fr)')).join(' ')}`;
   return (
     <div className={'tg tg-' + view}>
       {card && createPortal(<HoverCard b={card.b} r={card.r} />, document.body)}
       <div className="tg-scroll" ref={scroller}>
-        <div
-          className="tg-head"
-          style={{ gridTemplateColumns: `52px repeat(${cols.length}, minmax(${view === 'day' ? 140 : 90}px, 1fr))` }}
-        >
+        <div className="tg-head" style={{ gridTemplateColumns: template }}>
           <span />
           {cols.map((c) =>
             c.eq ? (
@@ -743,7 +762,12 @@ function TimeGrid({
                 {c.eq.place && <span className="mut small">{c.eq.place}</span>}
               </div>
             ) : (
-              <div key={c.key} className={'tg-col-h day' + (sameDay(c.day, today) ? ' today' : '')}>
+              <div
+                key={c.key}
+                className={
+                  'tg-col-h day' + (sameDay(c.day, today) ? ' today' : '') + (busyCol[cols.indexOf(c)] ? '' : ' slim')
+                }
+              >
                 <span className="mut small">{c.day.toLocaleDateString(undefined, { weekday: 'short' })}</span>
                 <b>{c.day.getDate()}</b>
               </div>
@@ -753,7 +777,7 @@ function TimeGrid({
         <div
           className="tg-body"
           style={{
-            gridTemplateColumns: `52px repeat(${cols.length}, minmax(${view === 'day' ? 140 : 90}px, 1fr))`,
+            gridTemplateColumns: template,
             height: 24 * HOUR_PX,
           }}
         >
@@ -778,7 +802,17 @@ function TimeGrid({
             return (
               <div
                 key={c.key}
-                className={'tg-col' + (sameDay(c.day, today) ? ' today' : '')}
+                className={
+                  'tg-col' +
+                  (sameDay(c.day, today) ? ' today' : '') +
+                  (c.eq || ![0, 6].includes(c.day.getDay()) ? '' : ' weekend')
+                }
+                style={
+                  {
+                    '--lab-from': `${LAB_FROM * HOUR_PX}px`,
+                    '--lab-to': `${LAB_TO * HOUR_PX}px`,
+                  } as React.CSSProperties
+                }
                 data-day={ymd(c.day)}
                 data-eq={c.eq?.id ?? ''}
                 onPointerDown={(e) => {
@@ -832,29 +866,39 @@ function TimeGrid({
                     >
                       {size === 'tall' ? (
                         <>
-                          <b>{b.equipment}</b>
-                          <span className="bk-s">{who}</span>
-                          <span className="bk-s">{what(b)}</span>
+                          <b>{what(b)}</b>
+                          <span className="bk-s">{b.mine ? 'You' : who}</span>
+                          <span className="bk-s">{shortEq(b.equipment)}</span>
                           <span className="bk-t">{when}</span>
                         </>
                       ) : size === 'mid' ? (
                         <>
                           <span className="bk-l">
-                            <b>{b.equipment}</b>
-                            <span className="bk-t">{when}</span>
+                            <b>{what(b)}</b>
+                            <span className="bk-t">{hm(new Date(b.start))}</span>
                           </span>
                           <span className="bk-s">
-                            {who} · {what(b)}
+                            {shortEq(b.equipment)}, {b.mine ? 'you' : who}
                           </span>
                         </>
                       ) : (
                         <>
-                          <b>{b.equipment}</b>
+                          <b>{what(b)}</b>
                           <span className="bk-s">
-                            {who} · {what(b)}
+                            {shortEq(b.equipment)}, {b.mine ? 'you' : who}
                           </span>
-                          <span className="bk-t">{when}</span>
+                          <span className="bk-t">{hm(new Date(b.start))}</span>
                         </>
+                      )}
+                      {b.outcome === 'done' && (
+                        <span className="bk-mark" aria-label="concluded">
+                          ✓
+                        </span>
+                      )}
+                      {!b.outcome && ended(b) && (
+                        <span className="bk-mark" aria-label="waiting for its outcome">
+                          ?
+                        </span>
                       )}
                       {canEdit && s === new Date(b.start).getTime() && (
                         <span
@@ -972,8 +1016,9 @@ function Month({
                 }}
               >
                 <i />
-                {b.equipment}
-                <span>{nm(b.user_name)}</span>
+                <span className="month-t">{hm(new Date(b.start))}</span>
+                {shortEq(b.equipment)}
+                <span>{b.mine ? 'you' : nm(b.user_name)}</span>
               </button>
             ))}
             {here.length > 3 && <span className="month-more">{here.length - 3} more</span>}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRefresh } from '../lib/trash';
 import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
@@ -227,6 +228,7 @@ export default function Inventory({ canEdit }: { canEdit: boolean }) {
   useEffect(() => {
     load();
   }, []);
+  useRefresh(load, ['inventory', 'batches']);
   const go = (t: Tab) => {
     setTab(t);
     setArea(null);

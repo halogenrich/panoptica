@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 /**
@@ -12,13 +12,31 @@ export function showToast(text: string, undo?: () => Promise<unknown>) {
   const t = { id: ++seq, text, undo };
   listeners.forEach((l) => l(t));
 }
-/** Lists reload on this event (after an undo or a restore). */
+/** Lists reload on this event: after an undo or a restore here, or a change made by someone else (live updates, lib/live.ts). */
 export const refreshAll = () => window.dispatchEvent(new Event('psc-refresh'));
-export function useRefresh(load: () => void) {
+/**
+ * Reloads with `load` when something it shows changed. `topics` narrows it to some kinds of change ("calendar", "batches",
+ * "presets", "inventory", "iv", "comments", "notifications", "users"); without topics it reloads on any change.
+ * Several changes in a row cause one reload.
+ */
+export function useRefresh(load: () => void, topics?: string[]) {
+  const ref = useRef(load);
+  ref.current = load;
+  const key = topics?.join(',') ?? '';
   useEffect(() => {
-    window.addEventListener('psc-refresh', load);
-    return () => window.removeEventListener('psc-refresh', load);
-  });
+    let t = 0;
+    const f = (e: Event) => {
+      const got: string[] | undefined = (e as CustomEvent).detail?.topics;
+      if (got && topics && !got.includes('all') && !got.some((x) => topics.includes(x))) return;
+      window.clearTimeout(t);
+      t = window.setTimeout(() => ref.current(), 200);
+    };
+    window.addEventListener('psc-refresh', f);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('psc-refresh', f);
+    };
+  }, [key]);
 }
 
 /** Called after a delete succeeded: toast with Undo (restores from the trash). */

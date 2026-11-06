@@ -34,6 +34,7 @@ import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
 import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
 import { registerUpdates } from './updates.js';
+import { registerEvents } from './events.js';
 import {
   BACKUP_DIR,
   backupKey,
@@ -377,6 +378,7 @@ app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) 
 
 registerPresets(app, auth, bad);
 registerIv(app, auth, bad);
+registerEvents(app, auth);
 registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);
 registerCalendar(app, auth, bad);

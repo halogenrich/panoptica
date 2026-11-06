@@ -50,7 +50,7 @@ const env = {
 };
 log('starting', app);
 if (process.platform === 'win32')
-  spawn('cmd.exe', ['/c', 'start', '"Perovskite Lab"', '/min', 'start.bat'], {
+  spawn('cmd.exe', ['/c', 'start', '"Perovskite Lab"', '/min', 'cmd', '/c', '"start.bat > app-console.log 2>&1"'], {
     cwd: app,
     env,
     detached: true,
@@ -95,7 +95,7 @@ const call = async (m, p, b) => {
   return j;
 };
 const showLogs = () => {
-  for (const f of ['updates/update.log']) {
+  for (const f of ['updates/update.log', 'app-console.log']) {
     const p = join(app, f);
     if (existsSync(p)) {
       console.log(`----- ${f}`);

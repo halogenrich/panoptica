@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, openSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { UpdateSettingsIn } from '@psc/schema';
@@ -171,14 +180,26 @@ function install(lan: boolean) {
       process.platform === 'win32' ? 'update.bat' : process.platform === 'darwin' ? 'update.command' : 'update.sh',
     run = join(DIR, 'run-' + script);
   copyFileSync(join(ROOT, script), run);
+  const note = (m: string) => {
+    try {
+      appendFileSync(join(DIR, 'update.log'), `[${new Date().toISOString()}] app: ${m}\n`);
+    } catch {
+      /* the log is a help, not a requirement */
+    }
+  };
   if (process.platform === 'win32') {
-    spawn('cmd.exe', ['/c', 'start', '"Perovskite Lab update"', `"${run}"`, ...args.map((a) => `"${a}"`)], {
+    const line = ['/c', 'start', '"Perovskite Lab update"', `"${run}"`, ...args.map((a) => `"${a}"`)];
+    note(`starting cmd.exe ${line.join(' ')}`);
+    const child = spawn('cmd.exe', line, {
       cwd: ROOT,
       env,
       detached: true,
       stdio: 'ignore',
       windowsVerbatimArguments: true,
-    }).unref();
+    });
+    child.on('error', (e) => note(`could not start the update window: ${e.message}`));
+    child.on('exit', (code) => note(`update window launcher exited with ${code}`));
+    child.unref();
   } else {
     const log = openSync(join(DIR, 'update.log'), 'a');
     // under systemd the updater must run outside the service, or stopping the service would stop it too

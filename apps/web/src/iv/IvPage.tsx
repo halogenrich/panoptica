@@ -54,7 +54,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   useEffect(() => {
     load();
   }, []);
-  useRefresh(load);
+  useRefresh(load, ['iv']);
   const shown = (rows ?? []).filter((r) =>
     (
       r.name +
