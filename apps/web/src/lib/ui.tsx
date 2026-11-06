@@ -137,5 +137,61 @@ export function Empty({ title, text, action }: { title: string; text: string; ac
 
 export const fmtDate = (s: string) => {
   const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
-  return isNaN(+d) ? s : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return isNaN(+d) ? s : d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
+/** Dates are English with the day first (06/11/2026) and times 24 h, whatever the browser's language. */
+export const fmtDateTime = (s: string) => {
+  const d = new Date(s.replace(' ', 'T') + (s.includes('Z') || /[+-]\d\d:\d\d$/.test(s) ? '' : 'Z'));
+  return isNaN(+d)
+    ? s
+    : `${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+/** Cards or list for the item screens; one choice for the whole app, remembered in this browser. */
+export function useLayout(): ['cards' | 'list', (v: 'cards' | 'list') => void] {
+  const [v, setV] = useState<'cards' | 'list'>(() => {
+    try {
+      return (localStorage.getItem('psc.layout') as 'cards' | 'list') || 'cards';
+    } catch {
+      return 'cards';
+    }
+  });
+  useEffect(() => {
+    const f = () => {
+      try {
+        setV((localStorage.getItem('psc.layout') as 'cards' | 'list') || 'cards');
+      } catch {
+        /* storage unavailable */
+      }
+    };
+    window.addEventListener('psc-layout', f);
+    return () => window.removeEventListener('psc-layout', f);
+  }, []);
+  return [
+    v,
+    (x) => {
+      setV(x);
+      try {
+        localStorage.setItem('psc.layout', x);
+      } catch {
+        /* storage unavailable */
+      }
+      window.dispatchEvent(new Event('psc-layout'));
+    },
+  ];
+}
+export function LayoutToggle({ v, on }: { v: 'cards' | 'list'; on: (v: 'cards' | 'list') => void }) {
+  return (
+    <span className="hide-phone">
+      <Seg
+        value={v}
+        opts={[
+          ['cards', 'Cards'],
+          ['list', 'List'],
+        ]}
+        on={on}
+        small
+      />
+    </span>
+  );
+}

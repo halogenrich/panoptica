@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
-import { Badge, Empty, Modal, Seg, fmtDate } from '../lib/ui';
-import { Check } from '../views/common';
+import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout } from '../lib/ui';
+import { Check, Grip, useReorder } from '../views/common';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
 import { BFH, BFW, BoxFigure, BoxPanel, OutlierToggle, TITLES, combinePanels, useOutliers } from '../iv/BoxFigure';
 import { CompareFigure, bestScan, type CmpItem } from '../iv/Compare';
 import { exportSvg } from '../iv/JvFigure';
+import ExportMenu, { pngSvg } from '../lib/ExportMenu';
 import type { BoxGroup } from '../iv/charts';
 import {
   METRICS,
@@ -60,7 +61,8 @@ type Summary = Omit<Comparison, 'data'> & { owner: string };
 function List({ onOpen }: { onOpen: (id: number) => void }) {
   const [rows, setRows] = useState<Summary[] | null>(null),
     [err, setErr] = useState(''),
-    [q, setQ] = useState('');
+    [q, setQ] = useState(''),
+    [layout, setLayout] = useLayout();
   const load = () =>
     api<Summary[]>('/comparisons')
       .then(setRows)
@@ -89,6 +91,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
           onChange={(e) => setQ(e.target.value)}
         />
         <div className="grow" />
+        <LayoutToggle v={layout} on={setLayout} />
         <button className="btn" onClick={make}>
           New comparison
         </button>
@@ -116,6 +119,35 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
             )
           }
         />
+      ) : layout === 'list' ? (
+        <section className="group scroll flush">
+          <table className="list">
+            <thead>
+              <tr>
+                <th>Comparison</th>
+                <th className="num">Groups</th>
+                <th className="num">Devices</th>
+                <th>Owner</th>
+                <th />
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                  <td>
+                    <b>{r.name}</b>
+                  </td>
+                  <td className="num">{r.groups}</td>
+                  <td className="num">{r.devices}</td>
+                  <td>{r.mine ? 'You' : r.owner}</td>
+                  <td>{r.visibility === 'shared' ? <Badge>Shared</Badge> : <Badge tone="ac">Private</Badge>}</td>
+                  <td className="mut">{fmtDate(r.updated_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       ) : (
         <div className="cards">
           {shown.map((r) => (
@@ -223,7 +255,6 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
     ref = groups.find((g) => g.ref),
     rel = !!c.data.relative && !!ref;
   const del = () =>
-    window.confirm(`Move “${c.name}” to the trash?`) &&
     api('/comparisons/' + id, 'DELETE')
       .then(() => {
         trashed('cmp', id, c.name);
@@ -364,6 +395,7 @@ function GroupRail({
   onAdd: (gid: string) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const { drag, handle, rowRef } = useReorder(groups, onChange);
   const up = (id: string, p: Partial<Group>) => onChange(groups.map((g) => (g.id === id ? { ...g, ...p } : g)));
   const mods = (g: Group) => {
     const c = new Map<string, number>();
@@ -390,8 +422,20 @@ function GroupRail({
             main = [...mc.entries()].sort((a, b) => b[1] - a[1])[0]?.[0],
             strays = mc.size > 1 ? g.members.filter((m) => splitName(m.sample).mod.toLowerCase() !== main) : [];
           return (
-            <li key={g.id} className={'cx-group' + (g.ref ? ' ref' : '')} style={{ '--g': seriesColor(i) } as any}>
+            <li
+              key={g.id}
+              ref={rowRef(i)}
+              className={'cx-group' + (g.ref ? ' ref' : '') + (drag === i ? ' dragging' : '')}
+              style={{ '--eq': seriesColor(i) } as any}
+            >
               <div className="cx-group-row">
+                {editable && groups.length > 1 ? (
+                  <span {...handle(i)} title="Drag to reorder" aria-label={`Reorder ${g.name}`}>
+                    <Grip />
+                  </span>
+                ) : (
+                  <span className="cx-grip-space" />
+                )}
                 <input
                   className="cx-gname"
                   aria-label={`Name of group ${i + 1}`}
@@ -410,6 +454,7 @@ function GroupRail({
                   {g.ref ? 'Reference' : 'Set as reference'}
                 </button>
               </div>
+              <i className="cbar" aria-hidden />
               <div className="cx-group-meta">
                 <button
                   className="cx-disclose small"
@@ -435,20 +480,6 @@ function GroupRail({
                     <button className="link small" onClick={() => onAdd(g.id)}>
                       + Add
                     </button>
-                    {i > 0 && (
-                      <button
-                        className="iconbtn small"
-                        title="Move up"
-                        aria-label={`Move ${g.name} up`}
-                        onClick={() => {
-                          const n = [...groups];
-                          [n[i - 1], n[i]] = [n[i], n[i - 1]];
-                          onChange(n);
-                        }}
-                      >
-                        ↑
-                      </button>
-                    )}
                     <button
                       className="iconbtn small"
                       title="Remove the group"
@@ -673,38 +704,34 @@ function DevicePicker({
 }
 
 // ------------------------------------------------------------------ results
+/** The recipe source of a device: its batch (frozen snapshot) or its stack (recipes as they are now). */
+const srcKey = (l: { kind: string; id: number } | null | undefined) =>
+  l?.kind === 'batch' ? `b${l.id}` : l?.kind === 'stack' ? `s${l.id}` : null;
+
 function useBatches(groups: Group[], sets: Record<number, IvSetFull>) {
-  const ids = [
+  const keys = [
     ...new Set(
-      groups.flatMap((g) =>
-        g.members
-          .map((m) => sets[m.set]?.links[m.sample])
-          .filter((l) => l?.kind === 'batch')
-          .map((l) => l!.id),
-      ),
+      groups.flatMap((g) => g.members.map((m) => srcKey(sets[m.set]?.links[m.sample])).filter((x): x is string => !!x)),
     ),
-  ].sort((a, b) => a - b);
-  const [b, setB] = useState<Record<number, Batch | null>>({});
+  ].sort();
+  const [b, setB] = useState<Record<string, Batch | null>>({});
   useEffect(() => {
-    const need = ids.filter((x) => !(x in b));
+    const need = keys.filter((x) => !(x in b));
     if (!need.length) return;
-    Promise.all(need.map((x) => api<Batch>('/batches/' + x).catch(() => null))).then((got) =>
-      setB((o) => ({ ...o, ...Object.fromEntries(need.map((x, i) => [x, got[i]])) })),
-    );
-  }, [ids.join(',')]);
+    Promise.all(
+      need.map((x) =>
+        api<Batch>(x[0] === 'b' ? '/batches/' + x.slice(1) : `/stacks/${x.slice(1)}/snapshot`).catch(() => null),
+      ),
+    ).then((got) => setB((o) => ({ ...o, ...Object.fromEntries(need.map((x, i) => [x, got[i]])) })));
+  }, [keys.join(',')]);
   return b;
 }
 
-/** The recipe values of a group's batches; a value that differs between its batches is shown as varying. */
-function groupFacts(g: Group, sets: Record<number, IvSetFull>, batches: Record<number, Batch | null>) {
+/** The recipe values of a group's batches or stacks; a value that differs between them is shown as varying. */
+function groupFacts(g: Group, sets: Record<number, IvSetFull>, batches: Record<string, Batch | null>) {
   const ids = [
-    ...new Set(
-      g.members
-        .map((m) => sets[m.set]?.links[m.sample])
-        .filter((l) => l?.kind === 'batch')
-        .map((l) => l!.id),
-    ),
-  ];
+    ...new Set(g.members.map((m) => srcKey(sets[m.set]?.links[m.sample])).filter((x): x is string => !!x)),
+  ].sort();
   const fs = ids
     .map((x) => batches[x])
     .filter((x): x is Batch => !!x)
@@ -713,7 +740,7 @@ function groupFacts(g: Group, sets: Record<number, IvSetFull>, batches: Record<n
   const facts: Record<string, string> = {};
   for (const k of new Set(fs.flatMap((f) => Object.keys(f)))) {
     const v = new Set(fs.map((f) => f[k] ?? '—'));
-    facts[k] = v.size === 1 ? [...v][0] : `varies (${fs.length} batches)`;
+    facts[k] = v.size === 1 ? [...v][0] : 'varies';
   }
   return { ids, facts };
 }
@@ -1042,42 +1069,50 @@ function Results({
         />
         <div className="grow" />
         <ExportMenu
+          primary
           disabled={!rows.length}
           sections={[
-            ['Slide (16:9)', [['Box plots, J–V and table', (as) => slide.make(slideEl, `${fileBase}-slide`, as)]]],
+            [
+              'Slide (16:9)',
+              [['Box plots, J–V and table', pngSvg((as) => slide.make(slideEl, `${fileBase}-slide`, as))]],
+            ],
             [
               'Box plots',
               [
                 [
                   'All in one image',
-                  (as) => void save(boxSvgs().length ? combinePanels(boxSvgs()) : null, `${fileBase}-boxplots`, as),
+                  pngSvg(
+                    (as) => void save(boxSvgs().length ? combinePanels(boxSvgs()) : null, `${fileBase}-boxplots`, as),
+                  ),
                 ],
                 [
                   `Each plot (${show.length} files)`,
-                  (as) =>
+                  pngSvg((as) =>
                     each(
                       show.map((k) => [figs.current[k], `${fileBase}-${k}`]),
                       as,
                     ),
+                  ),
                 ],
               ],
             ],
             [
               'J–V curves',
               [
-                ['All curves in one plot', (as) => save(jvRef.current, `${fileBase}-jv`, as)],
+                ['All curves in one plot', pngSvg((as) => void save(jvRef.current, `${fileBase}-jv`, as))],
                 [
                   `Each group (${jvItems.length} files)`,
-                  (as) =>
+                  pngSvg((as) =>
                     each(
                       jvItems.map((it) => [jvOne.current[it.key], `${fileBase}-jv-${safe(it.label)}`]),
                       as,
                     ),
+                  ),
                 ],
               ],
             ],
+            ['Spreadsheet', [['Groups, every pixel, what changed', [['Excel', excel]]]]],
           ]}
-          onExcel={excel}
         />
       </div>
       {!refGroup && c.data.relative && (
@@ -1305,8 +1340,9 @@ function Results({
                   <h3 id="cx-chg">What changed against {refGroup.name || 'the reference'}</h3>
                 </header>
                 {changes.map((x) => (
-                  <div key={x.g.id} className="cx-change" style={{ '--g': seriesColor(groups.indexOf(x.g)) } as any}>
+                  <div key={x.g.id} className="cx-change" style={{ '--eq': seriesColor(groups.indexOf(x.g)) } as any}>
                     <h4>{x.g.name || 'Unnamed group'}</h4>
+                    <i className="cbar" aria-hidden />
                     {x.names && (
                       <p className="small">
                         Sample names: <s className="mut">{x.names[0]}</s> → <b>{x.names[1]}</b>
@@ -1314,13 +1350,13 @@ function Results({
                     )}
                     {x.noBatch ? (
                       <p className="mut small">
-                        Recipes are compared from batches, and these devices (or the reference) are not linked to a
-                        batch: link the samples to their batches in the measurement.
+                        These devices (or the reference) are not linked to a batch or a stack, so their recipes are
+                        unknown: link the samples in the measurement.
                       </p>
                     ) : x.same ? (
                       <p className="mut small">
-                        Same batch as the reference: the recipes are the same, so what differs is not recorded in the
-                        app{x.names ? ' beyond the sample names' : ''}.
+                        Same batch or stack as the reference: the recipes are the same, so what differs is not recorded
+                        in the app{x.names ? ' beyond the sample names' : ''}.
                       </p>
                     ) : x.diff.length === 0 ? (
                       <p className="mut small">Different batches with the same recipes.</p>
@@ -1385,70 +1421,6 @@ function MoreMenu({ items }: { items: [string, () => void, boolean?][] }) {
               {label}
             </button>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExportMenu({
-  sections,
-  onExcel,
-  disabled,
-}: {
-  sections: [string, [string, (as: 'png' | 'svg') => void][]][];
-  onExcel: () => void;
-  disabled: boolean;
-}) {
-  const [open, setOpen] = useState(false),
-    ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const f = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('mousedown', f);
-    document.addEventListener('keydown', k);
-    return () => {
-      document.removeEventListener('mousedown', f);
-      document.removeEventListener('keydown', k);
-    };
-  }, [open]);
-  const pick = (fn: () => void) => () => {
-    fn();
-    setOpen(false);
-  };
-  return (
-    <div className="ov-exp" ref={ref}>
-      <button className="btn small-btn" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
-        Export
-      </button>
-      {open && (
-        <div className="ov-exp-menu cx-exp-menu" role="menu">
-          {sections.map(([title, items]) => (
-            <div key={title} className="cx-exp-sec">
-              <div className="cx-exp-title">{title}</div>
-              {items.map(([label, fn]) => (
-                <div key={label} className="ov-exp-row">
-                  <span>{label}</span>
-                  <button className="link" onClick={pick(() => fn('png'))}>
-                    PNG
-                  </button>
-                  <button className="link" onClick={pick(() => fn('svg'))}>
-                    SVG
-                  </button>
-                </div>
-              ))}
-            </div>
-          ))}
-          <div className="cx-exp-sec">
-            <div className="cx-exp-title">Spreadsheet</div>
-            <div className="ov-exp-row">
-              <span>Groups, every pixel, what changed</span>
-              <button className="link" onClick={pick(onExcel)}>
-                Excel
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@ import { useFigureSettings, useLogoChoice } from '../../lib/figure';
 import { exportSvg, JvFigure } from '../../iv/JvFigure';
 import { api } from '../../api';
 import { Modal } from '../../lib/ui';
+import ExportMenu, { pngSvg, type ExportRow } from '../../lib/ExportMenu';
 import { BFH, BFW, BoxFigure, OutlierToggle, TITLES, useOutliers } from '../../iv/BoxFigure';
 import { boxes, dirsOf } from '../../iv/boxes';
 import { METRICS, fmt, inStats, statRows, type Curve, type IvSetFull, type MetricKey } from '../../iv/model';
@@ -183,7 +184,7 @@ export function useSlide() {
     make: (el: React.ReactNode, name: string, as: 'png' | 'svg' = 'png') => setNode({ el, name, as }),
   };
 }
-/** "Export slide" with the formats (and slides) inside, so it does not compete with the content. */
+/** "Export" with the slide formats inside (the shared export menu), so it does not compete with the content. */
 export function SlideButtons({
   onMake,
   extra,
@@ -191,52 +192,18 @@ export function SlideButtons({
   onMake: (as: 'png' | 'svg') => void;
   extra?: [string, (as: 'png' | 'svg') => void];
 }) {
-  const [open, setOpen] = useState(false),
-    ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const f = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', f);
-    return () => document.removeEventListener('mousedown', f);
-  }, [open]);
-  const opt = (label: string, fn: (as: 'png' | 'svg') => void) => (
-    <div className="ov-exp-row">
-      <span>{label}</span>
-      <button
-        className="link"
-        onClick={() => {
-          fn('png');
-          setOpen(false);
-        }}
-      >
-        PNG
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          fn('svg');
-          setOpen(false);
-        }}
-      >
-        SVG
-      </button>
-    </div>
-  );
   return (
-    <div className="ov-exp" ref={ref}>
-      <button className="btn secondary small-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Export slide
-      </button>
-      {open && (
-        <div className="ov-exp-menu" role="menu">
-          <span className="mut small">16:9, for presentations</span>
-          {opt(extra ? 'Summary' : 'Slide', onMake)}
-          {extra && opt(extra[0], extra[1])}
-        </div>
-      )}
-    </div>
+    <ExportMenu
+      sections={[
+        [
+          'Slide (16:9)',
+          [
+            [extra ? 'Summary' : 'This page', pngSvg(onMake)],
+            ...(extra ? [[extra[0], pngSvg(extra[1])] as ExportRow] : []),
+          ],
+        ],
+      ]}
+    />
   );
 }
 

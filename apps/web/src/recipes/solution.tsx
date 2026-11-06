@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SPACERS, layeredAmounts, nFromAmounts, solutionPlan, type Additive, type Basis, type Comp } from '@psc/core';
-import { Check, Num } from '../views/common';
+import { Check, DragHandle, Num, RemoveRow, useReorder } from '../views/common';
 import { Seg } from '../lib/ui';
 import { Formula, Section, T, fix, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
@@ -442,6 +442,50 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
       heat: false,
       cool: false,
     });
+  const rSv = useReorder(d.sv, (sv) => set({ sv }), 'solvent'),
+    rAd = useReorder(d.ad, (ad) => set({ ad }), 'additive');
+  // perovskite: the additives right after how the precursor solution is prepared; other solutions: after the solvents
+  const additives = (
+    <>
+      <Section title="Additives">
+        {d.ad.map((a, i) => (
+          <div className={'row wrap' + (rAd.drag === i ? ' dragging' : '')} key={i} ref={rAd.rowRef(i)}>
+            <span className="inline">
+              <DragHandle h={rAd.handle(i)} show={d.ad.length > 1} />
+              <select value={a.n} onChange={(e) => upAd(i, { n: e.target.value })}>
+                {ctx.chems.map((c) => (
+                  <option key={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </span>
+            <span className="inline">
+              <Num v={a.v} on={(v) => upAd(i, { v })} />
+              <select value={a.b} onChange={(e) => upAd(i, { b: e.target.value as Basis })}>
+                {BASES.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
+              {a.b === 'µL stock/mL' && (
+                <>
+                  <Num v={a.sc ?? 0} on={(sc) => upAd(i, { sc })} /> mg/mL stock
+                </>
+              )}
+              <RemoveRow
+                label={`Remove additive ${i + 1}`}
+                onClick={() => set({ ad: d.ad.filter((_, j) => j !== i) })}
+              />
+            </span>
+          </div>
+        ))}
+        <button
+          className="link add"
+          onClick={() => set({ ad: [...d.ad, { n: names('additive')[0] ?? 'MACl', b: 'mol%', v: 0 }] })}
+        >
+          Add additive
+        </button>
+      </Section>
+    </>
+  );
   return (
     <>
       <Section title="Type">
@@ -474,6 +518,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
                 : 'All salts weighed into one vial and dissolved together.'}
             </p>
           </Section>
+          {additives}
           <Section title="Concentration">
             {d.prep === 'one' && (
               <Seg
@@ -559,17 +604,21 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
       )}
       <Section title="Solvents (volume parts)">
         {d.sv.map((v, i) => (
-          <div className="row" key={i}>
-            <select value={v.n} onChange={(e) => upSv(i, { n: e.target.value })}>
-              {names('solvent').map((n) => (
-                <option key={n}>{n}</option>
-              ))}
-            </select>
+          <div className={'row' + (rSv.drag === i ? ' dragging' : '')} key={i} ref={rSv.rowRef(i)}>
+            <span className="inline">
+              <DragHandle h={rSv.handle(i)} show={d.sv.length > 1} />
+              <select value={v.n} onChange={(e) => upSv(i, { n: e.target.value })}>
+                {names('solvent').map((n) => (
+                  <option key={n}>{n}</option>
+                ))}
+              </select>
+            </span>
             <span className="inline">
               <Num v={v.p} on={(p) => upSv(i, { p })} />
-              <button className="link" onClick={() => set({ sv: d.sv.filter((_, j) => j !== i) })}>
-                Remove
-              </button>
+              <RemoveRow
+                label={`Remove solvent ${i + 1}`}
+                onClick={() => set({ sv: d.sv.filter((_, j) => j !== i) })}
+              />
             </span>
           </div>
         ))}
@@ -577,39 +626,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           Add solvent
         </button>
       </Section>
-      <Section title="Additives">
-        {d.ad.map((a, i) => (
-          <div className="row wrap" key={i}>
-            <select value={a.n} onChange={(e) => upAd(i, { n: e.target.value })}>
-              {ctx.chems.map((c) => (
-                <option key={c.id}>{c.name}</option>
-              ))}
-            </select>
-            <span className="inline">
-              <Num v={a.v} on={(v) => upAd(i, { v })} />
-              <select value={a.b} onChange={(e) => upAd(i, { b: e.target.value as Basis })}>
-                {BASES.map((b) => (
-                  <option key={b}>{b}</option>
-                ))}
-              </select>
-              {a.b === 'µL stock/mL' && (
-                <>
-                  <Num v={a.sc ?? 0} on={(sc) => upAd(i, { sc })} /> mg/mL stock
-                </>
-              )}
-              <button className="link" onClick={() => set({ ad: d.ad.filter((_, j) => j !== i) })}>
-                Remove
-              </button>
-            </span>
-          </div>
-        ))}
-        <button
-          className="link add"
-          onClick={() => set({ ad: [...d.ad, { n: names('additive')[0] ?? 'MACl', b: 'mol%', v: 0 }] })}
-        >
-          Add additive
-        </button>
-      </Section>
+      {d.mode !== 'Perovskite' && additives}
       <Section title="Preparation">
         <label className="inline">
           <Check v={d.stir} on={(stir) => set({ stir })} /> Stirring{' '}

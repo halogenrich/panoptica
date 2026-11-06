@@ -479,15 +479,15 @@ app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
     .prepare(
       `SELECT b.id,b.code,b.name,b.status,b.visibility,(b.owner_id=@uid) AS mine,u.name AS owner,b.created_at,b.updated_at,b.record,
     json_extract(b.snapshot,'$.stack.arch') AS arch, json_array_length(b.snapshot,'$.stack.sl') AS total, json_extract(b.snapshot,'$.stack.thumb') AS thumb,
-    (SELECT COUNT(*) FROM run_data r WHERE r.batch=b.code) AS runs
+    (SELECT COUNT(*) FROM run_data r WHERE r.batch=b.code) AS runs,
+    (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND COALESCE(k.outcome,'')<>'canceled') AS steps,
+    (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND k.outcome='done') AS concluded
     FROM batches b JOIN users u ON u.id=b.owner_id
     WHERE b.deleted_at IS NULL AND (b.owner_id=@uid OR b.visibility='shared' OR @all=1) ORDER BY b.id DESC`,
     )
     .all({ uid: req.user.id, all: req.user.all ? 1 : 0 }) as any[];
-  return rows.map(({ record, ...r }) => ({
-    ...r,
-    done: Object.values(JSON.parse(record).slots ?? {}).filter((s: any) => s?.done).length,
-  }));
+  // progress follows the calendar: booked steps concluded out of booked steps (canceled ones left out)
+  return rows.map(({ record: _r, ...r }) => r);
 });
 /** Run-data entries recorded under this batch's code, on any preset the user can see. */
 app.get('/api/batches/:id/runs', { preHandler: auth() }, async (req: any, reply) => {
@@ -504,6 +504,34 @@ app.get('/api/batches/:id/runs', { preHandler: auth() }, async (req: any, reply)
   ).map((r) => ({ ...r, ...JSON.parse(r.data), data: undefined, mine: r.owner_id === req.user.id ? 1 : 0 }));
 });
 app.get('/api/batches/:id', { preHandler: auth() }, async (req: any, reply) => batchOf(req, reply));
+/**
+ * A stack with its recipes resolved as a batch would freeze them, without making a batch: comparisons read the recipes of devices
+ * linked to a stack this way ("what changed" between groups).
+ */
+app.get('/api/stacks/:id/snapshot', { preHandler: auth() }, async (req: any, reply) => {
+  const r = db
+    .prepare("SELECT * FROM presets WHERE id=? AND segment='stk' AND deleted_at IS NULL")
+    .get(+req.params.id) as any;
+  if (!r || !(r.owner_id === req.user.id || r.visibility === 'shared' || req.user.all))
+    return reply.code(404).send({ error: 'not found' });
+  const stack = JSON.parse(r.data),
+    resolved: Record<number, unknown> = {};
+  (stack.sl ?? []).forEach((x: any, i: number) => {
+    const one = (id: string) => {
+      try {
+        return preset(req.user, id);
+      } catch {
+        return null; // a recipe the user cannot see
+      }
+    };
+    resolved[i] = { a: one(x.a), b: one(x.b) };
+  });
+  const chems = (db.prepare('SELECT name,data FROM chemicals').all() as any[]).map((c) => ({
+    name: c.name,
+    ...JSON.parse(c.data),
+  }));
+  return { id: r.id, code: r.name, snapshot: { stack, resolved, chems } };
+});
 app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
   const p = BatchIn.safeParse(req.body);
   if (!p.success) return bad(reply, p);
@@ -624,6 +652,23 @@ app.get('/api/search', { preHandler: auth() }, async (req: any) => {
       )
       .all(p),
     chemicals: db.prepare('SELECT id,name FROM chemicals WHERE name LIKE @q ORDER BY name LIMIT 8').all({ q }),
+    // containers by name, CAS or lot, with where they are
+    containers: db
+      .prepare(
+        `SELECT c.id,c.name,c.lot,c.status,a.name AS place FROM containers c LEFT JOIN storage_areas a ON a.id=c.area_id
+         WHERE (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
+      )
+      .all({ q }),
+    measurements: db
+      .prepare(
+        `SELECT id,name,date FROM iv_sets WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY date DESC LIMIT 6`,
+      )
+      .all(p),
+    comparisons: db
+      .prepare(
+        `SELECT id,name FROM comparisons WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY updated_at DESC LIMIT 6`,
+      )
+      .all(p),
   };
 });
 

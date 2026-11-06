@@ -383,7 +383,7 @@ export default function Stability({ setId }: { setId: number }) {
         {d.sets
           .map(
             (s) =>
-              `${s.name} (${new Date(s.measuredAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`,
+              `${s.name} (${new Date(s.measuredAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`,
           )
           .join(' · ')}
         . T90 and T80 are interpolated between the readings around the fall; {'“>”'} means it had not fallen that far by
