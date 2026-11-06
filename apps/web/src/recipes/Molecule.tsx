@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
 import type { Mol } from './molecules';
 
 // CPK-like colours (fill, outline) and ball radii in Å for a ball-and-stick model
