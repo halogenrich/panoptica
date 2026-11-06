@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Badge, Empty, fmtDate } from '../lib/ui';
-import { refreshAll, showToast } from '../lib/trash';
+import { refreshAll, showToast, useRefresh } from '../lib/trash';
 
 type Item = {
   kind: 'preset' | 'batch' | 'iv';
@@ -36,6 +36,7 @@ export default function Trash({ admin }: { admin: boolean }) {
   useEffect(() => {
     load();
   }, []);
+  useRefresh(load, ['presets', 'batches', 'iv']);
   const restore = (i: Item) =>
     api(`/trash/${i.kind}/${i.id}/restore`, 'POST')
       .then(() => {

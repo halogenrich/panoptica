@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useRefresh } from './trash';
 import { api } from '../api';
 import { fmtDate } from './ui';
 import Avatar from './Avatar';
@@ -130,6 +131,7 @@ export default function Comments({ kind, id }: { kind: 'preset' | 'batch'; id: n
   useEffect(() => {
     load();
   }, [kind, id]);
+  useRefresh(load, ['comments']);
   const post = (text: string, parent_id?: number, priv = false) =>
     api(`/comments/${kind}/${id}`, 'POST', { text, parent_id, private: priv || undefined }).then(() => {
       setReply(null);

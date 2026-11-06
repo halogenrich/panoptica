@@ -82,7 +82,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   useEffect(() => {
     load();
   }, []);
-  useRefresh(load);
+  useRefresh(load, ['batches', 'calendar']);
   const count = (s: Status) => (rows ?? []).filter((r) => r.status === s).length;
   const shown = (rows ?? []).filter(
     (r) => (f === 'all' || r.status === f) && (r.code + ' ' + r.name).toLowerCase().includes(q.toLowerCase()),
