@@ -154,11 +154,11 @@ h2 {
   letter-spacing: -0.015em;
   margin: 0 0 14px;
 }
+/* section titles in sentence case (no all-caps labels anywhere) */
 h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--mut);
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--fg);
   margin: 0 0 6px;
   font-weight: 600;
 }
@@ -428,29 +428,35 @@ tr.click:hover td {
   width: 92px;
   text-align: right;
 }
+/* toggle groups (several may be on): the same track as .seg, so single and multiple choice read as one family */
 .chips {
-  display: flex;
-  gap: 6px;
+  display: inline-flex;
   flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 .chip {
-  height: 32px;
-  min-width: 48px;
+  height: 30px;
+  min-width: 44px;
   padding: 0 12px;
-  border-radius: 16px;
-  border: 1px solid var(--sep);
-  background: var(--bg);
-  color: var(--fg);
+  border-radius: 7px;
+  border: 0;
+  background: none;
+  color: var(--mut);
   font: inherit;
+  font-size: 13.5px;
   cursor: pointer;
 }
 .chip:hover:not(.on) {
-  border-color: var(--ac);
+  color: var(--fg);
 }
 .chip.on {
-  background: var(--ac);
-  border-color: var(--ac);
-  color: #fff;
+  background: var(--raise);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
 }
 .seg {
   display: inline-flex;
@@ -509,9 +515,7 @@ tr.click:hover td {
   font-size: 14px;
 }
 .pane-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 13px;
   color: var(--mut);
   font-weight: 600;
   margin-bottom: 6px;
@@ -634,9 +638,7 @@ tr.click:hover td {
   font-weight: 600;
 }
 .glabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12.5px;
   color: var(--mut);
   padding: 14px 10px 4px;
   font-weight: 600;
@@ -2394,23 +2396,44 @@ table.list td {
   gap: 16px;
   align-items: start;
 }
-.check-row {
+/* batch layers: progress comes from the calendar, so each layer shows its booking state, not a checkbox */
+.layer-step {
   display: grid;
   gap: 6px;
-  padding: 8px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--sep);
 }
-.check-row:last-child {
+.layer-step:last-child {
   border-bottom: 0;
 }
-.check-row.done > label b {
-  text-decoration: line-through;
-  text-decoration-color: var(--mut);
+.layer-step-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.layer-state {
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+.layer-state.ok {
+  color: #15803d;
+  font-weight: 600;
 }
 .check-presets {
   display: grid;
   gap: 2px;
-  padding-left: 28px;
+}
+.runs-missing {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--sep));
+  font-size: 13.5px;
+}
+.runs-missing ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
 }
 .run-title {
   margin-right: 4px;
@@ -2836,6 +2859,15 @@ table.list td {
   border-radius: 6px;
   flex: none;
 }
+.drag-space {
+  display: inline-block;
+  width: 22px;
+  flex: none;
+}
+.disp > .inline:first-child select {
+  flex: 1;
+  max-width: none;
+}
 .drag-handle svg {
   fill: currentColor;
 }
@@ -2845,14 +2877,21 @@ table.list td {
   background: var(--sep);
   outline: none;
 }
-.step-row.dragging {
+/* any reorderable row while it is dragged */
+.step-row.dragging,
+.row.dragging,
+.disp.dragging,
+tr.dragging,
+.eq-r.dragging,
+.div-row.dragging,
+.layer-row.dragging {
   background: var(--card);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
   border-radius: 8px;
   position: relative;
   z-index: 1;
 }
-.step-row.dragging .drag-handle {
+.dragging .drag-handle {
   cursor: grabbing;
   color: var(--accent, var(--fg));
 }
@@ -2948,10 +2987,9 @@ td.used {
 }
 .out-sub {
   margin: 14px 0 4px;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--mut);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 /* invite by QR code */
@@ -2993,7 +3031,7 @@ td.used {
 .chips.spacer-chips {
   display: grid;
   grid-template-columns: repeat(4, max-content);
-  gap: 6px;
+  gap: 2px;
 }
 
 /* phone: sub-sections of a tab (Stacks | Batches, the recipe kinds) */
@@ -3443,7 +3481,7 @@ td.used {
   align-items: center;
   gap: 4px;
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--tag);
@@ -3557,17 +3595,11 @@ button.tag.off {
 }
 
 /* comments: the Professor's are first and marked; private ones are only for the owner */
-.comment.prof > .c-body {
-  border-left: 3px solid #7c3aed;
-  background: color-mix(in srgb, #7c3aed 7%, transparent);
-  border-radius: 8px;
-  padding: 8px 10px;
-}
 .c-badge {
   font-size: 11px;
   font-weight: 600;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: 6px;
   color: #7c3aed;
   background: color-mix(in srgb, #7c3aed 13%, transparent);
 }
@@ -4397,48 +4429,58 @@ tr.clickable.on td {
   flex-wrap: wrap;
   gap: 6px;
 }
+/* equipment filter and picker: the name with its colour as a bar under it (one way to show "this colour is this thing") */
 .eq-chip,
 .eq-pick button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 11px 4px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--sep);
-  background: var(--card);
+  display: inline-grid;
+  justify-items: stretch;
+  gap: 4px;
+  padding: 5px 8px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
   color: var(--mut);
   font: inherit;
   font-size: 13px;
+  text-align: left;
   cursor: pointer;
+}
+.eq-chip:hover,
+.eq-pick button:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.eq-chip i,
+.eq-pick button i,
+.cbar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--eq);
 }
 .eq-chip i,
 .eq-pick button i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--eq);
-  opacity: 0.35;
+  opacity: 0.25;
 }
 .eq-chip.on {
-  color: inherit;
-  border-color: color-mix(in srgb, var(--eq) 45%, var(--sep));
+  color: var(--fg);
 }
-.eq-chip.on i {
+.eq-chip.on i,
+.eq-pick button.on i {
   opacity: 1;
 }
 .eq-pick {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 .eq-pick button.on {
-  color: inherit;
+  color: var(--fg);
   font-weight: 600;
-  border-color: var(--eq);
-  background: color-mix(in srgb, var(--eq) 10%, var(--card));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
-.eq-pick button.on i {
-  opacity: 1;
+.cbar {
+  width: 28px;
+  margin-top: 5px;
 }
 .cal-empty {
   padding: 30px 0;
@@ -4684,23 +4726,15 @@ body.resizing-block * {
   border-radius: 12px;
   background: var(--card);
   border: 1px solid var(--sep);
-  border-left: 4px solid var(--eq);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
   font-size: 13px;
   pointer-events: none;
   animation: rise 0.12s var(--ease);
 }
 .bk-card-h {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  justify-items: start;
   font-size: 14px;
-}
-.bk-card-h i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--eq);
 }
 .bk-card dl {
   margin: 0;
@@ -5021,7 +5055,7 @@ body.resizing-block * {
   font-size: 12.5px;
   font-weight: 600;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--mut) 14%, transparent);
   color: var(--mut);
 }
@@ -5077,7 +5111,6 @@ body.resizing-block * {
   align-items: center;
   padding: 9px 0 9px 12px;
   border-bottom: 1px solid var(--sep);
-  border-left: 3px solid var(--eq);
 }
 .sched-row:last-child {
   border-bottom: 0;
@@ -5100,11 +5133,17 @@ body.resizing-block * {
   font-size: 12.5px;
   color: var(--mut);
 }
+.sched-eq {
+  display: inline-grid;
+  justify-items: start;
+}
 .sched-eq i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  display: block;
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
   background: var(--eq);
+  order: 2;
 }
 .sched-clash {
   grid-column: 1 / -1;
@@ -5124,7 +5163,6 @@ body.resizing-block * {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid var(--sep);
-  border-left: 4px solid var(--eq);
 }
 .outcome-what {
   display: flex;
@@ -5137,6 +5175,10 @@ body.resizing-block * {
 .outcome-what i {
   display: none;
 }
+.outcome-what .cbar {
+  display: block;
+  margin: 2px 0 3px;
+}
 .outcome-pick {
   display: flex;
   gap: 6px;
@@ -5144,7 +5186,7 @@ body.resizing-block * {
 }
 .outcome-pick button {
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid var(--sep);
   background: var(--card);
   font: inherit;
@@ -5178,7 +5220,7 @@ body.resizing-block * {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   max-width: 46ch;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5278,6 +5320,7 @@ body.resizing-block * {
   align-items: flex-start;
 }
 .tray-block {
+  --fill: color-mix(in srgb, var(--eq) 78%, #000);
   flex: 0 0 168px;
   display: grid;
   align-content: start;
@@ -5285,10 +5328,9 @@ body.resizing-block * {
   text-align: left;
   padding: 6px 8px;
   border: 0;
-  border-left: 3px solid var(--eq);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--eq) 22%, var(--card));
-  color: inherit;
+  background: var(--fill);
+  color: #fff;
   font: inherit;
   font-size: 12px;
   line-height: 1.3;
@@ -5296,7 +5338,7 @@ body.resizing-block * {
   touch-action: none;
 }
 .tray-block:hover:not(:disabled) {
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 .tray-block:active:not(:disabled) {
   cursor: grabbing;
@@ -5305,21 +5347,24 @@ body.resizing-block * {
   font-size: 12.5px;
 }
 .tray-block .tray-t {
-  color: var(--mut);
+  color: rgba(255, 255, 255, 0.82);
   font-variant-numeric: tabular-nums;
 }
 .tray-block.placed {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: default;
-  background: color-mix(in srgb, var(--eq) 10%, var(--card));
 }
 .tray-block.placed .tray-t {
-  color: #15803d;
+  color: #fff;
   font-weight: 600;
 }
 .tray-block.missing {
   cursor: not-allowed;
   background: color-mix(in srgb, var(--mut) 8%, var(--card));
+  color: var(--mut);
+}
+.tray-block.missing .tray-t {
+  color: var(--mut);
 }
 .bk-drop {
   position: absolute;
@@ -5342,28 +5387,36 @@ body.resizing-block * {
   background: color-mix(in srgb, var(--err) 12%, transparent);
   color: var(--err);
 }
-/* cleanup after a booking (gloveboxes): taken, hatched in the equipment colour, quieter than a booking */
+/* cleanup after a booking (gloveboxes): part of the same block, continued below it in a lighter hatch of its colour */
+.bk.has-clean {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
 .bk-clean {
+  --fill: color-mix(in srgb, var(--eq) 78%, #000);
   position: absolute;
   z-index: 1;
   border-radius: 0 0 6px 6px;
   background: repeating-linear-gradient(
     -45deg,
-    color-mix(in srgb, var(--eq) 30%, transparent) 0 4px,
-    color-mix(in srgb, var(--eq) 10%, transparent) 4px 8px
+    color-mix(in srgb, var(--fill) 34%, var(--card)) 0 3px,
+    color-mix(in srgb, var(--fill) 18%, var(--card)) 3px 7px
   );
-  border-left: 3px solid color-mix(in srgb, var(--eq) 55%, transparent);
+  box-shadow:
+    1px 0 0 var(--card),
+    -1px 0 0 var(--card),
+    0 1px 0 var(--card);
   overflow: hidden;
   display: flex;
   align-items: center;
-  padding: 0 6px;
+  padding: 0 7px;
   cursor: default;
 }
 .bk-clean span {
   font-size: 10px;
   line-height: 1;
   font-weight: 600;
-  color: color-mix(in srgb, var(--eq) 75%, var(--fg));
+  color: color-mix(in srgb, var(--fill) 85%, var(--fg));
 }
 .bk-clean-drop {
   z-index: 5;
@@ -5394,7 +5447,7 @@ body.dragging-block * {
 .eq-h,
 .eq-r {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 190px 96px 70px;
+  grid-template-columns: 22px 44px minmax(0, 1fr) 190px 96px 70px;
   gap: 10px;
   align-items: center;
   padding: 7px 0;
@@ -5931,8 +5984,6 @@ body.dragging-block * {
 .ov-record-k {
   font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: #15803d;
 }
 .ov-record b {
@@ -6052,7 +6103,7 @@ body.dragging-block * {
   font-weight: 600;
   color: var(--mut);
   background: color-mix(in srgb, var(--mut) 12%, transparent);
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 1px 8px;
 }
 .ov-more-b {
@@ -6503,11 +6554,30 @@ body.dragging-block * {
   display: grid;
   gap: 6px;
 }
+/* each group: the name with its colour as a bar under it; groups separated by a line, no tint */
 .cx-group {
-  border-left: 4px solid var(--g);
-  border-radius: 4px 10px 10px 4px;
-  padding: 6px 4px 4px 10px;
-  background: color-mix(in srgb, var(--g) 7%, var(--card));
+  padding: 8px 0 6px;
+  background: var(--card);
+}
+.cx-group + .cx-group {
+  border-top: 1px solid var(--sep);
+}
+.cx-group.dragging {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  position: relative;
+  z-index: 2;
+}
+.cx-group > .cbar {
+  margin: 2px 0 4px 28px;
+}
+.cx-group .drag-handle,
+.cx-grip-space {
+  flex: none;
+  width: 16px;
+}
+.cx-group-meta {
+  padding-left: 28px;
 }
 .cx-group-row {
   display: flex;
@@ -6533,7 +6603,7 @@ body.dragging-block * {
   flex: none;
   height: 24px;
   padding: 0 8px;
-  border-radius: 12px;
+  border-radius: 6px;
   border: 1px dashed var(--c-axis);
   background: none;
   color: var(--mut);
@@ -6542,9 +6612,9 @@ body.dragging-block * {
   cursor: pointer;
 }
 .cx-ref.on {
-  border: 1px solid var(--g);
-  background: var(--g);
-  color: #fff;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
   font-weight: 600;
 }
 .cx-ref:disabled:not(.on) {
@@ -6746,12 +6816,15 @@ body.dragging-block * {
   margin-right: 7px;
   vertical-align: -1px;
 }
-.cx-change {
-  border-left: 4px solid var(--g);
-  padding-left: 12px;
+.cx-change + .cx-change {
+  border-top: 1px solid var(--sep);
+  padding-top: 10px;
+}
+.cx-change > .cbar {
+  margin: 0 0 8px;
 }
 .cx-change h4 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 14px;
 }
 .cx-change p {

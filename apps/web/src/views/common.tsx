@@ -115,7 +115,7 @@ export type Step = { s: string; m: number };
  * Drag-to-reorder for a list: give each row `rowRef(i)` and its handle `handle(i)`. Works with mouse, touch and pen;
  * with the handle focused, the arrow keys move the row.
  */
-export function useReorder<T>(list: T[], onChange: (l: T[]) => void) {
+export function useReorder<T>(list: T[], onChange: (l: T[]) => void, noun = 'step') {
   const [drag, setDrag] = useState<number | null>(null);
   const rows = useRef<(HTMLElement | null)[]>([]),
     cur = useRef<number | null>(null),
@@ -132,7 +132,7 @@ export function useReorder<T>(list: T[], onChange: (l: T[]) => void) {
     className: 'drag-handle',
     role: 'button',
     tabIndex: 0,
-    'aria-label': `Move step ${i + 1} (drag, or arrow keys)`,
+    'aria-label': `Move ${noun} ${i + 1} (drag, or arrow keys)`,
     title: 'Drag to reorder',
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
       e.preventDefault();
@@ -178,6 +178,27 @@ export function useReorder<T>(list: T[], onChange: (l: T[]) => void) {
   return { drag, handle, rowRef };
 }
 
+/** The handle of a reorderable row (from `useReorder().handle(i)`), shown only when there is something to reorder. */
+export const DragHandle = ({
+  h,
+  show = true,
+}: {
+  h: ReturnType<ReturnType<typeof useReorder>['handle']>;
+  show?: boolean;
+}) =>
+  show ? (
+    <span {...h}>
+      <Grip />
+    </span>
+  ) : (
+    <span className="drag-space" aria-hidden />
+  );
+/** Remove a row of a list: the same small ✕ everywhere. */
+export const RemoveRow = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button type="button" className="iconbtn rm" aria-label={label} title="Remove" onClick={onClick}>
+    ✕
+  </button>
+);
 export const Grip = () => (
   <svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
     {[3, 8, 13].flatMap((y) => [2.5, 7.5].map((x) => <circle key={`${x}${y}`} cx={x} cy={y} r="1.4" />))}
@@ -203,11 +224,7 @@ export function StepList({
       {list.map((x, i) => (
         <div className={'row step-row' + (drag === i ? ' dragging' : '')} key={i} ref={rowRef(i)}>
           <span className="inline">
-            {list.length > 1 && (
-              <span {...handle(i)}>
-                <Grip />
-              </span>
-            )}
+            <DragHandle h={handle(i)} show={list.length > 1} />
             <span className="mut">{i + 1}</span>
             <select value={x.s} onChange={(e) => up(i, { s: e.target.value })}>
               {options.map((o) => (
@@ -217,9 +234,7 @@ export function StepList({
           </span>
           <span className="inline">
             <input type="number" min="0" value={x.m} onChange={(e) => up(i, { m: +e.target.value || 0 })} /> min
-            <button className="link" onClick={() => onChange(list.filter((_, j) => j !== i))}>
-              Remove
-            </button>
+            <RemoveRow label={`Remove step ${i + 1}`} onClick={() => onChange(list.filter((_, j) => j !== i))} />
           </span>
         </div>
       ))}

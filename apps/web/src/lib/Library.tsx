@@ -5,7 +5,7 @@ import { PrefCtx } from '../ctx';
 import { useChems } from '../views/common';
 import { norm, type Ctx, type Design, type Kind, type Rec, type RunField } from '../recipes/types';
 import { RunInput, fmtRun, runError } from './RunInputs';
-import { Badge, Empty, Modal, Seg, fmtDate, useToast } from './ui';
+import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout, useToast } from './ui';
 import { trashed, useRefresh } from './trash';
 import Comments, { useCommentCount } from './Comments';
 const CommentsLabel = ({ id }: { id: number }) => {
@@ -78,13 +78,7 @@ export default function Library({
   const [rows, setRows] = useState<Row[] | null>(null),
     [scope, setScope] = useState<'all' | 'mine' | 'shared'>('all'),
     [q, setQ] = useState('');
-  const [layout, setLayout] = useState<'cards' | 'list'>(() => {
-    try {
-      return (localStorage.getItem('psc.layout') as 'cards' | 'list') || 'cards';
-    } catch {
-      return 'cards';
-    }
-  });
+  const [layout, setLayout] = useLayout();
   const [open, setOpen] = useState<Open | null>(openId ? { id: openId } : null);
   const load = () =>
     api<Row[]>('/presets?segment=' + kind.segment)
@@ -98,13 +92,6 @@ export default function Library({
   useEffect(() => {
     if (openId) setOpen({ id: openId });
   }, [openId]);
-  useEffect(() => {
-    try {
-      localStorage.setItem('psc.layout', layout);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [layout]);
 
   const shown = (rows ?? []).filter(
     (r) =>
@@ -134,17 +121,7 @@ export default function Library({
           onChange={(e) => setQ(e.target.value)}
         />
         <div className="grow" />
-        <span className="hide-phone">
-          <Seg
-            value={layout}
-            opts={[
-              ['cards', 'Cards'],
-              ['list', 'List'],
-            ]}
-            on={setLayout}
-            small
-          />
-        </span>
+        <LayoutToggle v={layout} on={setLayout} />
         <button className="btn" onClick={create}>
           New {kind.noun}
         </button>
@@ -357,8 +334,8 @@ export function PresetSheet({
     }
   };
   const del = async () => {
-    if (!det || !window.confirm(`Move “${det.name}” to the trash? You can restore it for 30 days (Library › Trash).`))
-      return;
+    // no question: the toast offers Undo, and Trash keeps it for 30 days
+    if (!det) return;
     try {
       await api('/presets/' + det.id, 'DELETE');
       onChanged();
@@ -546,7 +523,7 @@ export function PresetSheet({
           </button>
           {(p.mine || false) && (
             <button className="link" onClick={del}>
-              Delete
+              Move to trash
             </button>
           )}
           <button className="btn" onClick={edit}>
@@ -642,6 +619,8 @@ export function RunForm({
   batch = '',
   onDone,
   onCancel,
+  required = false,
+  onLater,
 }: {
   kind: Kind;
   ctx: Ctx;
@@ -650,6 +629,9 @@ export function RunForm({
   batch?: string;
   onDone: () => void;
   onCancel: () => void;
+  /** after a step is concluded: every value must be filled in (or the person chooses "Add it later") */
+  required?: boolean;
+  onLater?: () => void;
 }) {
   const [form, setForm] = useState<RunDraft>({ batch, values: {}, notes: '', deviation: '' }),
     [err, setErr] = useState(''),
@@ -674,7 +656,15 @@ export function RunForm({
       }
     return e;
   })();
-  const problems = fields.map((f) => [f, runError(f, form.values[f.key])] as const).filter(([, e]) => e);
+  const problems = fields
+    .map(
+      (f) =>
+        [
+          f,
+          runError(f, form.values[f.key]) || (required && !(form.values[f.key] ?? '').trim() ? 'fill this in' : ''),
+        ] as const,
+    )
+    .filter(([, e]) => e);
   const save = () => {
     if (problems.length) return setErr(`${problems[0][0].label}: ${problems[0][1]}`);
     api(`/presets/${presetId}/runs`, 'POST', form)
@@ -767,9 +757,19 @@ export function RunForm({
       <div className="inline">
         {err && <span className="err">{err}</span>}
         <div className="grow" />
-        <button className="link" onClick={onCancel}>
-          Cancel
-        </button>
+        {onLater ? (
+          <button
+            className="link"
+            onClick={onLater}
+            title="The step is marked as missing its run data until you add it"
+          >
+            Add it later
+          </button>
+        ) : (
+          <button className="link" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
         <button className="btn" onClick={save}>
           Save run data
         </button>

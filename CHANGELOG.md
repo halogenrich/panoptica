@@ -2,6 +2,25 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.32.0 (2026-11-06)
+
+Consistency release: the same patterns everywhere, and the batch record taken from the calendar.
+
+- **Colour as a bar under the name** wherever a colour identifies something (comparison groups, What changed, the calendar's equipment filter and picker, the hover card, step outcomes); no coloured side bars, tinted cards or dot pills. Toggle groups (plots to show, ions, solution type) use the same track as the other switches; badges are rectangles, not pills. Section titles and labels in sentence case (no all caps).
+- **Glovebox cleanup** drawn as part of its booking: no gap, the booking's bottom corners square, the cleanup below it in a lighter hatch of the same colour.
+- **Drag to reorder** with the same handle everywhere: spin steps and dispenses, solvents and additives, stack layers (Review step), comparison groups, inventory divisions and equipment (sets the calendar's column order). Rows are removed with the same ✕.
+- **Cards or List** in Batches, Electric measurements and Comparisons, one choice for the whole app.
+- **Pixel map: Both** shows backward above forward PCE in every pixel.
+- **3D view settings behind the cog** in the stack editor and the stack page, as on the batch page.
+- **Batches without checkboxes**: each layer shows its calendar state (not scheduled, booked, concluded); progress on the cards counts concluded booked steps. After **Concluded**, the run data of that step's recipes open with every value required; **Add it later** keeps the batch page listing what is missing and sends a reminder. Report and spreadsheet show the layer states.
+- **Perovskite solutions**: Additives right after "Preparation of the precursor solution".
+- **Dates** dd/mm/yyyy and times 24 h everywhere, English whatever the browser's language.
+- **Move to trash** asks nothing (Undo in the toast, 30 days in Trash); confirmations only for what cannot be undone. Stale "Library › Trash" texts fixed.
+- **One Export menu** (statistics, comparisons, Overview slides): titled sections, each row with its formats.
+- **Search** also finds measurements, comparisons and containers (by name, CAS or lot; opens the container).
+- **Substrate preparation in the scheduler**: a substrate-prep block on the equipment set for it (the UV-ozone cleaner by default).
+- **Comparisons**: What changed also reads recipes of devices linked to a stack.
+
 ## 0.31.0 (2026-11-06)
 
 - **Glovebox cleanup**: each booking of glovebox equipment (GB:) is followed by 20 minutes of cleanup, shown hatched in the calendar. The equipment stays taken, so nobody can start right after someone else; a booking whose own cleanup would run into the next one is refused too. Per equipment, set by admins under Equipment (Cleanup after).

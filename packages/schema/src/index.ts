@@ -311,7 +311,7 @@ export const BookingIn = z.object({
   end: iso,
   /** Admin only: book even if it overlaps another booking. */ force: z.boolean().optional(),
 });
-export const EquipmentRole = z.enum(['', 'scale', 'spinner', 'organic', 'metal']);
+export const EquipmentRole = z.enum(['', 'prep', 'scale', 'spinner', 'organic', 'metal']);
 export const EquipmentIn = z.object({
   name: z.string().trim().min(1, 'name the equipment').max(80),
   role: EquipmentRole.optional(),
@@ -382,3 +382,6 @@ export const ComparisonPatch = z.object({
   notes: z.string().max(5000).optional(),
   data: CmpData.optional(),
 });
+
+/** A new order for a list (ids from first to last). */
+export const OrderIn = z.object({ ids: z.array(z.number().int()).max(500) });

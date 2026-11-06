@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { AreaIn, ShelfIn, ContainerIn, InventoryImport, StorageTypeIn } from '@psc/schema';
+import { AreaIn, ShelfIn, ContainerIn, InventoryImport, OrderIn, StorageTypeIn } from '@psc/schema';
 import { db, tx } from './db.js';
 
 /**
@@ -209,6 +209,14 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
           .run(+req.params.id, p.data.name, +req.params.id).lastInsertRowid,
       ),
     };
+  });
+  /** The divisions of a storage place in a new order (dragged in the app). */
+  app.put('/api/inventory/areas/:id/shelves/order', { preHandler: auth('inventory') }, async (req: any, reply) => {
+    const p = OrderIn.safeParse(req.body);
+    if (!p.success) return bad(reply, p);
+    const up = db.prepare('UPDATE shelves SET pos=? WHERE id=? AND area_id=?');
+    tx(() => p.data.ids.forEach((id, i) => up.run(i, id, +req.params.id)));
+    return { ok: true };
   });
   app.patch('/api/inventory/shelves/:id', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = ShelfIn.safeParse(req.body);

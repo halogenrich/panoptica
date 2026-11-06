@@ -196,6 +196,9 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       presets: { id: number; segment: string; name: string }[];
       batches: { id: number; code: string; name: string }[];
       chemicals: { id: number; name: string }[];
+      containers: { id: number; name: string; lot: string; status: string; place: string | null }[];
+      measurements: { id: number; name: string; date: string }[];
+      comparisons: { id: number; name: string }[];
     }>('/search?q=' + encodeURIComponent(q));
     return [
       ...r.presets.map((p) => ({
@@ -213,7 +216,23 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
           setView('batches');
         },
       })),
-      ...r.chemicals.map((c) => ({ id: 'c' + c.id, label: c.name, hint: 'Inventory', run: () => go('chem') })),
+      ...r.measurements.map((m) => ({
+        id: 'm' + m.id,
+        label: m.name,
+        hint: 'Electric measurement',
+        run: () => {
+          setView('iv');
+          setIvId(m.id);
+        },
+      })),
+      ...r.comparisons.map((c) => ({ id: 'x' + c.id, label: c.name, hint: 'Comparison', run: () => go('cmp', c.id) })),
+      ...r.containers.map((c) => ({
+        id: 'k' + c.id,
+        label: c.name + (c.lot ? `, lot ${c.lot}` : ''),
+        hint: `Container${c.place ? ', ' + c.place : ''}${c.status === 'empty' ? ' (empty)' : ''}`,
+        run: () => go('chem', c.id),
+      })),
+      ...r.chemicals.map((c) => ({ id: 'c' + c.id, label: c.name, hint: 'Chemical list', run: () => go('chem') })),
     ];
   };
   const cmds: Cmd[] = [
@@ -308,7 +327,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
           />
         );
       case 'chem':
-        return <Inventory canEdit={me.role === 'admin' || !!me.inventory} />;
+        return <Inventory canEdit={me.role === 'admin' || !!me.inventory} openId={focus} />;
       case 'users':
         return <Users meId={me.id} />;
       case 'help':

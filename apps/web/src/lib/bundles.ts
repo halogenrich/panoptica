@@ -1,9 +1,10 @@
 import type { StackD } from '../stacks/model';
 
-export type Role = 'scale' | 'spinner' | 'organic' | 'metal';
+export type Role = 'prep' | 'scale' | 'spinner' | 'organic' | 'metal';
 /** One block to place in the calendar: one piece of equipment, used once, for one or more steps of the batch. */
 export type Bundle = { key: string; role: Role; step: string; layers: string[]; minutes: number };
 export const ROLE_NAME: Record<Role, string> = {
+  prep: 'Substrate preparation',
   scale: 'Solution preparation',
   spinner: 'Spin coating',
   organic: 'Organic evaporation',
@@ -22,6 +23,10 @@ const roleOf = (m: string): Role | null =>
 export function bundlesOf(st: StackD): Bundle[] {
   const out: Bundle[] = [],
     spins = st.sl.filter((s) => s.m === 'Spin').map((s) => s.n);
+  // cleaning and surface treatment of the substrates (UV-ozone and the like), first, when the stack has a substrate recipe
+  const sub = st.sl.find((s) => s.m === 'Substrate' && s.a);
+  if (sub)
+    out.push({ key: 'prep', role: 'prep', layers: [sub.n], step: `Substrate preparation: ${sub.n}`, minutes: 60 });
   if (spins.length)
     out.push({
       key: 'scale',

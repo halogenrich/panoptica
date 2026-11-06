@@ -9,6 +9,8 @@ import { BoxFigure, TITLES, useOutliers } from '../iv/BoxFigure';
 import { METRICS, fmt, statRows, summarize, type IvSetFull, type MetricKey, type StatRow, type Dir } from '../iv/model';
 import { boxes, dirsOf, groupsOf } from '../iv/boxes';
 import type { Batch, BRun } from './Batches';
+import type { Booking } from './Calendar';
+import { layerState } from '../lib/stepRuns';
 import { fmtRun, parseSci } from '../lib/RunInputs';
 
 const STATUS: Record<string, string> = { planned: 'Planned', running: 'Running', done: 'Done' };
@@ -36,7 +38,19 @@ export async function batchMeasurements(batchId: number): Promise<IvSetFull[]> {
 }
 
 /** Printable batch report (save as PDF from the print dialog): stack, recipes, checklist, notes, run data and J–V results. */
-export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: BRun[]; sets: IvSetFull[] }) {
+export function BatchReport({
+  b,
+  ctx,
+  runs,
+  sets,
+  books = [],
+}: {
+  b: Batch;
+  ctx: Ctx;
+  runs: BRun[];
+  sets: IvSetFull[];
+  books?: Booking[];
+}) {
   const fs = useFigureSettings(),
     [logo] = useLogoChoice(),
     [outl] = useOutliers(); // as last chosen with "Show outliers" in the statistics
@@ -55,7 +69,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
         </h1>
         <p>
           {STATUS[b.status]} · {st.arch} · started {fmtDate(b.created_at)} by {b.owner} · report of{' '}
-          {new Date().toLocaleString()}
+          {new Date().toLocaleString('en-GB')}
         </p>
         <p className="mut">Stack (bottom → top): {st.sl.map((s) => s.n).join(' / ')}</p>
       </header>
@@ -68,7 +82,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
             <th>Layer</th>
             <th>Method</th>
             <th>Recipe</th>
-            <th>Done</th>
+            <th>State</th>
           </tr>
         </thead>
         <tbody>
@@ -84,7 +98,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
                       .map((p) => dataOf(p.id)?.name ?? '—')
                       .join(' + ')}
               </td>
-              <td>{rec.slots?.[i]?.done ? (rec.slots[i].at ?? 'yes') : '—'}</td>
+              <td>{layerState(b, books, i).text}</td>
             </tr>
           ))}
         </tbody>
@@ -243,7 +257,7 @@ export function BatchReport({ b, ctx, runs, sets }: { b: Batch; ctx: Ctx; runs: 
 }
 
 /** The same content as a spreadsheet: one sheet each for the batch, layers, recipes, run data, J–V pixels and statistics. */
-export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[]) {
+export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []) {
   const st = b.snapshot.stack,
     rec = b.record ?? {},
     dataOf = (id: string | number) => ctx.all.find((p) => String(p.id) === String(id));
@@ -260,13 +274,13 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
       ['Started', b.created_at],
       ['Stack (bottom to top)', st.sl.map((s) => s.n).join(' / ')],
       ['Notes', rec.notes ?? ''],
-      ['Exported', new Date().toLocaleString()],
+      ['Exported', new Date().toLocaleString('en-GB')],
     ],
   });
   sheets.push({
     name: 'Layers',
     rows: [
-      ['#', 'Layer', 'Method', 'Recipe', 'Thickness for 3D (nm)', 'Done'],
+      ['#', 'Layer', 'Method', 'Recipe', 'Thickness for 3D (nm)', 'State'],
       ...st.sl.map((s, i) => [
         i + 1,
         s.n,
@@ -277,7 +291,7 @@ export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFu
               .map((p) => dataOf(p.id)?.name ?? '')
               .join(' + '),
         s.th ?? '',
-        rec.slots?.[i]?.done ? (rec.slots[i].at ?? 'yes') : '',
+        layerState(b, books, i).text,
       ]),
     ],
   });
