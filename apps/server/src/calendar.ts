@@ -3,6 +3,7 @@ import { BookingIn, EquipmentIn, OrderIn, OutcomeIn, ScheduleIn } from '@psc/sch
 import { tx } from './db.js';
 import { db } from './db.js';
 import { notify } from './social.js';
+import { lockedById, markDone } from './batchlock.js';
 
 /**
  * Equipment calendar. Every booking belongs to one of the user's Planned (or already Running) batches; when the first booked step of a batch starts,
@@ -100,6 +101,7 @@ export function settleBatch(id: number) {
   const ks = db.prepare('SELECT outcome FROM bookings WHERE batch_id=?').all(id) as { outcome: string | null }[];
   if (!b || b.status === 'done' || !ks.length || ks.some((k) => !k.outcome || k.outcome === 'postponed')) return;
   db.prepare("UPDATE batches SET status='done', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+  markDone(id);
   notify(
     [b.owner_id],
     'batch',
@@ -150,6 +152,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     if (!k) return reply.code(404).send({ error: 'not found' });
     if (k.user_id !== req.user.id && k.owner_id !== req.user.id && req.user.role !== 'admin')
       return reply.code(403).send({ error: 'not your booking' });
+    const lk = lockedById(k.batch_id);
+    if (lk) return reply.code(423).send({ error: lk });
     const p = OutcomeIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     db.prepare('UPDATE bookings SET outcome=?, reason=?, outcome_at=?, outcome_by=? WHERE id=?').run(
@@ -208,6 +212,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     if (b.owner_id !== req.user.id && req.user.role !== 'admin')
       return reply.code(403).send({ error: 'you can only schedule your own batches' });
     if (b.status === 'done') return reply.code(400).send({ error: 'this batch is done' });
+    const lk = lockedById(id);
+    if (lk) return reply.code(423).send({ error: lk });
     const p = ScheduleIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     const now = new Date().toISOString(),
@@ -291,6 +297,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       return reply.code(403).send({ error: 'you can only book for your own batches' });
     if (!id && b.status === 'done')
       return reply.code(400).send({ error: 'this batch is done; book for a Planned or Running batch' });
+    const lk = lockedById(d.batch_id);
+    if (lk) return reply.code(423).send({ error: lk });
     if (!(new Date(d.end) > new Date(d.start)))
       return reply.code(400).send({ error: 'the end must be after the start' });
     if (minutes(d.start, d.end) < MIN_BOOKING) return reply.code(400).send({ error: 'a booking is at least 1 hour' });
@@ -326,6 +334,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const p = BookingIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     const d = p.data;
+    const was = lockedById(k.batch_id);
+    if (was) return reply.code(423).send({ error: was });
     const no = check(req, reply, d, k.id);
     if (no) return no;
     db.prepare('UPDATE bookings SET equipment_id=?,batch_id=?,step=?,note=?,start=?,end=?,forced=? WHERE id=?').run(
@@ -342,10 +352,12 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     return { ok: true };
   });
   app.delete('/api/bookings/:id', { preHandler: auth() }, async (req: any, reply) => {
-    const k = db.prepare('SELECT user_id FROM bookings WHERE id=?').get(+req.params.id) as any;
+    const k = db.prepare('SELECT user_id,batch_id FROM bookings WHERE id=?').get(+req.params.id) as any;
     if (!k) return reply.code(404).send({ error: 'not found' });
     if (k.user_id !== req.user.id && req.user.role !== 'admin')
       return reply.code(403).send({ error: 'not your booking' });
+    const lk = lockedById(k.batch_id);
+    if (lk) return reply.code(423).send({ error: lk });
     db.prepare('DELETE FROM bookings WHERE id=?').run(+req.params.id);
     return { ok: true };
   });

@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.33.0 (2026-11-06)
+
+Batches: variants, locking and mentions.
+
+- **Batch variants**: the devices of a batch that differ from the default device. A variant links to a premade variation (another stack; versions of the batch's stack come first) or lists what changes from the default device: another recipe for a layer (versions of that recipe first), an additive, a layer added or left out, or a change in words. Its recipes are frozen when saved, like the batch. Substrates per variant and for the default device. Measured samples link to a variant ("B-12, variant 5 % MACl"); statistics and comparisons keep variants apart, the pixel map and J–V figure use the variant's layers and mask, and **What changed** in Comparisons reads the variant's recipes and additives. The print sheet, the report and the spreadsheet list the variants and their recipes.
+- **Finished batches lock** 14 days after they are Done: layers, run data, variants, notes, bookings and name stay as recorded; comments, sharing and measurement links stay open. The batch page shows when it will lock and a notice once it is locked; the list shows a padlock. An admin can unlock a batch for 7 days (or lock it again now); both are in the activity log. Batches already Done get their finishing date from their last change.
+- **@mentions in comments**: type @ to pick someone who can open the item; they are notified, and the mention shows as their name. Mentions added by editing a comment notify the person added.
+- The batch remembers the stack it was started from (for its variants).
+
 ## 0.32.0 (2026-11-06)
 
 Consistency release: the same patterns everywhere, and the batch record taken from the calendar.

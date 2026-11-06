@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { lockedByCode } from './batchlock.js';
 import { PresetIn, RunIn } from '@psc/schema';
 import { db } from './db.js';
 import { notifyFork } from './social.js';
@@ -272,17 +273,21 @@ export function registerPresets(
     const p = RunIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     const { batch, ...rest } = p.data;
+    const lk = lockedByCode(batch);
+    if (lk) return reply.code(423).send({ error: lk });
     const r = db
       .prepare('INSERT INTO run_data(preset_id,owner_id,batch,data) VALUES(?,?,?,?)')
       .run(+req.params.id, req.user.id, batch, JSON.stringify(rest));
     return { id: Number(r.lastInsertRowid) };
   });
   app.delete('/api/runs/:id', { preHandler: auth() }, async (req: any, reply) => {
-    const r = db.prepare('SELECT owner_id FROM run_data WHERE id=?').get(+req.params.id) as
-      { owner_id: number } | undefined;
+    const r = db.prepare('SELECT owner_id,batch FROM run_data WHERE id=?').get(+req.params.id) as
+      { owner_id: number; batch: string } | undefined;
     if (!r) return reply.code(404).send({ error: 'not found' });
     if (r.owner_id !== req.user.id && req.user.role !== 'admin')
       return reply.code(403).send({ error: 'not your entry' });
+    const lk = lockedByCode(r.batch);
+    if (lk) return reply.code(423).send({ error: lk });
     db.prepare('DELETE FROM run_data WHERE id=?').run(+req.params.id);
     return { ok: true };
   });
