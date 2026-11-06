@@ -169,7 +169,8 @@ export default function Viewer3D({
   slabs: ViewSlab[];
   w: number;
   h: number;
-  height?: number;
+  /** pixels, or any CSS length (e.g. clamp(…) to fit the window) */
+  height?: number | string;
   cog?: boolean;
   corner?: React.ReactNode;
 }) {
