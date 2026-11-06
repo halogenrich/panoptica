@@ -281,7 +281,7 @@ const KIND: Record<B['kind'], string> = {
   update: 'Before update',
   'before-restore': 'Before restore',
 };
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 const ago = (iso: string) => {
   const h = (Date.now() - new Date(iso).getTime()) / 3.6e6;
   return h < 1 ? 'less than an hour ago' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;

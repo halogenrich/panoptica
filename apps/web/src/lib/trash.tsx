@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 /**
- * Deleting moves things to the trash. After a delete, a toast offers Undo for a few seconds; the Trash page (Library › Trash)
+ * Deleting moves things to the trash. After a delete, a toast offers Undo for a few seconds; the Trash page (bottom of the side menu)
  * restores anything for 30 days.
  */
 type Toast = { id: number; text: string; undo?: () => Promise<unknown> };

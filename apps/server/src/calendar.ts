@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { BookingIn, EquipmentIn, OutcomeIn, ScheduleIn } from '@psc/schema';
+import { BookingIn, EquipmentIn, OrderIn, OutcomeIn, ScheduleIn } from '@psc/schema';
 import { tx } from './db.js';
 import { db } from './db.js';
 import { notify } from './social.js';
@@ -49,6 +49,13 @@ if (!db.prepare("SELECT 1 FROM meta WHERE key='gb-equipment'").get()) {
 if (!ecols.includes('cleanup')) {
   db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
   db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'");
+}
+// 0.32: the UV-ozone cleaner does the substrate preparation in the batch scheduler (once; admins can change it under Equipment)
+if (!db.prepare("SELECT 1 FROM meta WHERE key='prep-equipment'").get()) {
+  db.exec(
+    "UPDATE equipment SET role='prep' WHERE role='' AND (name LIKE '%UV-ozone%' OR name LIKE '%UV ozone%' OR name LIKE '%UVO%')",
+  );
+  db.prepare("INSERT INTO meta(key,value) VALUES('prep-equipment',?)").run(new Date().toISOString());
 }
 /** Shortest booking, in minutes. */
 export const MIN_BOOKING = 60;
@@ -153,6 +160,25 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       k.id,
     );
     settleBatch(k.batch_id);
+    return { ok: true };
+  });
+
+  /** A concluded step whose run data the person chose to add later: remind them (the batch page lists it until it is added). */
+  app.post('/api/bookings/:id/runs-later', { preHandler: auth() }, async (req: any, reply) => {
+    const k = db
+      .prepare(
+        'SELECT k.*, b.owner_id, b.code FROM bookings k JOIN batches b ON b.id=k.batch_id WHERE k.id=? AND b.deleted_at IS NULL',
+      )
+      .get(+req.params.id) as any;
+    if (!k) return reply.code(404).send({ error: 'not found' });
+    if (k.user_id !== req.user.id && k.owner_id !== req.user.id && req.user.role !== 'admin')
+      return reply.code(403).send({ error: 'not your booking' });
+    notify(
+      [k.user_id],
+      'runs',
+      `Run data for ${k.step || 'a concluded step'} of batch ${k.code} is still missing. Add it from the batch page.`,
+      { view: 'batches', id: k.batch_id },
+    );
     return { ok: true };
   });
 
@@ -347,6 +373,14 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     } catch {
       return reply.code(409).send({ error: 'this equipment already exists' });
     }
+  });
+  /** Equipment in a new order: the order of the Day view's columns, the filter and the pickers. */
+  app.put('/api/equipment/order', { preHandler: auth(true) }, async (req: any, reply) => {
+    const p = OrderIn.safeParse(req.body);
+    if (!p.success) return bad(reply, p);
+    const up = db.prepare('UPDATE equipment SET pos=? WHERE id=?');
+    tx(() => p.data.ids.forEach((id, i) => up.run(i, id)));
+    return { ok: true };
   });
   app.patch('/api/equipment/:id', { preHandler: auth(true) }, async (req: any, reply) => {
     const p = EquipmentIn.partial().safeParse(req.body);

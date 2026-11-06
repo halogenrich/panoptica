@@ -4,12 +4,13 @@ import { trashed, useRefresh } from '../lib/trash';
 import Comments from '../lib/Comments';
 import { BatchReport, batchMeasurements, batchSpreadsheet } from './BatchReport';
 import { RunEntry, RunForm, type Run } from '../lib/Library';
-import { Badge, Empty, Seg, fmtDate, usePrint } from '../lib/ui';
+import { Badge, Empty, LayoutToggle, Seg, fmtDate, useLayout, usePrint } from '../lib/ui';
 import { KINDS } from '../recipes';
 import { norm, type Ctx, type Rec } from '../recipes/types';
 import { SEG, type Slot, type StackD } from '../stacks/model';
 import RunSheet from '../stacks/RunSheet';
 import { bundlesOf, placedOf } from '../lib/bundles';
+import { layerState, stepPresets } from '../lib/stepRuns';
 import type { Booking } from './Calendar';
 import { StackIcon, View3D } from '../stacks/stack';
 import { BatchMeasurements } from '../iv/IvPage';
@@ -26,7 +27,9 @@ type Row = {
   created_at: string;
   arch: string;
   total: number;
-  done: number;
+  /** booked steps (canceled left out) and how many are concluded */
+  steps: number;
+  concluded: number;
   runs: number;
   thumb?: string;
 };
@@ -74,7 +77,8 @@ export default function Batches({
 function List({ onOpen }: { onOpen: (id: number) => void }) {
   const [rows, setRows] = useState<Row[] | null>(null),
     [f, setF] = useState<'all' | Status>('all'),
-    [q, setQ] = useState('');
+    [q, setQ] = useState(''),
+    [layout, setLayout] = useLayout();
   const load = () =>
     api<Row[]>('/batches')
       .then(setRows)
@@ -108,6 +112,8 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <div className="grow" />
+        <LayoutToggle v={layout} on={setLayout} />
       </div>
       {rows === null ? (
         <div className="cards">
@@ -124,7 +130,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
               : 'Open a stack and use Start batch. The batch keeps a frozen copy of the stack and its recipes.'
           }
         />
-      ) : (
+      ) : layout === 'cards' ? (
         <div className="cards">
           {shown.map((r) => (
             <button key={r.id} className="pcard" onClick={() => onOpen(r.id)}>
@@ -136,14 +142,12 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                 <div className="pcard-sum">
                   {r.name || r.arch} · {r.arch}
                 </div>
-                <div className="progress" title={`${r.done} of ${r.total} layers done`}>
-                  <i style={{ width: `${r.total ? (100 * r.done) / r.total : 0}%` }} />
+                <div className="progress" title={progressText(r)}>
+                  <i style={{ width: `${r.steps ? (100 * r.concluded) / r.steps : 0}%` }} />
                 </div>
                 <div className="pcard-meta">
                   <span className={'status ' + r.status}>{STATUS[r.status]}</span>
-                  <span>
-                    {r.done}/{r.total} layers
-                  </span>
+                  <span>{progressText(r)}</span>
                   {r.runs > 0 && <Badge>{r.runs} run data</Badge>}
                   <span>
                     {r.mine ? 'You' : r.owner} · {fmtDate(r.created_at)}
@@ -153,10 +157,46 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
             </button>
           ))}
         </div>
+      ) : (
+        <section className="group scroll flush">
+          <table className="list">
+            <thead>
+              <tr>
+                <th>Batch</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Steps</th>
+                <th>Owner</th>
+                <th>Started</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                  <td>
+                    <b>{r.code}</b>
+                  </td>
+                  <td className="mut">
+                    {r.name || r.arch}, {r.arch}
+                  </td>
+                  <td>
+                    <span className={'status ' + r.status}>{STATUS[r.status]}</span>
+                  </td>
+                  <td className="mut">{progressText(r)}</td>
+                  <td>{r.mine ? 'You' : r.owner}</td>
+                  <td className="mut">{fmtDate(r.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
     </>
   );
 }
+
+const progressText = (r: Pick<Row, 'steps' | 'concluded'>) =>
+  r.steps ? `${r.concluded} of ${r.steps} steps concluded` : 'Not scheduled';
 
 /** A Ctx built from the batch's frozen snapshot, so recipe outputs and the 3D view show the batch exactly as it was started. */
 export function snapCtx(b: Pick<Batch, 'snapshot'>): Ctx {
@@ -266,15 +306,17 @@ function Detail({
         batchesChanged();
       })
       .catch((e) => setMsg(e.message));
-  const setSlot = (i: number, done: boolean) =>
-    setB({
-      ...b,
-      record: {
-        ...rec,
-        slots: { ...(rec.slots ?? {}), [i]: { done, at: done ? new Date().toLocaleString() : undefined } },
-      },
-    });
-  const doneN = st.sl.filter((_, i) => rec.slots?.[i]?.done).length;
+  // a layer's progress comes from the calendar: its bookings (scheduler blocks cover several layers) and their outcomes
+  const stepsOf = books.filter((k) => k.outcome !== 'canceled').map((k) => ({ k, items: stepPresets(b, k.step) }));
+  const statusOf = (i: number) => layerState(b, books, i);
+  // concluded steps whose recipes have no run data under this batch yet
+  const missing = stepsOf
+    .filter(({ k }) => k.outcome === 'done')
+    .flatMap(({ k, items }) =>
+      items.filter((x) => !runs.some((r) => String(r.preset_id) === x.id)).map((x) => ({ ...x, step: k.step })),
+    )
+    .filter((x, j, a) => a.findIndex((y) => y.id === x.id && y.slot === x.slot) === j);
+  const concludedN = stepsOf.filter(({ k }) => k.outcome === 'done').length;
   const dataOf = (pid: string | number) => ctx.all.find((p) => String(p.id) === String(pid))?.data;
 
   return (
@@ -320,7 +362,7 @@ function Detail({
           onClick={() => {
             setBusyRep('pdf');
             batchMeasurements(b.id)
-              .then((sets) => pr.print(<BatchReport b={b} ctx={ctx} runs={runs} sets={sets} />))
+              .then((sets) => pr.print(<BatchReport b={b} ctx={ctx} runs={runs} sets={sets} books={books} />))
               .catch((e) => setMsg(e.message))
               .finally(() => setBusyRep(''));
           }}
@@ -333,7 +375,7 @@ function Detail({
           onClick={() => {
             setBusyRep('xlsx');
             batchMeasurements(b.id)
-              .then((sets) => batchSpreadsheet(b, ctx, runs, sets))
+              .then((sets) => batchSpreadsheet(b, ctx, runs, sets, books))
               .catch((e) => setMsg(e.message))
               .finally(() => setBusyRep(''));
           }}
@@ -343,8 +385,8 @@ function Detail({
         {b.editable && (
           <button
             className="link danger-link"
+            title="Moves it to the trash: Undo right after, or restore it from Trash for 30 days"
             onClick={() =>
-              window.confirm(`Move batch ${b.code} to the trash? You can restore it for 30 days (Library › Trash).`) &&
               api('/batches/' + id, 'DELETE').then(() => {
                 batchesChanged();
                 trashed('batch', id, b.code);
@@ -352,13 +394,33 @@ function Detail({
               })
             }
           >
-            Delete
+            Move to trash
           </button>
         )}
       </div>
       <p className="mut small">
-        {b.owner}, created {fmtDate(b.created_at)}. {doneN} of {st.sl.length} layers ticked{msg ? `. ${msg}` : ''}
+        {b.owner}, created {fmtDate(b.created_at)}.{' '}
+        {stepsOf.length ? `${concludedN} of ${stepsOf.length} booked steps concluded` : 'Not scheduled yet'}
+        {msg ? `. ${msg}` : ''}
       </p>
+      {missing.length > 0 && (
+        <div className="runs-missing" role="status">
+          <b>Run data missing</b> for{' '}
+          {missing.length === 1 ? 'a concluded step' : `${missing.length} recipes of concluded steps`}:
+          <ul>
+            {missing.map((x) => (
+              <li key={x.slot + '|' + x.id}>
+                {x.layer}, {x.name}{' '}
+                {b.editable && (
+                  <button className="link small" onClick={() => setAdding({ slot: x.slot, id: x.id, seg: x.seg })}>
+                    Add run data
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="batch-grid">
         <div>
@@ -373,27 +435,18 @@ function Detail({
             .map((s, i) => ({ s, i }))
             .reverse()
             .map(({ s, i }) => {
-              const done = !!rec.slots?.[i]?.done,
-                ps = presetsOf(s);
+              const ps = presetsOf(s),
+                state = statusOf(i);
               return (
-                <div key={s.id ?? i} className={'check-row' + (done ? ' done' : '')}>
-                  <label className="inline">
-                    <input
-                      type="checkbox"
-                      checked={done}
-                      disabled={!b.editable}
-                      onChange={(e) => setSlot(i, e.target.checked)}
-                    />
-                    <span>
-                      <b>
-                        {i + 1}. {s.n}
-                      </b>{' '}
-                      <span className="mut small">
-                        · {s.m}
-                        {rec.slots?.[i]?.at ? ` · done ${rec.slots[i].at}` : ''}
-                      </span>
-                    </span>
-                  </label>
+                <div key={s.id ?? i} className={'layer-step' + (state.done ? ' done' : '')}>
+                  <div className="layer-step-h">
+                    <b>
+                      {i + 1}. {s.n}
+                    </b>
+                    <span className="mut small">{s.m}</span>
+                    <div className="grow" />
+                    <span className={'small layer-state' + (state.done ? ' ok' : '')}>{state.text}</span>
+                  </div>
                   <div className="check-presets">
                     {s.m === 'Manual' && <span className="small">{s.t}</span>}
                     {ps.map((p) => {
@@ -421,6 +474,7 @@ function Detail({
                           d={d}
                           presetId={+adding.id}
                           batch={b.code}
+                          required={missing.some((x) => x.slot === adding.slot && x.id === adding.id)}
                           onCancel={() => setAdding(null)}
                           onDone={() => {
                             setAdding(null);
@@ -481,7 +535,7 @@ function Detail({
 function BatchBookings({ list }: { list: Booking[] }) {
   if (!list.length) return null;
   const t = (x: string) =>
-    new Date(x).toLocaleString(undefined, {
+    new Date(x).toLocaleString('en-GB', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
@@ -505,7 +559,7 @@ function BatchBookings({ list }: { list: Booking[] }) {
               <b>{k.equipment}</b>
               <span>{k.step}</span>
               <span className="mut">
-                {t(k.start)} to {new Date(k.end).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                {t(k.start)} to {new Date(k.end).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
               </span>
               <span className="grow" />
               {k.outcome ? (
@@ -529,7 +583,10 @@ function BatchBookings({ list }: { list: Booking[] }) {
  * "Scheduled" once every block has a booking. Scheduling is done on a computer; on a phone the button only shows the state.
  */
 function ScheduleButton({ b, books, onSchedule }: { b: Batch; books: Booking[]; onSchedule?: (id: number) => void }) {
-  const need = bundlesOf(b.snapshot.stack);
+  // substrate preparation (new in 0.32) only counts for batches still planned, or when it was booked
+  const need = bundlesOf(b.snapshot.stack).filter(
+    (x) => x.role !== 'prep' || b.status === 'planned' || placedOf(x, books),
+  );
   if (!need.length) return null;
   const left = need.filter((x) => !placedOf(x, books)).length,
     done = left === 0,

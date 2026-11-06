@@ -403,6 +403,13 @@ console.log('Calendar: shortest booking and cleanup');
   ok((await book(eq.j.id, '11:20', '12:20')).s === 200, 'right after the cleanup is fine');
   ok((await book(plain.j.id, '11:00', '12:00')).s === 200, 'equipment without cleanup can be booked back to back');
   ok((await book(plain.j.id, '12:00', '13:00')).s === 200, '(second booking)');
+  const order = eqs.map((e) => e.id).reverse();
+  ok((await call('PUT', '/api/equipment/order', { ids: order })).s === 200, 'equipment reordered (admin)');
+  const after = (await call('GET', '/api/calendar?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z')).j.equipment;
+  ok(after.map((e) => e.id).join() === order.join(), 'the calendar lists equipment in the new order');
+  const bl = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id);
+  ok(bl.steps === 4 && bl.concluded === 0, 'batch progress counts its booked steps and concluded ones');
+  ok((await call('GET', '/api/search?q=Smoke')).j.containers !== undefined, 'search also looks in containers');
 }
 
 console.log('Updates');
