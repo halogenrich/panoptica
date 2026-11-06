@@ -45,6 +45,13 @@ if (!db.prepare("SELECT 1 FROM meta WHERE key='gb-equipment'").get()) {
   }
   db.prepare("INSERT INTO meta(key,value) VALUES('gb-equipment',?)").run(new Date().toISOString());
 }
+// 0.31: minutes the equipment is blocked after each booking to clean it (gloveboxes: 20), so the next person finds it clean
+if (!ecols.includes('cleanup')) {
+  db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
+  db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'");
+}
+/** Shortest booking, in minutes. */
+export const MIN_BOOKING = 60;
 // times are compared as text, so every stored time must be UTC ISO (…Z)
 for (const r of db
   .prepare("SELECT id,start,end FROM bookings WHERE start NOT LIKE '%Z' OR end NOT LIKE '%Z'")
@@ -63,6 +70,11 @@ if (!db.prepare('SELECT 1 FROM equipment LIMIT 1').get()) {
 }
 
 type U = { id: number; name: string; role: string; manager?: boolean };
+const minutes = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 6e4;
+const after = (t: string, min: number) => new Date(new Date(t).getTime() + min * 6e4).toISOString();
+const before = (t: string, min: number) => after(t, -min);
+const cleanupOf = (eq: number) =>
+  (db.prepare('SELECT cleanup FROM equipment WHERE id=?').get(eq) as { cleanup: number } | undefined)?.cleanup ?? 0;
 const ROW = `SELECT k.*, e.name AS equipment, e.color, b.code AS batch_code, b.name AS batch_name, b.status AS batch_status, u.name AS user_name, u.photo_v AS photoV
   FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN batches b ON b.id=k.batch_id JOIN users u ON u.id=k.user_id`;
 const out = (r: any, u: U) => ({
@@ -145,6 +157,21 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   });
 
   /**
+   * Bookings of the same equipment that overlap [start, end), other than `except`. The cleanup time after each booking counts as
+   * taken: a booking cannot start during the cleanup of the one before, nor end so late that its own cleanup runs into the next.
+   */
+  const clashes = (eq: number, start: string, end: string, except = 0) => {
+    const cl = cleanupOf(eq);
+    return db
+      .prepare(ROW + ' WHERE k.equipment_id=? AND k.end > ? AND k.start < ? AND k.id<>? AND b.deleted_at IS NULL')
+      .all(eq, before(start, cl), after(end, cl), except) as any[];
+  };
+  const clashText = (x: any, start: string, end: string) =>
+    x.end > start && x.start < end
+      ? `${x.equipment} is booked by ${x.user_name} for batch ${x.batch_code} at that time`
+      : `${x.equipment} needs ${cleanupOf(x.equipment_id)} min of cleanup between bookings, and this is too close to the booking of ${x.user_name} (batch ${x.batch_code})`;
+
+  /**
    * Schedule a whole batch: the given steps replace the batch's scheduler bookings (equipment with a role) that have not started. All or
    * nothing: if one step overlaps another booking, nothing changes and the step is named.
    */
@@ -159,15 +186,18 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     if (!p.success) return bad(reply, p);
     const now = new Date().toISOString(),
       items = p.data.items;
-    for (const [i, it] of items.entries())
+    for (const [i, it] of items.entries()) {
       if (!(it.end > it.start))
         return reply.code(400).send({ error: `${it.step}: the end must be after the start`, index: i });
+      if (minutes(it.start, it.end) < MIN_BOOKING)
+        return reply.code(400).send({ error: `${it.step}: a booking is at least 1 hour`, index: i });
+    }
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
         if (
           items[i].equipment_id === items[j].equipment_id &&
-          items[i].end > items[j].start &&
-          items[j].end > items[i].start
+          after(items[i].end, cleanupOf(items[i].equipment_id)) > items[j].start &&
+          after(items[j].end, cleanupOf(items[j].equipment_id)) > items[i].start
         )
           return reply
             .code(409)
@@ -179,13 +209,9 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
           "DELETE FROM bookings WHERE batch_id=? AND outcome IS NULL AND start > ? AND equipment_id IN (SELECT id FROM equipment WHERE role<>'')",
         ).run(id, now);
         items.forEach((it, i) => {
-          const c = db
-            .prepare(ROW + ' WHERE k.equipment_id=? AND k.end > ? AND k.start < ? AND b.deleted_at IS NULL')
-            .all(it.equipment_id, it.start, it.end) as any[];
+          const c = clashes(it.equipment_id, it.start, it.end);
           if (c.length && !(it.force && req.user.role === 'admin')) {
-            const e: any = new Error(
-              `${it.step}: ${c[0].equipment} is booked by ${c[0].user_name} for batch ${c[0].batch_code} at that time`,
-            );
+            const e: any = new Error(`${it.step}: ${clashText(c[0], it.start, it.end)}`);
             e.index = i;
             throw e;
           }
@@ -230,11 +256,6 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     ),
   );
 
-  /** Bookings of the same equipment that overlap [start, end), other than `except`. */
-  const clashes = (eq: number, start: string, end: string, except = 0) =>
-    db
-      .prepare(ROW + ' WHERE k.equipment_id=? AND k.end > ? AND k.start < ? AND k.id<>? AND b.deleted_at IS NULL')
-      .all(eq, start, end, except) as any[];
   const check = (req: any, reply: any, d: any, id = 0) => {
     const b = db
       .prepare('SELECT owner_id, status FROM batches WHERE id=? AND deleted_at IS NULL')
@@ -246,12 +267,11 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       return reply.code(400).send({ error: 'this batch is done; book for a Planned or Running batch' });
     if (!(new Date(d.end) > new Date(d.start)))
       return reply.code(400).send({ error: 'the end must be after the start' });
+    if (minutes(d.start, d.end) < MIN_BOOKING) return reply.code(400).send({ error: 'a booking is at least 1 hour' });
     const c = clashes(d.equipment_id, d.start, d.end, id);
     if (c.length && !(d.force && req.user.role === 'admin')) {
       const x = c[0];
-      return reply
-        .code(409)
-        .send({ error: `${x.equipment} is booked by ${x.user_name} for batch ${x.batch_code} at that time`, clash: x });
+      return reply.code(409).send({ error: clashText(x, d.start, d.end), clash: x });
     }
     return null;
   };
@@ -313,9 +333,15 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         id: Number(
           db
             .prepare(
-              'INSERT INTO equipment(name,color,place,role,pos) VALUES(?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
+              'INSERT INTO equipment(name,color,place,role,cleanup,pos) VALUES(?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
             )
-            .run(p.data.name, p.data.color ?? '#2563eb', p.data.place ?? '', p.data.role ?? '').lastInsertRowid,
+            .run(
+              p.data.name,
+              p.data.color ?? '#2563eb',
+              p.data.place ?? '',
+              p.data.role ?? '',
+              p.data.cleanup ?? (/^GB:/i.test(p.data.name) ? 20 : 0), // gloveboxes are cleaned after each use
+            ).lastInsertRowid,
         ),
       };
     } catch {
@@ -326,7 +352,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const p = EquipmentIn.partial().safeParse(req.body);
     if (!p.success) return bad(reply, p);
     try {
-      for (const k of ['name', 'color', 'place', 'role'] as const)
+      for (const k of ['name', 'color', 'place', 'role', 'cleanup'] as const)
         if (p.data[k] !== undefined)
           db.prepare(`UPDATE equipment SET ${k}=? WHERE id=?`).run(p.data[k]!, +req.params.id);
       if (p.data.active !== undefined)

@@ -5342,6 +5342,36 @@ body.resizing-block * {
   background: color-mix(in srgb, var(--err) 12%, transparent);
   color: var(--err);
 }
+/* cleanup after a booking (gloveboxes): taken, hatched in the equipment colour, quieter than a booking */
+.bk-clean {
+  position: absolute;
+  z-index: 1;
+  border-radius: 0 0 6px 6px;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--eq) 30%, transparent) 0 4px,
+    color-mix(in srgb, var(--eq) 10%, transparent) 4px 8px
+  );
+  border-left: 3px solid color-mix(in srgb, var(--eq) 55%, transparent);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: default;
+}
+.bk-clean span {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--eq) 75%, var(--fg));
+}
+.bk-clean-drop {
+  z-index: 5;
+  pointer-events: none;
+}
+.bk-clean-drop.no {
+  --eq: var(--err);
+}
 body.dragging-block,
 body.dragging-block * {
   cursor: grabbing !important;
@@ -5350,10 +5380,21 @@ body.dragging-block * {
 .eq-table {
   display: grid;
 }
+.dialog.eq-dialog {
+  width: min(760px, 100%);
+}
+.eq-clean {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.eq-clean input {
+  width: 58px;
+}
 .eq-h,
 .eq-r {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 190px 70px;
+  grid-template-columns: 44px minmax(0, 1fr) 190px 96px 70px;
   gap: 10px;
   align-items: center;
   padding: 7px 0;
@@ -6387,35 +6428,38 @@ body.dragging-block * {
 
 /* ============ comparisons ============ */
 /* The group colour is the thread: the bar beside each group, its boxes, its J–V line and its row in the table. */
+/* list card: one small box plot per group, in the group colours (what a comparison shows) */
 .cx-art {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 22px 0 0;
+  gap: 14px;
 }
 .cx-art i {
-  width: 18px;
-  border-radius: 5px 5px 0 0;
-  opacity: 0.9;
+  position: relative;
+  width: 16px;
+  height: 30px;
+  margin-top: var(--y);
+  border-radius: 3px;
+  border: 2px solid var(--g);
+  background: color-mix(in srgb, var(--g) 35%, transparent);
 }
-.cx-art i:nth-child(1) {
-  height: 54px;
+.cx-art i::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  bottom: -14px;
+  border-left: 2px solid var(--g);
+  z-index: -1;
 }
-.cx-art i:nth-child(2) {
-  height: 76px;
-}
-.cx-art i:nth-child(3) {
-  height: 64px;
-}
-.cx-art i:nth-child(4) {
-  height: 84px;
-}
-.cx-art i:nth-child(5) {
-  height: 58px;
-}
-.cx-art i:nth-child(6) {
-  height: 70px;
+.cx-art i::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 12px;
+  border-top: 2px solid var(--g);
 }
 .cx-head .title-input {
   min-width: 0;
@@ -6547,9 +6591,120 @@ body.dragging-block * {
   gap: 12px;
   min-width: 0;
 }
-.cx-controls {
+.cx-toolbar {
+  display: flex;
   flex-wrap: wrap;
-  gap: 10px 14px;
+  align-items: center;
+  gap: 10px;
+}
+.cx-card {
+  background: var(--card);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.cx-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.cx-card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.cx-figopts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.cx-plots {
+  margin: 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+}
+.cx-caption {
+  margin: 0;
+}
+.cx-white {
+  background: #fff;
+  border-radius: 10px;
+  padding: 6px;
+}
+.cx-white svg {
+  width: 100%;
+  height: auto;
+}
+.cx-exp-menu {
+  min-width: 320px;
+  gap: 8px;
+}
+.cx-exp-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mut);
+  padding-top: 2px;
+}
+.cx-exp-sec + .cx-exp-sec {
+  border-top: 1px solid var(--sep);
+  padding-top: 6px;
+}
+.cx-more {
+  min-width: 190px;
+  padding: 6px;
+  gap: 0;
+}
+.cx-more-item {
+  text-align: left;
+  background: none;
+  border: 0;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.cx-more-item:hover,
+.cx-more-item:focus-visible {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.cx-more-item.danger-link {
+  color: var(--err);
+}
+.cx-disclose {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 4px 6px 4px 0;
+  font: inherit;
+  color: var(--fg);
+  cursor: pointer;
+}
+.cx-chev {
+  display: inline-block;
+  width: 12px;
+  color: var(--mut);
+  transition: transform 0.15s;
+}
+.cx-disclose[aria-expanded='true'] .cx-chev {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cx-chev {
+    transition: none;
+  }
+}
+/* "Set as reference" only where the pointer is, on computers; always visible on touch screens */
+@media (hover: hover) {
+  .cx-group:not(:hover):not(:focus-within) .cx-ref:not(.on) {
+    opacity: 0;
+  }
 }
 .cx-note {
   margin: 0;
@@ -6561,36 +6716,11 @@ body.dragging-block * {
   margin: 6px 0;
   padding-left: 18px;
 }
-.cx-fig {
-  margin: 0;
-  background: #fff;
-  border-radius: var(--r);
-  padding: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-}
-.cx-fig .fig-wrap {
-  max-width: none;
-  border: 0;
-  padding: 0;
-}
-.cx-fig .fig-wrap svg {
-  width: 100%;
-  height: auto;
-}
-.cx-fig figcaption {
-  padding: 4px 6px 0;
-  color: #5f6570;
-}
 .cx-split {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   gap: 12px;
   align-items: start;
-}
-.cx-table {
-  background: var(--card);
-  border-radius: var(--r);
-  padding: 10px 12px;
 }
 .cx-table table {
   width: 100%;
@@ -6615,20 +6745,6 @@ body.dragging-block * {
   border-radius: 3px;
   margin-right: 7px;
   vertical-align: -1px;
-}
-.cx-changes {
-  background: var(--card);
-  border-radius: var(--r);
-  padding: 12px 14px;
-  display: grid;
-  gap: 12px;
-}
-.cx-changes h3 {
-  margin: 0;
-  font-size: 15px;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--fg);
 }
 .cx-change {
   border-left: 4px solid var(--g);
