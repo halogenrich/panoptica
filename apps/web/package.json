@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@psc/core": "*",
-    "emoji-picker-element": "^1.26.3",
+    "emoji-picker-element": "^1.29.1",
     "emoji-picker-element-data": "^1.7.1",
     "fflate": "^0.8.2",
     "qrcode-generator": "^2.0.4",
