@@ -124,12 +124,13 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
   }, [all]);
 
   const on = (k: Kind, id: number) => sel[k].includes(id);
+  const inPack = (k: Kind, id: number) => on(k, id) || !!all?.[k].includes(id);
   const toggle = (k: Kind, id: number) =>
     setSel({ ...sel, [k]: on(k, id) ? sel[k].filter((x) => x !== id) : [...sel[k], id] });
   const shown = (k: Kind) =>
     rows
       .filter((r) => r.kind === k && (r.label + ' ' + r.owner).toLowerCase().includes(q.toLowerCase()))
-      .sort((a, b) => +on(b.kind, b.id) - +on(a.kind, a.id));
+      .sort((a, b) => +inPack(b.kind, b.id) - +inPack(a.kind, a.id));
   const n = all ? all.batches.length + all.iv.length + all.cmp.length : 0;
   const extra = (k: Kind) => (all ? all[k].length - sel[k].length : 0);
   const set = (p: Partial<PackMeta>) => setMeta({ ...meta, ...p });
@@ -176,10 +177,14 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
           {list.map((r) => {
             const auto = !on(k, r.id) && !!all?.[k].includes(r.id);
             return (
-              <label key={r.id} className={'dp-row' + (auto ? ' auto' : '')}>
-                <input type="checkbox" checked={on(k, r.id) || auto} onChange={() => toggle(k, r.id)} />
+              <label
+                key={r.id}
+                className={'dp-row' + (auto ? ' auto' : '')}
+                title={auto ? 'Included because a chosen item is linked to it' : undefined}
+              >
+                <input type="checkbox" checked={on(k, r.id) || auto} disabled={auto} onChange={() => toggle(k, r.id)} />
                 <span className="dp-name">{r.label}</span>
-                <span className="mut small">{auto ? 'linked' : `${r.owner}, ${r.sub}`}</span>
+                <span className="mut small">{auto ? 'linked to a chosen item' : `${r.owner}, ${r.sub}`}</span>
               </label>
             );
           })}
