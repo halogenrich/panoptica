@@ -40,7 +40,7 @@ export function useRefresh(load: () => void, topics?: string[]) {
 }
 
 /** Called after a delete succeeded: toast with Undo (restores from the trash). */
-export function trashed(kind: 'preset' | 'batch' | 'iv', id: number, name: string) {
+export function trashed(kind: 'preset' | 'batch' | 'iv' | 'cmp', id: number, name: string) {
   showToast(`“${name}” moved to the trash`, () => api(`/trash/${kind}/${id}/restore`, 'POST').then(refreshAll));
 }
 

@@ -3,7 +3,7 @@ import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
 import { Badge, Empty, Seg, fmtDate } from '../lib/ui';
 import { type BoxGroup } from './charts';
-import { BoxPanel, TITLES, combinePanels, lighter } from './BoxFigure';
+import { BoxPanel, OutlierToggle, TITLES, combinePanels, lighter, useOutliers } from './BoxFigure';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { exportSvg } from './JvFigure';
 import ImportIv from './Import';
@@ -14,6 +14,7 @@ import {
   hasValue,
   SYSTEM,
   clearGeomCache,
+  counts,
   download,
   fmt,
   statRows,
@@ -413,7 +414,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
                     best: Math.max(
                       0,
                       ...s.curves
-                        .filter((c) => c.sample === sample && c.substrate === x && c.m.status === 'ok')
+                        .filter((c) => c.sample === sample && c.substrate === x && counts(c))
                         .map((c) => c.m.pce),
                     ),
                   }))}
@@ -474,7 +475,8 @@ function Stats({ sets }: { sets: IvSet[] }) {
 
 export function StatsFor({ sets }: { sets: IvSetFull[] }) {
   const [dir, setDir] = useState<Dir | 'both'>('rev'),
-    [dens, setDens] = useState(false);
+    [dens, setDens] = useState(false),
+    [outl, setOutl] = useOutliers();
   const fs = useFigureSettings(),
     hasLogo = !!(fs.watermark || fs.group),
     [logo, setLogo] = useLogoChoice();
@@ -551,8 +553,9 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
           />
         )}
         <span className="mut small">
-          {rows.length} curves from working pixels in {groups.length} group{groups.length === 1 ? '' : 's'} · dead and
-          shorted pixels, and earlier repeats of the same pixel, are left out (change it per pixel in Cells)
+          {rows.length} curves from working pixels in {groups.length} group{groups.length === 1 ? '' : 's'} · each pixel
+          counts once per direction, with its best scan; dead and shorted pixels and check sweeps are left out (change
+          it per pixel in Cells)
         </span>
         <div className="grow" />
         <button
@@ -590,6 +593,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
         <label className="inline small">
           <Check v={dens} on={setDens} /> Density curve
         </label>
+        <OutlierToggle v={outl} on={setOutl} />
         {hasLogo && (
           <label className="inline small">
             <Check v={logo} on={setLogo} /> Group logo
@@ -629,7 +633,10 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
       </div>
       {rows.length > 0 && (
         <p className="mut small">
-          Dots: pixels (gold ring = best) · triangles: outliers (beyond 1.5 × IQR)
+          Dots: pixels (gold ring = best) ·{' '}
+          {outl
+            ? 'triangles: outliers (beyond 1.5 × IQR)'
+            : 'axis fitted to the boxes; an arrow with a number marks outliers beyond it (still counted)'}
           {dirs.length > 1 ? ' · bwd = backward, fwd = forward (lighter)' : ''} · hover for values · each plot exports
           on its own, or all together{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
         </p>
@@ -647,6 +654,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
                       figs.current[k] = el;
                     }}
                     showDensity={dens}
+                    outliers={outl}
                     log={k === 'rsh'}
                     logo={hasLogo && logo ? fs : undefined}
                     panel={{ key: k, title: TITLES[k], groups: box(k), unit: m.unit, digits: m.digits }}

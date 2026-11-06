@@ -2,6 +2,16 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.30.0 (2026-11-06)
+
+- **Comparisons** (sidebar › Measurements): groups of devices from any measurements side by side, private until you share them. Pick devices from a list of every measurement (filter by text, measurement, person, dates); group them by name (`batch_mod`: one group per modification, "Padrão"/"ref"/"control" as the reference) with likely typos flagged, or put them in a group yourself. Box plots, the J–V curve of each group's best pixel, a table with medians and the change against the reference, values **relative to the reference of the same measurement**, and **what changed** between the groups' batches (recipes per layer, from the batch snapshots). Export a 16:9 slide, the figures (PNG, SVG) or an Excel file.
+- **Check sweeps**: the quick exploratory scan before the real measurement (8-pixel system: 0.05 V, forward only, then 0.02 V with both directions) is recognised from its voltage step and directions, shown greyed with a "check sweep" label and never counted: not as best pixel, best device, record, in the statistics, the Overview or comparisons. Include it by hand in the pixel's table if needed. Existing measurements are checked when the update starts.
+- **Best scan, not latest**: when a pixel was measured more than once, the pixel map, the box plots and the statistics use its best scan (highest PCE) in each direction.
+- **Show outliers** (box plots): untick it when one far-off value squeezes the boxes. The axis then fits the boxes and whiskers; points beyond it become an arrow at the edge with their number (still counted; exported figures keep the arrows). Remembered, and used in the batch report, comparisons and the presentation export too.
+- Import preview: check sweeps counted apart and left out of the best PCE.
+- The repository is public: the update settings no longer ask for a token (only needed if it is made private again); documents updated.
+- Activity log: J–V measurements and comparisons now have readable labels.
+
 ## 0.29.0 (2026-11-06)
 
 - **Fix: the in-app update now installs on Windows.** Since 0.26 the app opened the update window in a form Windows silently ignores, so Install now did nothing. The whole in-app update (start script, download, checksum, install, restart, data kept) now runs on real Windows and Linux machines in CI for every change to the update path (`tools/update-e2e.mjs`). **One manual step is still needed to get this fix**: close the app window and double-click `update.bat`; it finds the downloaded zip in the `updates` folder. From then on Install now works.

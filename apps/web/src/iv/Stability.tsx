@@ -6,7 +6,7 @@ import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { Check } from '../views/common';
 import { CMP } from './Compare';
 import { exportSvg } from './JvFigure';
-import { download, fmt, type Dir } from './model';
+import { counts, download, fmt, type Dir } from './model';
 
 type Pt = {
   set: number;
@@ -17,6 +17,7 @@ type Pt = {
   dir: Dir;
   m: Record<string, any>;
   use: boolean | null;
+  kind?: 'check' | null;
 };
 type Series = {
   base: number;
@@ -80,14 +81,7 @@ export default function Stability({ setId }: { setId: number }) {
     // value of one pixel in one measurement: its best working scan in this direction
     const val = (set: number, smp: string, sub: string, px: string) => {
       const c = d.points.filter(
-        (p) =>
-          p.set === set &&
-          p.sample === smp &&
-          p.substrate === sub &&
-          p.pixel === px &&
-          p.dir === dir &&
-          p.m.status === 'ok' &&
-          p.use !== false,
+        (p) => p.set === set && p.sample === smp && p.substrate === sub && p.pixel === px && p.dir === dir && counts(p),
       );
       const b = c.reduce<Pt | undefined>((x, p) => (!x || p.m.pce > x.m.pce ? p : x), undefined);
       return b ? (b.m[metric] as number) : null;

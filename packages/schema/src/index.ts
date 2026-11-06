@@ -346,3 +346,33 @@ export const ScheduleIn = z.object({
 });
 /** App-wide fun: seconds between breaking-news headlines (admin, in the funny settings). */
 export const FunIn = z.object({ newsGap: z.number().int().min(5).max(3600) });
+
+/** A comparison: custom groups of devices picked from any measurements (0.30). Private by default. */
+export const CmpMember = z.object({
+  set: z.number().int(),
+  sample: z.string().max(200),
+  substrate: z.string().max(40),
+});
+export const CmpGroup = z.object({
+  id: z.string().min(1).max(40),
+  name: z.string().max(120),
+  ref: z.boolean().optional(),
+  members: z.array(CmpMember).max(2000),
+});
+export const CmpData = z.object({
+  groups: z.array(CmpGroup).max(24),
+  dir: z.enum(['rev', 'fwd', 'both']).optional(),
+  relative: z.boolean().optional(),
+});
+export const ComparisonIn = z.object({
+  name: z.string().min(1).max(160),
+  visibility: Visibility.default('private'),
+  notes: z.string().max(5000).default(''),
+  data: CmpData,
+});
+export const ComparisonPatch = z.object({
+  name: z.string().min(1).max(160).optional(),
+  visibility: Visibility.optional(),
+  notes: z.string().max(5000).optional(),
+  data: CmpData.optional(),
+});
