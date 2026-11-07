@@ -31,7 +31,7 @@ function devicesOf(curves: Curve[]) {
   for (const c of curves) {
     const m = JSON.parse(c.metrics);
     // counted: ok, not left out by hand, and not a check sweep unless ticked in by hand
-    if (m.status !== 'ok' || c.use === 0 || (c.kind === 'check' && c.use !== 1) || !Number.isFinite(m.pce)) continue;
+    if (m.status !== 'ok' || c.use === 0 || (c.kind && c.use !== 1) || !Number.isFinite(m.pce)) continue;
     const k = `${c.set_id}|${c.sample}|${c.substrate}`;
     by.set(k, Math.max(by.get(k) ?? 0, m.pce));
   }

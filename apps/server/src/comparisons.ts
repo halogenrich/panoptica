@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS comparisons(
       const d = dev.get(k) ?? { set: c.set_id, sample: c.sample, substrate: c.substrate, best: 0, px: new Set() };
       dev.set(k, d);
       const m = JSON.parse(c.metrics);
-      const counted = c.use === 1 || (c.use === null && m.status === 'ok' && c.kind !== 'check');
+      const counted = c.use === 1 || (c.use === null && m.status === 'ok' && !c.kind);
       if (counted && Number.isFinite(m.pce)) {
         d.best = Math.max(d.best, m.pce);
         d.px.add(c.pixel);

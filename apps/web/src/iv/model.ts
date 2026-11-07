@@ -31,8 +31,13 @@ export interface Curve {
   m: IvMetrics;
   inst: { pce?: number | null; ff?: number | null; jsc?: number | null; voc?: number | null } | null;
   use: boolean | null;
-  /** 'check': a quick exploratory scan before the real measurement of the pixel (set by the server); never counted unless ticked in */
-  kind?: 'check' | null;
+  /**
+   * 'check': a quick exploratory scan before the real measurement of the pixel; 'life': a later reading of a lifetime run (the
+   * first reading counts like any measurement). Set by the server; never counted unless ticked in.
+   */
+  kind?: 'check' | 'life' | null;
+  /** lifetime runs: seconds since the start of the run */
+  t?: number | null;
 }
 export type Link = { kind: 'batch' | 'stack'; id: number; variant?: string; label?: string } | null;
 export interface IvSet {
@@ -56,12 +61,24 @@ export interface IvSet {
   stabilityOf?: number | null;
   measuredAt?: string;
   followUps?: number;
+  /** 'lifetime': the same pixels scanned over time (Ossila lifetime test) */
+  kind?: 'jv' | 'lifetime';
+  life?: { run: string; start: string; points: number; span: number };
+}
+export interface LifeRun {
+  run: string;
+  start: string;
+  settings: Record<string, string>;
+  times: number[];
+  light: { t: number; photodiode: number; temp: number }[];
+  sensors: boolean;
 }
 export interface IvSetFull extends Omit<IvSet, 'curves'> {
   notes: string;
   editable: boolean;
   rawLinks: Record<string, Link>;
   curves: Curve[];
+  lifeRun?: LifeRun;
 }
 
 export const SYSTEM: Record<string, string> = { padrao: '8-pixel system (Padrão)', sun: '1.5 × 2.5 system' };
@@ -82,9 +99,9 @@ export const scanOrder = (a: string, b: string) => a.localeCompare(b, undefined,
 export const isCheck = (c: { kind?: string | null }) => c.kind === 'check';
 /** May count: ticked in by hand, or (not left out) a working pixel that is not a check sweep. For "best of" picks. */
 export const counts = (c: { kind?: string | null; use: boolean | null; m: { status?: string } }) =>
-  c.use === true || (c.use === null && c.m.status === 'ok' && !isCheck(c));
+  c.use === true || (c.use === null && c.m.status === 'ok' && !c.kind);
 /** Counted unless a person decided otherwise: working pixel, not a check sweep. */
-const candidate = (c: Curve) => c.use !== false && c.m.status === 'ok' && !isCheck(c) && Number.isFinite(c.m.pce);
+const candidate = (c: Curve) => c.use !== false && c.m.status === 'ok' && !c.kind && Number.isFinite(c.m.pce);
 /**
  * Whether a curve counts in the statistics. An explicit choice wins; otherwise only working pixels (not dead or shorted), never a
  * check sweep, and when a pixel was measured more than once, its best scan (highest PCE) in each direction.
@@ -107,7 +124,7 @@ export function inStats(c: Curve, all: Curve[]): boolean {
 export function shownCurve(curves: Curve[], all: Curve[], dir: Dir): Curve | undefined {
   const d = curves.filter((c) => c.dir === dir);
   const late = (xs: Curve[]) => [...xs].sort((a, b) => scanOrder(a.scan, b.scan)).pop();
-  return d.find((c) => inStats(c, all)) ?? late(d.filter((c) => !isCheck(c))) ?? late(d);
+  return d.find((c) => inStats(c, all)) ?? late(d.filter((c) => !c.kind)) ?? late(d);
 }
 
 export const groupKey = (l: Link, sample: string) =>
