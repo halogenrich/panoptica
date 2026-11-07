@@ -77,6 +77,12 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
     const up = db.prepare('UPDATE iv_curves SET kind=? WHERE id=?');
     for (const c of cs) up.run(chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`) ? 'check' : null, c.id);
   };
+  // 0.35: lifetime runs (the same pixels scanned over time): the set's kind and run details, each curve's time since the start
+  if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
+    db.exec("ALTER TABLE iv_sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'jv'");
+    db.exec('ALTER TABLE iv_sets ADD COLUMN life TEXT');
+    db.exec('ALTER TABLE iv_curves ADD COLUMN t REAL');
+  }
   if (!(db.prepare('PRAGMA table_info(iv_curves)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
     db.exec('ALTER TABLE iv_curves ADD COLUMN kind TEXT');
     tx(() => {
@@ -113,7 +119,8 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       kind: string | null;
     }[];
     const ms = c.map((x) => ({ ...JSON.parse(x.metrics), use: x.use, kind: x.kind }));
-    const ok = ms.filter((m) => m.status === 'ok' && (m.use === 1 || (m.use === null && m.kind !== 'check')));
+    // counted: ticked in, or working and not a check sweep nor a later reading of a lifetime run (kind set)
+    const ok = ms.filter((m) => m.status === 'ok' && (m.use === 1 || (m.use === null && !m.kind)));
     return {
       id: s.id,
       name: s.name,
@@ -131,6 +138,13 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       devices: JSON.parse(s.devices || '{}'),
       stabilityOf: s.stability_of ?? null,
       measuredAt: when(s),
+      kind: s.kind ?? 'jv',
+      ...(s.kind === 'lifetime' && s.life
+        ? (() => {
+            const l = JSON.parse(s.life);
+            return { life: { run: l.run, start: l.start, points: l.times.length, span: l.times.at(-1) ?? 0 } };
+          })()
+        : {}),
       followUps: (
         db.prepare('SELECT COUNT(*) AS n FROM iv_sets WHERE stability_of=? AND deleted_at IS NULL').get(s.id) as {
           n: number;
@@ -175,8 +189,16 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       inst: c.inst ? JSON.parse(c.inst) : null,
       use: c.use === null ? null : !!c.use,
       kind: c.kind ?? null,
+      t: c.t ?? null,
     }));
-    return { ...summary(s), notes: s.notes, editable: editable(req.user, s), rawLinks: JSON.parse(s.links), curves };
+    return {
+      ...summary(s),
+      notes: s.notes,
+      editable: editable(req.user, s),
+      rawLinks: JSON.parse(s.links),
+      curves,
+      ...(s.life ? { lifeRun: JSON.parse(s.life) } : {}),
+    };
   });
 
   app.post('/api/iv', { preHandler: auth(), bodyLimit: 50 * 1024 * 1024 }, async (req: any, reply) => {
@@ -186,7 +208,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
     const id = tx(() => {
       const r = db
         .prepare(
-          'INSERT INTO iv_sets(owner_id,name,date,system,visibility,links,notes,devices,stability_of,measured_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+          'INSERT INTO iv_sets(owner_id,name,date,system,visibility,links,notes,devices,stability_of,measured_at,kind,life) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
         )
         .run(
           req.user.id,
@@ -198,10 +220,12 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
           d.notes,
           JSON.stringify(d.devices),
           d.stability_of ? baseOf(d.stability_of) : null,
-          d.measured_at ?? null,
+          d.measured_at ?? (d.kind === 'lifetime' && d.life ? new Date(d.life.start).toISOString() : null),
+          d.kind,
+          d.kind === 'lifetime' && d.life ? JSON.stringify(d.life) : null,
         );
       const ins = db.prepare(
-        'INSERT INTO iv_curves(set_id,sample,substrate,scan,pixel,dir,file,area,pin,data,metrics,inst) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO iv_curves(set_id,sample,substrate,scan,pixel,dir,file,area,pin,data,metrics,inst,t) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const c of d.curves) {
         const m = ivMetrics(c.V, c.J, c.pin); // computed here so every client and every import uses the same numbers
@@ -219,9 +243,15 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
           JSON.stringify({ V: c.V, J: c.J }),
           JSON.stringify(mj),
           c.inst ? JSON.stringify(c.inst) : null,
+          c.t ?? null,
         );
       }
       classify(Number(r.lastInsertRowid));
+      // a lifetime run counts its first reading like any measurement; the later readings are the ageing, kept out of statistics
+      if (d.kind === 'lifetime')
+        db.prepare(
+          "UPDATE iv_curves SET kind='life' WHERE set_id=? AND scan > (SELECT MIN(scan) FROM iv_curves WHERE set_id=?)",
+        ).run(r.lastInsertRowid, r.lastInsertRowid);
       return Number(r.lastInsertRowid);
     });
     const record = d.stability_of ? null : checkRecord(id, req.user); // a follow-up of an aged device is no record

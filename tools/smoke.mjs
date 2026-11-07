@@ -372,6 +372,43 @@ console.log('Measurements and comparisons');
     (await call('GET', '/api/trash')).j.items.some((i) => i.kind === 'cmp' && i.id === cmp.j.id),
     'and listed there, to restore',
   );
+
+  // a lifetime run: the same pixel read three times; only the first reading counts (here the later ones are better, so they
+  // would be the best if they were counted)
+  const age = (k) => ({
+    ...curve(cell(0.02, 22 + 4 * k, 'Aged_cell'), String(k + 1).padStart(4, '0'), 'rev'),
+    t: k * 60,
+  });
+  const life = await call('POST', '/api/iv', {
+    name: 'smoke lifetime',
+    date: '2026-11-05',
+    system: 'padrao',
+    visibility: 'shared',
+    kind: 'lifetime',
+    life: {
+      run: 'aged',
+      start: '2026-11-05T19:44:57',
+      settings: { 'Interval (mins)': '1' },
+      times: [0, 60, 120],
+      light: [],
+      sensors: false,
+    },
+    curves: [age(0), age(1), age(2)],
+  });
+  ok(life.s === 200, 'lifetime run imported');
+  const lf = (await call('GET', '/api/iv/' + life.j.id)).j;
+  ok(lf.kind === 'lifetime' && lf.lifeRun?.run === 'aged', 'it is kept as a lifetime run, with its settings');
+  ok(
+    lf.curves.map((c) => [c.t, c.kind ?? null].join()).join(';') === '0,;60,life;120,life',
+    'later readings are marked as ageing, with their times',
+  );
+  ok(Math.abs(lf.best - lf.curves.find((c) => c.t === 0).m.pce) < 1e-9, 'best PCE is the first reading');
+  const lsum = (await call('GET', '/api/iv')).j.find((s) => s.id === life.j.id);
+  ok(
+    lsum?.kind === 'lifetime' && lsum.life?.points === 3 && lsum.life.span === 120,
+    'listed with its readings and span',
+  );
+  ok(lf.measuredAt?.startsWith('2026-11-05'), 'measured when the run started');
 }
 
 console.log('Calendar: shortest booking and cleanup');

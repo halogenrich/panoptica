@@ -3,7 +3,15 @@ import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
 import { DeviceTable, type DeviceMap } from './Devices';
-import { checkSweeps, ivMetrics, parseIvFiles, type IvCurve, type IvFile } from '@psc/core';
+import {
+  checkSweeps,
+  ivMetrics,
+  parseIvFiles,
+  parseLifetime,
+  type IvCurve,
+  type IvFile,
+  type LifetimeRun,
+} from '@psc/core';
 import { api } from '../api';
 import { Modal } from '../lib/ui';
 import { SYSTEM, type Link } from './model';
@@ -60,6 +68,10 @@ type Draft = {
   devices: DeviceMap;
   follow: number | null;
   at: string;
+  /** a lifetime run: its files name no device, so the sample and substrate are asked for */
+  life?: LifetimeRun;
+  sample?: string;
+  substrate?: string;
 };
 
 /** Import: drop the exported files (or a folder / zip) → check what was read → link each sample to a batch or stack → save. */
@@ -102,8 +114,9 @@ export default function ImportIv({
     setErr('');
     try {
       const files = await collect(items),
-        r = parseIvFiles(files);
-      if (!r.curves.length) {
+        r = parseIvFiles(files),
+        runs = parseLifetime(files);
+      if (!r.curves.length && !runs.length) {
         setErr(
           `No J–V curves found in ${files.length} file${files.length === 1 ? '' : 's'}. Supported: the 8-pixel system's "J-V Data.csv" exports and the 1.5 × 2.5 system's "-JV-…-Sun-….txt" files.`,
         );
@@ -129,9 +142,25 @@ export default function ImportIv({
         d.curves.push(c);
         if (!(c.sample in d.links)) d.links[c.sample] = presetLink ?? null;
       }
-      setDrafts([...by.values()]);
+      const lifeDrafts: Draft[] = runs.map((run) => ({
+        key: 'life|' + run.folder + '|' + run.run,
+        system: 'padrao',
+        date: run.date,
+        name: `${fdate(run.date)} · Lifetime · ${run.run.replace(/_/g, ' ')}`,
+        curves: run.curves,
+        links: { [run.run]: presetLink ?? null },
+        devices: {},
+        follow: null,
+        at: run.start.slice(0, 16),
+        life: run,
+        sample: run.run,
+        substrate: '1',
+      }));
+      setDrafts([...lifeDrafts, ...by.values()]);
+      const n = r.curves.length + runs.reduce((a, x) => a + x.curves.length, 0),
+        warn = [...r.warnings, ...runs.flatMap((x) => x.warnings)];
       setInfo(
-        `${r.curves.length} curves from ${files.length} files${r.ignored ? ` (${r.ignored} other files ignored)` : ''}${r.warnings.length ? ` · ${r.warnings.join('; ')}` : ''}`,
+        `${n} curves from ${files.length} files${runs.length ? ` (${runs.length} lifetime run${runs.length > 1 ? 's' : ''})` : ''}${warn.length ? ` · ${warn.join('; ')}` : ''}`,
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -146,6 +175,35 @@ export default function ImportIv({
         o && Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Number.isFinite(v as number) ? v : null]));
       const ids: number[] = [];
       for (const d of drafts!) {
+        if (d.life) {
+          const smp = d.sample?.trim() || d.life.run,
+            sub = d.substrate?.trim() || '1';
+          const r = await api<{ id: number }>('/iv', 'POST', {
+            name: d.name,
+            date: d.date,
+            system: 'padrao',
+            visibility: vis,
+            kind: 'lifetime',
+            links: { [smp]: d.links[d.life.run] ?? null },
+            devices: {},
+            life: {
+              run: d.life.run,
+              start: d.life.start,
+              settings: d.life.settings,
+              times: d.life.times,
+              light: d.life.light,
+              sensors: d.life.sensors,
+            },
+            curves: d.life.curves.map(({ settings: _s, system: _y, date: _d, point: _p, inst, ...c }) => ({
+              ...c,
+              sample: smp,
+              substrate: sub,
+              inst: clean(inst),
+            })),
+          });
+          ids.push(r.id);
+          continue;
+        }
         const r = await api<{ id: number }>('/iv', 'POST', {
           name: d.name,
           date: d.date,
@@ -221,16 +279,21 @@ export default function ImportIv({
               }
             />
             <span className="mut small">
-              8-pixel system (Padrão): the folder with "… J-V Data.csv", "… Metrics.csv" and the Settings folder. 1.5 ×
-              2.5 system: the day folder with "…-JV-Backward-Sun-A1.txt" and "…-Parameters.txt".
+              8-pixel system (Padrão): the folder with "… J-V Data.csv", "… Metrics.csv" and the Settings folder, or a
+              lifetime run's folder (its "J-V Data" and Settings folders). 1.5 × 2.5 system: the day folder with
+              "…-JV-Backward-Sun-A1.txt" and "…-Parameters.txt".
             </span>
           </div>
         ) : (
           <div className="import">
             <p className="mut small">{info}</p>
-            {drafts.map((d) => (
-              <DraftCard key={d.key} d={d} targets={targets} up={(p) => up(d.key, p)} />
-            ))}
+            {drafts.map((d) =>
+              d.life ? (
+                <LifeCard key={d.key} d={d} targets={targets} up={(p) => up(d.key, p)} />
+              ) : (
+                <DraftCard key={d.key} d={d} targets={targets} up={(p) => up(d.key, p)} />
+              ),
+            )}
           </div>
         )}
         {err && <p className="err">{err}</p>}
@@ -427,6 +490,83 @@ function DraftCard({
           }}
         />
       </details>
+    </section>
+  );
+}
+
+type Targets = {
+  batches: LinkTargets['batches'];
+  stacks: { id: number; name: string }[];
+  sets: { id: number; name: string; stabilityOf: number | null }[];
+};
+/** A lifetime run: what was read, and which device it is (the files name only the run). */
+function LifeCard({ d, targets, up }: { d: Draft; targets: Targets; up: (p: Partial<Draft>) => void }) {
+  const run = d.life!;
+  const first = useMemo(
+    () =>
+      run.curves
+        .filter((c) => c.point === 1)
+        .map((c) => ivMetrics(c.V, c.J, c.pin))
+        .filter((m) => m.status === 'ok'),
+    [run],
+  );
+  const pixels = new Set(run.curves.map((c) => c.pixel)).size,
+    span = run.times.at(-1) ?? 0,
+    mins = span / 60;
+  return (
+    <section className="group">
+      <div className="inline">
+        <input
+          className="title-input"
+          value={d.name}
+          aria-label="Name"
+          onChange={(e) => up({ name: e.target.value })}
+        />
+        <span className="mut small">Lifetime run · {SYSTEM.padrao}</span>
+      </div>
+      <p className="small">
+        <b>{run.run.replace(/_/g, ' ')}</b>: {run.points} readings of {pixels} pixel{pixels === 1 ? '' : 's'} over{' '}
+        {mins < 180 ? `${mins.toFixed(1)} min` : `${(span / 3600).toFixed(1)} h`}, started{' '}
+        {new Date(run.start).toLocaleString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+        ; {run.area ? `${run.area} cm² pixels, ` : ''}
+        {run.pin} mW/cm². Best PCE at the first reading:{' '}
+        {first.length ? `${Math.max(...first.map((m) => m.pce)).toFixed(2)} %` : '—'}.{' '}
+        {!run.sensors && (
+          <span className="mut">
+            The light and temperature sensors were not connected; their readings are left out.
+          </span>
+        )}
+      </p>
+      <div className="life-dev">
+        <label className="fld">
+          <span>Sample</span>
+          <input value={d.sample ?? ''} placeholder={run.run} onChange={(e) => up({ sample: e.target.value })} />
+        </label>
+        <label className="fld">
+          <span>Substrate</span>
+          <input value={d.substrate ?? ''} placeholder="1" onChange={(e) => up({ substrate: e.target.value })} />
+        </label>
+        <label className="fld">
+          <span>Is in the app as</span>
+          <select
+            value={linkVal(d.links[run.run] ?? null)}
+            onChange={(e) => up({ links: { [run.run]: parseLink(e.target.value) } })}
+          >
+            <option value="">Not linked</option>
+            <LinkOptions t={targets} />
+          </select>
+        </label>
+      </div>
+      <p className="mut small">
+        The lifetime files do not name the device: give the sample and substrate as in your other measurements, so the
+        first reading joins the statistics of its batch. The later readings are the ageing and stay out of them.
+      </p>
     </section>
   );
 }
