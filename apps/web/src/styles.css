@@ -7298,3 +7298,23 @@ body.dragging-block * {
   font-weight: 600;
   background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
+
+/* 0.35: lifetime runs */
+.life-dev {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1.4fr);
+  gap: 12px;
+  margin: 6px 0 4px;
+}
+.batch-name.iv-name {
+  width: min(460px, 100%);
+}
+.life-run {
+  margin: 0 0 10px;
+  max-width: 80ch;
+}
+@media (max-width: 760px) {
+  .life-dev {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

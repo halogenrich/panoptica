@@ -202,6 +202,8 @@ export const IvCurveIn = z.object({
   V: z.array(z.number()).min(3).max(20000),
   J: z.array(z.number()).min(3).max(20000),
   inst: z.record(z.string(), z.number().nullable()).optional(),
+  /** Lifetime runs: seconds since the start of the run. */
+  t: z.number().min(0).max(1e8).optional(),
 });
 /** Per device ("sample|substrate"): its device group for comparisons (`g`) and whether it is left out of the plots (`off`). */
 export const IvDevice = z.object({ g: z.string().max(80).optional(), off: z.boolean().optional() });
@@ -221,7 +223,20 @@ export const IvSetIn = z.object({
     .transform((v) => new Date(v).toISOString())
     .nullable()
     .optional(),
-  curves: z.array(IvCurveIn).min(1).max(5000),
+  /** A lifetime run (the same pixels scanned over time) or an ordinary J–V measurement. */
+  kind: z.enum(['jv', 'lifetime']).default('jv'),
+  /** Lifetime runs: the run's name and settings, and light/temperature readings when those sensors were connected. */
+  life: z
+    .object({
+      run: z.string().max(160),
+      start: z.string().max(30),
+      settings: z.record(z.string(), z.string().max(400)),
+      times: z.array(z.number()).max(20000),
+      light: z.array(z.object({ t: z.number(), photodiode: z.number(), temp: z.number() })).max(20000),
+      sensors: z.boolean(),
+    })
+    .optional(),
+  curves: z.array(IvCurveIn).min(1).max(60000),
 });
 export const IvSetPatch = z.object({
   name: z.string().min(1).max(160).optional(),

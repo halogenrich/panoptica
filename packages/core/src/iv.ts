@@ -474,12 +474,35 @@ function readSun(files: IvFile[], warn: string[]): IvCurve[] {
 /** Reads every supported export among the given files (other files are ignored). */
 export function parseIvFiles(files: IvFile[]): { curves: IvCurve[]; warnings: string[]; ignored: number } {
   const warnings: string[] = [],
-    useful = files.filter((f) => !/(^|[\\/])(__MACOSX|\._)/.test(f.name) && !/^\._/.test(base(f.name)));
+    useful = files.filter(
+      (f) => !/(^|[\\/])(__MACOSX|\._)/.test(f.name) && !/^\._/.test(base(f.name)) && !LIFE_JV.test(base(f.name)), // lifetime runs: parseLifetime
+    );
   const curves = [...readPadrao(useful, warnings), ...readSun(useful, warnings)];
   const used = useful.filter(
     (f) => PADRAO.test(base(f.name)) || SUN.test(base(f.name)) || SUN_PARAMS.test(base(f.name)),
   ).length;
   return { curves, warnings, ignored: files.length - used };
+}
+
+/**
+ * A J–V curve whose parameters are ambiguous: between 0 V and the highest voltage the photocurrent changes sign more than once
+ * (it reverses and recovers, as in forward scans of a degrading or charging device), so there are two candidate Voc values and
+ * the parameters depend on which one is taken. Sign changes smaller than 0.5 mA/cm² are ignored as noise. Expects the
+ * photocurrent positive (as `orient` leaves it).
+ */
+export function curveDistorted(V: number[], J: number[]): boolean {
+  const pts = V.map((v, i) => [v, J[i]] as const)
+    .filter(([v, j]) => v >= 0 && Number.isFinite(j))
+    .sort((a, b) => a[0] - b[0]);
+  let sign = 0,
+    flips = 0;
+  for (const [, j] of pts) {
+    if (Math.abs(j) < 0.5) continue;
+    const s = Math.sign(j);
+    if (sign && s !== sign) flips++;
+    sign = s;
+  }
+  return flips > 1;
 }
 
 /**
@@ -496,4 +519,182 @@ export function tFraction(points: { t: number; v: number }[], f: number): number
     return a.v === b.v ? b.t : a.t + ((a.v - f) / (a.v - b.v)) * (b.t - a.t);
   }
   return null;
+}
+
+// ------------------------------------------------------------------ lifetime runs (8-pixel system)
+/**
+ * The Ossila software's lifetime test: the same pixels scanned again and again (held at maximum power in between), one export
+ * folder per run:
+ *  - `Settings/<run> Lifetime Settings.csv`: area, illumination, pixels, duration, interval, hold voltage;
+ *  - `J-V Data/<yy-mm-dd_hh-mm-ss> J-V Data.csv`: every pixel's forward and reverse scan at that moment (A/cm²);
+ *  - `<run> Pixel <n>[ Reverse].csv`: the software's own values per scan, with the time in seconds since the start;
+ *  - `<run> Light Temperature Data.csv`: photodiode current and temperature, when those sensors are connected.
+ * A run started again in the same folder writes "(2)" copies; the copy whose scans match the J–V files is used. Each time point
+ * becomes a scan ("0001", "0002", …) of the same pixels with `t`, its time in seconds since the start.
+ */
+const LIFE_JV = /^(\d{2})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2}) J-V Data\.csv$/i;
+const LIFE_SET = /^(.+) Lifetime Settings(?: \((\d+)\))?\.csv$/i;
+const LIFE_PX = /^(.+) Pixel (\w+)( Reverse)?(?: \((\d+)\))?\.csv$/i;
+const LIFE_LIGHT = /^(.+) Light Temperature Data(?: \((\d+)\))?\.csv$/i;
+
+export type LifeCurve = IvCurve & { t: number; point: number };
+export interface LifetimeRun {
+  /** run name given in the software ("fulerenol_lifetime") */
+  run: string;
+  folder: string;
+  date: string; // yyyy-mm-dd
+  start: string; // local date and time of the first scan, yyyy-mm-ddThh:mm:ss
+  settings: Record<string, string>;
+  area: number;
+  pin: number;
+  points: number;
+  /** seconds since the start of each time point (its first scan) */
+  times: number[];
+  curves: LifeCurve[];
+  /** light and temperature readings, empty when the sensors were not connected */
+  light: { t: number; photodiode: number; temp: number }[];
+  sensors: boolean;
+  warnings: string[];
+}
+
+const dirOf = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
+const verOf = (v: string | undefined) => (v ? +v : 1);
+
+export function parseLifetime(files: IvFile[]): LifetimeRun[] {
+  const runs: LifetimeRun[] = [];
+  const settingsFiles = files.filter((f) => LIFE_SET.test(base(f.name)));
+  for (const sf of settingsFiles) {
+    const run = LIFE_SET.exec(base(sf.name))![1];
+    const sdir = dirOf(sf.name),
+      folder = /[\\/]?Settings$/i.test(sdir) ? sdir.replace(/[\\/]?Settings$/i, '') : sdir;
+    if (runs.some((r) => r.folder === folder)) continue; // one run per folder (its "(2)" copies are versions)
+    const inFolder = files.filter((f) => f.name === base(f.name) || f.name.startsWith(folder));
+    const jv = inFolder
+      .filter((f) => LIFE_JV.test(base(f.name)))
+      .map((f) => {
+        const m = LIFE_JV.exec(base(f.name))!;
+        const at = `20${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+        return { f, at, ms: Date.parse(at + 'Z') };
+      })
+      .sort((a, b) => a.ms - b.ms);
+    if (!jv.length) continue;
+    // the software's per-scan values, by version; the version with as many rows as there are J–V files belongs to them
+    const summary = new Map<number, Map<string, number[][]>>();
+    for (const f of inFolder) {
+      const m = LIFE_PX.exec(base(f.name));
+      if (!m || m[1] !== run) continue;
+      const v = verOf(m[4]),
+        key = `${m[2]}|${m[3] ? 'rev' : 'fwd'}`;
+      const rows = csvRows(f.text)
+        .slice(1)
+        .map((r) => r.map(num));
+      if (!summary.has(v)) summary.set(v, new Map());
+      summary.get(v)!.set(key, rows);
+    }
+    const vers = [...summary.entries()].map(([v, m]) => ({
+      v,
+      n: Math.max(0, ...[...m.values()].map((r) => r.length)),
+    }));
+    const pick = vers.find((x) => x.n === jv.length) ?? vers.sort((a, b) => b.n - a.n)[0];
+    const sum = pick ? summary.get(pick.v)! : new Map<string, number[][]>();
+    const setFile =
+      inFolder.find((f) => LIFE_SET.test(base(f.name)) && verOf(LIFE_SET.exec(base(f.name))![2]) === (pick?.v ?? 1)) ??
+      sf;
+    const settings = Object.fromEntries(csvRows(setFile.text).map((r) => [r[0], r.slice(1).join(',')]));
+    const area = num(settings['Pixel Area (cm^2)']) || 0,
+      pin = num(settings['Illumination (mW/cm^-2)']) || num(settings['Illumination (mW/cm^2)']) || 100;
+    const warnings: string[] = [];
+    if (pick && pick.n !== jv.length)
+      warnings.push(
+        `${run}: ${jv.length} J–V files but ${pick.n} rows in the software's own values; times are taken from the file names`,
+      );
+    const exact = !!pick && pick.n === jv.length;
+    const curves: LifeCurve[] = [];
+    const times: number[] = [];
+    let dropped = 0;
+    jv.forEach(({ f, ms }, k) => {
+      const rows = csvRows(f.text),
+        head = rows[0] ?? [],
+        units = rows[1] ?? [];
+      const group: LifeCurve[] = [];
+      for (let c = 0; c + 1 < head.length; c += 2) {
+        const pm = /Pixel\s*(\w+)(\s+Reverse)?/i.exec(head[c].trim());
+        if (!pm) continue;
+        const scale = /mA/.test(units[c + 1] ?? '') ? 1 : 1000;
+        const V: number[] = [],
+          J: number[] = [];
+        for (const r of rows.slice(2)) {
+          const v = num(r[c]),
+            j = num(r[c + 1]);
+          // a current of exactly 0 is a reading the instrument missed (it writes 0.0), not a measured value
+          if (j === 0) dropped++;
+          else if (Number.isFinite(v) && Number.isFinite(j)) {
+            V.push(v);
+            J.push(j * scale);
+          }
+        }
+        if (V.length < 3) continue;
+        const dir: Dir = pm[2] ? 'rev' : 'fwd',
+          row = sum.get(`${pm[1]}|${dir}`)?.[k];
+        const t = exact && row && Number.isFinite(row[0]) ? row[0] : (ms - jv[0].ms) / 1000;
+        group.push({
+          file: f.name,
+          system: 'padrao',
+          date: jv[0].at.slice(0, 10),
+          sample: run,
+          substrate: '1',
+          scan: String(k + 1).padStart(4, '0'),
+          pixel: pm[1],
+          dir,
+          area,
+          pin,
+          V,
+          J,
+          inst:
+            exact && row
+              ? {
+                  pce: row[1],
+                  ff: row[2],
+                  jsc: Number.isFinite(row[3]) ? Math.abs(row[3] * 1000) : undefined,
+                  voc: row[4],
+                }
+              : undefined,
+          settings,
+          t,
+          point: k + 1,
+        });
+      }
+      orient(group);
+      curves.push(...group);
+      times.push(group.length ? Math.min(...group.map((c) => c.t)) : (ms - jv[0].ms) / 1000);
+    });
+    if (dropped)
+      warnings.push(
+        `${run}: ${dropped} J–V point${dropped === 1 ? '' : 's'} with a current of exactly 0 (readings the instrument missed) left out`,
+      );
+    // light and temperature: kept only when the sensors were connected (unconnected, the software reports about −273 °C)
+    const lf = inFolder.find(
+      (f) => LIFE_LIGHT.test(base(f.name)) && verOf(LIFE_LIGHT.exec(base(f.name))![2]) === (pick?.v ?? 1),
+    );
+    const light = (lf ? csvRows(lf.text).slice(1) : [])
+      .map((r) => ({ t: num(r[0]), photodiode: num(r[1]), temp: num(r[2]) }))
+      .filter((x) => Number.isFinite(x.t));
+    const sensors = light.length > 0 && light.some((x) => x.temp > -100);
+    runs.push({
+      run,
+      folder,
+      date: jv[0].at.slice(0, 10),
+      start: jv[0].at,
+      settings,
+      area,
+      pin,
+      points: jv.length,
+      times,
+      curves,
+      light: sensors ? light : [],
+      sensors,
+      warnings,
+    });
+  }
+  return runs;
 }

@@ -36,6 +36,7 @@ import {
 import { SampleMaps } from './SubstrateMap';
 import { CompareCtx, ComparePanel, useCompare } from './Compare';
 import Stability from './Stability';
+import Lifetime from './Lifetime';
 import { DeviceTable, devKey } from './Devices';
 
 const fdate = (d: string) =>
@@ -147,6 +148,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                   <td className="num">{r.substrates}</td>
                   <td className="num">{r.working}</td>
                   <td>
+                    {r.kind === 'lifetime' && <Badge tone="ac">Lifetime</Badge>}{' '}
                     {r.stabilityOf ? (
                       <Badge tone="warn">Stability follow-up</Badge>
                     ) : r.followUps ? (
@@ -177,8 +179,19 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                   {r.samples.map((s) => r.links[s]?.label ?? s.replace(/_/g, ' ')).join(' · ')}
                 </div>
                 <div className="pcard-meta">
-                  <span>{r.substrates} substrates</span>
-                  <span>{r.working} working curves</span>
+                  {r.kind === 'lifetime' && r.life ? (
+                    <span>
+                      Lifetime, {r.life.points} readings over{' '}
+                      {r.life.span < 10800
+                        ? `${Math.round(r.life.span / 60)} min`
+                        : `${(r.life.span / 3600).toFixed(1)} h`}
+                    </span>
+                  ) : (
+                    <>
+                      <span>{r.substrates} substrates</span>
+                      <span>{r.working} working curves</span>
+                    </>
+                  )}
                   {r.stabilityOf ? (
                     <Badge tone="warn">Stability follow-up</Badge>
                   ) : r.followUps ? (
@@ -231,7 +244,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
   useItemRoute('iv', id);
   const [s, setS] = useState<IvSetFull | null>(null),
     [msg, setMsg] = useState(''),
-    [tab, setTab] = useState<'cells' | 'stats' | 'stability'>('cells');
+    [tab, setTab] = useState<'life' | 'cells' | 'stats' | 'stability'>('cells');
   const cmp = useCompare(),
     [others, setOthers] = useState<IvSet[]>([]);
   useEffect(() => {
@@ -244,7 +257,10 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
   const load = () =>
     api<IvSetFull>('/iv/' + id)
       .then((x) => {
-        setS(x);
+        setS((o) => {
+          if (!o && x.kind === 'lifetime') setTab('life'); // a lifetime run opens on its time plot
+          return x;
+        });
         if (!x.curves.some((c) => c.dir === 'rev')) setDir('fwd');
       })
       .catch((e) => setMsg(e.message));
@@ -257,6 +273,9 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
       .then(load)
       .catch((e) => setMsg(e.message));
   const onCurve = (c: Curve) => setS({ ...s, curves: s.curves.map((x) => (x.id === c.id ? c : x)) });
+  // cells and statistics of a lifetime run show its first reading (the later ones are under Lifetime)
+  const life = s.kind === 'lifetime',
+    sv = life ? { ...s, curves: s.curves.filter((c) => c.kind !== 'life') } : s;
   return (
     <div className="batch iv">
       <div className="batch-head">
@@ -300,8 +319,8 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         )}
       </div>
       <p className="mut small">
-        {SYSTEM[s.system]} · measured {fdate(s.date)} · {s.substrates} substrates · {s.curves.length} curves · imported
-        by {s.owner} {fmtDate(s.created_at)}
+        {SYSTEM[s.system]} · {life ? 'lifetime run' : 'measured'} {fdate(s.date)} · {s.substrates} substrate
+        {s.substrates === 1 ? '' : 's'} · {s.curves.length} curves · imported by {s.owner} {fmtDate(s.created_at)}
         {msg ? ` · ${msg}` : ''}
       </p>
       <details className="devices-box stab-box">
@@ -373,7 +392,8 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
           on={setTab}
           small
           opts={[
-            ['cells', 'Cells'],
+            ...(life ? [['life', 'Lifetime'] as ['life', string]] : []),
+            ['cells', life ? 'Cells (first reading)' : 'Cells'],
             ['stats', 'Statistics'],
             ...(s.stabilityOf || s.followUps ? [['stability', 'Stability'] as ['stability', string]] : []),
           ]}
@@ -407,10 +427,12 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         />
       )}
       <CompareCtx.Provider value={cmp.value}>
-        {tab === 'stability' ? (
+        {tab === 'life' ? (
+          <Lifetime s={s} />
+        ) : tab === 'stability' ? (
           <Stability setId={s.id} />
         ) : tab === 'stats' ? (
-          <StatsFor sets={[s]} />
+          <StatsFor sets={[sv]} />
         ) : (
           s.samples.map((sample) => (
             <section key={sample} className="sample">
@@ -459,7 +481,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
                   }}
                 />
               </details>
-              <SampleMaps set={s} sample={sample} link={s.links[sample] ?? null} dir={dir} onCurve={onCurve} />
+              <SampleMaps set={sv} sample={sample} link={s.links[sample] ?? null} dir={dir} onCurve={onCurve} />
             </section>
           ))
         )}

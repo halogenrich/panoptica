@@ -142,6 +142,14 @@ On a measurement's Cells tab, **Shift-click** pixels on any substrate or sample 
 
 Measure the same devices again later and mark the new measurement as a follow-up: tick **Stability test** when importing and choose the first measurement of the series (or set it afterwards under **Stability test** on the measurement), with the date and time it was measured. Pixels are matched by sample, substrate and pixel. Follow-ups are kept out of the statistics and the lab records. The **Stability** tab (on the first measurement and on each follow-up) plots PCE, Voc, Jsc or FF against time since the first reading, normalised to it or in absolute values, for the best pixel of each device or every pixel; the table gives the first and latest values, the ratio, and T90 and T80 interpolated between the readings around the fall. Export as PNG, SVG or CSV.
 
+## Lifetime runs
+
+The 8-pixel system's lifetime test scans the chosen pixels again and again, holding them at maximum power (or a set voltage) in between. Import the run's folder (or a .zip of it) like any measurement: the app finds the J–V Data and Settings folders, uses the copy of the run whose files match (an aborted first attempt leaves header-only files), and shows the run before saving: readings, pixels, length, pixel area, intensity and the best first reading. The files do not name the device, so give the sample and substrate as in your other measurements, or link it to a batch. Light and temperature readings are kept only when those sensors were connected. Points the instrument missed (a current of exactly 0) are left out.
+
+The first reading counts in the statistics like any measurement; the later ones are the ageing and stay out of them. The **Lifetime** tab plots PCE, Voc, Jsc, FF, Rs or Rsh of every pixel against time (backward, forward or both scans), normalised to the first reading or in absolute values, with T90 and T80 lines; the table gives the first and latest values, the ratio, T90 and T80. Below, one pixel's J–V curves over the run, light (first) to dark (last). Export the figures as PNG or SVG and every reading as CSV (with the instrument software's own PCE for comparison).
+
+Readings whose J–V curve crosses zero twice (the current reverses and recovers before Voc, often in forward scans of a degrading cell) are drawn as hollow points and left out of T90, T80 and the latest value: the app reads such a curve up to its first crossing and the instrument software to its last, so their values can differ a lot. An FF above 100 % means the current near Voc rose above Jsc during the scan, a transient after the hold at maximum power.
+
 ## Comments and reactions
 
 React to a comment with any emoji: **+** under the comment opens the emoji keyboard (search, categories, skin tones). Click a reaction to add or remove yours.
