@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.35.0 (2026-11-07)
+
+- **Lifetime runs** of the 8-pixel system (Ossila lifetime test): import the run's folder or .zip like any measurement. The app picks the copy of the run whose files match (an aborted attempt leaves header-only files), shows the run before saving and asks for the sample and substrate, which the files do not name. The first reading counts in the statistics; the later ones are the ageing and stay out of them. The **Lifetime** tab plots PCE, Voc, Jsc, FF, Rs or Rsh of every pixel against time (backward, forward or both), normalised or absolute, with T90 and T80; a table with first and latest values, ratio, T90 and T80; one pixel's J–V curves over the run from light to dark; PNG, SVG and a CSV of every reading with the instrument software's PCE alongside. Light and temperature readings are kept when those sensors were connected. A run that stopped before its planned length says so.
+- Readings whose J–V curve crosses zero twice are drawn hollow and left out of T90, T80 and the latest value, with a note on why the instrument software's value differs. Points with a current of exactly 0 (readings the instrument missed) are left out on import.
+- Data package: J–V curves of lifetime runs carry their time (`time_s`).
+
 ## 0.34.1 (2026-11-06)
 
 - **Toggles** you can pick several of (parameters to plot, ions, solution type, tags): plain text without a grey track, a light highlight on hover, filled in the accent colour with white text when picked.

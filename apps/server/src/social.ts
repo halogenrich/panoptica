@@ -24,7 +24,7 @@ export function checkRecord(setId: number, by: U) {
       db
         .prepare(
           `SELECT MAX(json_extract(c.metrics,'$.pce')) AS p FROM iv_curves c JOIN iv_sets s ON s.id=c.set_id
-    WHERE json_extract(c.metrics,'$.status')='ok' AND (c.use=1 OR (c.use IS NULL AND (c.kind IS NULL OR c.kind<>'check'))) AND s.deleted_at IS NULL AND s.stability_of IS NULL AND s.system=? AND ${where}`,
+    WHERE json_extract(c.metrics,'$.status')='ok' AND (c.use=1 OR (c.use IS NULL AND c.kind IS NULL)) AND s.deleted_at IS NULL AND s.stability_of IS NULL AND s.system=? AND ${where}`,
         )
         .get(s.system, ...args) as { p: number | null }
     ).p;
