@@ -4,6 +4,43 @@ import { tx } from './db.js';
 import { db } from './db.js';
 import { notify } from './social.js';
 import { lockedById, markDone } from './batchlock.js';
+import { withinHours } from '@psc/core';
+import { lab } from './lab.js';
+
+/** dd/mm HH:MM, in the lab's (this computer's) time. */
+const dm = (iso: string) => {
+  const d = new Date(iso),
+    z = (n: number) => String(n).padStart(2, '0');
+  return `${z(d.getDate())}/${z(d.getMonth() + 1)} ${z(d.getHours())}:${z(d.getMinutes())}`;
+};
+/**
+ * Bookings outside the lab's working days and hours are allowed, and the admins are told (0.36). A move only tells them when
+ * the booking was inside the hours before.
+ */
+function offHours(
+  by: { id: number; name: string },
+  d: { equipment_id: number; batch_id: number; start: string; end: string },
+  was?: { start: string; end: string },
+) {
+  const h = lab().hours,
+    out = !withinHours(h, new Date(d.start), new Date(d.end));
+  if (!out || (was && !withinHours(h, new Date(was.start), new Date(was.end)))) return out;
+  const eq = db.prepare('SELECT name FROM equipment WHERE id=?').get(d.equipment_id) as { name: string } | undefined,
+    b = db.prepare('SELECT code FROM batches WHERE id=?').get(d.batch_id) as { code: string } | undefined;
+  const ids = (
+    db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0 AND id<>?").all(by.id) as {
+      id: number;
+    }[]
+  ).map((r) => r.id);
+  notify(
+    ids,
+    'hours',
+    `${by.name} booked ${eq?.name ?? 'equipment'} outside working hours: ${dm(d.start)}–${dm(d.end).slice(6)}${b ? ` (batch ${b.code})` : ''}`,
+    { view: 'calendar', id: 0 },
+    by.name,
+  );
+  return out;
+}
 
 /**
  * Equipment calendar. Every booking belongs to one of the user's Planned (or already Running) batches; when the first booked step of a batch starts,
@@ -326,7 +363,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         .lastInsertRowid,
     );
     startDueBatches();
-    return { id };
+    return { id, offHours: offHours(req.user, d) };
   });
   app.put('/api/bookings/:id', { preHandler: auth() }, async (req: any, reply) => {
     const k = db.prepare('SELECT * FROM bookings WHERE id=?').get(+req.params.id) as any;
@@ -351,7 +388,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       k.id,
     );
     startDueBatches();
-    return { ok: true };
+    return { ok: true, offHours: offHours(req.user, d, k) };
   });
   app.delete('/api/bookings/:id', { preHandler: auth() }, async (req: any, reply) => {
     const k = db.prepare('SELECT user_id,batch_id FROM bookings WHERE id=?').get(+req.params.id) as any;

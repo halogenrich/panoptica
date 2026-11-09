@@ -1,6 +1,6 @@
-# Perovskite Lab
+# PANOPTICA
 
-Internal web app to plan and record perovskite solar cell fabrication: substrate and mask designs, recipes, device stacks with a 3D view, batches, run data and electric (J–V) measurements (import, per-pixel curves, statistics). How to use it: [docs/user-guide.md](docs/user-guide.md) (also under **Help** in the app).
+The lab's system (called Perovskite Lab before 0.36). An internal web app to plan and record perovskite solar cell fabrication: substrate and mask designs, recipes, device stacks with a 3D view, batches, run data and electric (J–V) measurements (import, per-pixel curves, statistics). How to use it: [docs/user-guide.md](docs/user-guide.md) (also under **Help** in the app).
 
 This file is for whoever runs the app on the lab PC.
 
@@ -29,9 +29,9 @@ On macOS, if a `.command` file will not open: run `chmod +x *.command` once in T
    - Fedora 41 or newer: `sudo dnf install nodejs npm`
    - Fedora 40: `sudo dnf install nodejs22 nodejs22-npm`
 
-2. Unzip `perovskite-lab.zip` somewhere in your home folder, e.g. `~/perovskite-lab`.
+2. Unzip `panoptica.zip` somewhere in your home folder, e.g. `~/panoptica`.
 3. In a terminal in that folder: `./start.sh`. The first run installs and builds (a few minutes); the browser opens http://localhost:3000. Ctrl+C stops it.
-4. Optional: `./install-shortcut.sh` adds **Perovskite Lab** and **Perovskite Lab (network)** to the app menu (Super key, type "Perovskite"); they open a terminal window that runs the app.
+4. Optional: `./install-shortcut.sh` adds **PANOPTICA** and **PANOPTICA (network)** to the app menu (Super key, type "PANOPTICA"); they open a terminal window that runs the app.
 
 **Run as a lab server** (no window to keep open, starts with the computer): `./install-shortcut.sh --service`, or `./install-shortcut.sh --service lan` to serve the network. It installs a systemd user service:
 
@@ -48,7 +48,9 @@ To start at boot without anyone logging in, the script runs `loginctl enable-lin
 
 Double-click the start script (Linux: run `./start.sh` in a terminal). The first run installs dependencies and builds the web app (a few minutes, needs internet); later runs start in seconds. The browser opens http://localhost:3000. Closing the window stops the app.
 
-The first start creates the user **admin** and prints a temporary password once in the window; at the first sign-in the app asks for a new one. Other users are created in the app under **Admin settings › Users** with a temporary password that they replace at their first sign-in. To choose the first admin password instead, set `ADMIN_PASSWORD` before the first start.
+**First setup**: on a new install, open http://localhost:3000 **on the computer that runs the app** (the start script opens it). A few screens create the first admin (you) and set up the lab: its name, institution, the email domains that may ask for access, departments, the sign-in screen's picture and logo, and the working days and hours. Other computers see "Not set up yet" until then. All of it can be changed later in **Admin settings › Lab setup**.
+
+**People**: everyone asks for access from the sign-in screen (**Request access**: name, institutional email, birth date, department, supervisor, photo). Admins are notified and accept or decline under **Admin settings › Access requests**. No email is sent: at the first sign-in the person types the username, leaves the password empty, confirms the email and birth date, and chooses a password (8 or more characters with an upper case letter, a number and a special character; accented letters are fine). Admins create accounts themselves only for visitors, with the last day of the visit. **Reset password** works the same way. (For automated installs, `ADMIN_PASSWORD` before the first start still creates an `admin` user and skips the setup.)
 
 Start automatically at login (Windows): Win+R › `shell:startup` › put a shortcut to `start.bat` there. Linux: see *Run as a lab server* above.
 
@@ -71,7 +73,7 @@ Admin settings › Security shows whether the connection is encrypted. Details f
 
 **From the app** (0.26 and later): releases are published on GitHub ([halogenrich/panoptica](https://github.com/halogenrich/panoptica/releases)). The app checks once a day and notifies admins. In **Admin settings › Updates**: **Download** (the file is checked against its SHA-256), then **Install now**: the app backs up the database, stops, the update script replaces the program files (never the data) and starts the app again; the page reloads by itself. Each step is written to `updates/update.log` and shown under Updates. The repository is public, so no token is needed. (If it is made private, the app needs a read-only token once: the Updates tab explains how to make it; it is kept in `config/update.json` on this computer only.)
 
-**By hand**: download `perovskite-lab.zip` from the release (or use the one the app downloaded into `updates/`), close the app window and run the update script (Linux: `./update.sh`). It takes the newest `perovskite-lab*.zip` in `updates/` or Downloads (or a path given as argument), backs up the database, copies the new files over the old ones (your data stays), reinstalls and rebuilds only if the files actually changed (compared by content), and starts the app. The version shows in the profile menu and with the version script.
+**By hand**: download `panoptica.zip` from the release (or use the one the app downloaded into `updates/`), close the app window and run the update script (Linux: `./update.sh`). It takes the newest `panoptica*.zip` (or `perovskite-lab*.zip`) in `updates/` or Downloads (or a path given as argument), backs up the database, copies the new files over the old ones (your data stays), reinstalls and rebuilds only if the files actually changed (compared by content), and starts the app. The version shows in the profile menu and with the version script.
 
 ## Backups
 
@@ -122,6 +124,6 @@ npm run lint     # ESLint
 npm run check    # format check + lint + typecheck + unit tests + server security checks + production build
 ```
 
-GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `perovskite-lab.zip` and its SHA-256 and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.
+GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `panoptica.zip` and its SHA-256 (plus `perovskite-lab.zip` for installs from before 0.36) and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.
 
 Environment variables: `PORT` (3000), `HOST` (127.0.0.1), `DB_PATH` (apps/server/data.db), `BACKUP_DIR` (backups), `CONFIG_DIR` (config), `ADMIN_USER` / `ADMIN_PASSWORD` (first start only), `SECURE_COOKIES=1` and `TRUST_PROXY=1` behind an HTTPS proxy, `TLS_CERT` / `TLS_KEY` for HTTPS in the app, `UPDATE_REPO` (halogenrich/panoptica).

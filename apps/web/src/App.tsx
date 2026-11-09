@@ -1,12 +1,26 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
-import { MeCtx, PrefCtx, type Me, type Prefs } from './ctx';
+import { LabCtx, MeCtx, PrefCtx, brandText, type LabPublic, type Me, type Prefs } from './ctx';
 import Shell from './Shell';
 import { live, stopLive } from './lib/live';
+import Login from './start/Login';
+import Setup, { SetupElsewhere } from './start/Setup';
+import { PasswordRules, passwordOk } from './start/parts';
 
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined),
+    [lab, setLab] = useState<LabPublic | null>(null),
     [prefs, setPrefs] = useState<Prefs>({ theme: 'system', vis: 'shared' });
+  const loadLab = () =>
+    api<LabPublic>('/lab/public')
+      .then(setLab)
+      .catch(() => {});
+  useEffect(() => {
+    loadLab();
+  }, []);
+  useEffect(() => {
+    document.title = brandText(lab);
+  }, [lab?.name]);
   const loadPrefs = () =>
     api<Partial<Prefs>>('/prefs')
       .then((p) => setPrefs((x) => ({ ...x, ...p })))
@@ -32,76 +46,42 @@ export default function App() {
     setPrefs((x) => ({ ...x, ...p }));
     api('/prefs', 'PUT', p).catch(() => {});
   };
-  if (me === undefined) return null;
-  return (
-    <PrefCtx.Provider value={{ prefs, set }}>
-      {me && me.mustChange ? (
-        <NewPassword
-          me={me}
-          onDone={() => setMe({ ...me, mustChange: 0 })}
-          onLogout={() => api('/logout', 'POST').finally(() => setMe(null))}
-        />
-      ) : me ? (
-        <MeCtx.Provider
-          value={{
-            me,
-            reload: () =>
-              api<Me>('/me')
-                .then(setMe)
-                .catch(() => {}),
-          }}
-        >
-          <Shell me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
-        </MeCtx.Provider>
-      ) : (
-        <Login
-          onLogin={async (m) => {
-            await loadPrefs();
-            setMe(await api<Me>('/me').catch(() => m)); /* the full profile: tags, photo */
-          }}
-        />
-      )}
-    </PrefCtx.Provider>
-  );
-}
-
-function Login({ onLogin }: { onLogin: (m: Me) => void }) {
-  const [u, setU] = useState(''),
-    [p, setP] = useState(''),
-    [err, setErr] = useState('');
-  const go = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      onLogin(await api<Me>('/login', 'POST', { username: u, password: p }));
-    } catch (x) {
-      setErr((x as Error).message);
-    }
+  if (me === undefined || !lab) return null;
+  const signedIn2 = async () => {
+    await loadPrefs();
+    loadLab();
+    setMe(await api<Me>('/me').catch(() => null)); /* the full profile: tags, photo */
   };
   return (
-    <main className="login">
-      <form className="card" onSubmit={go}>
-        <h1>Perovskite Lab</h1>
-        <p className="mut">Sign in to continue</p>
-        <input
-          autoFocus
-          placeholder="Username"
-          autoComplete="username"
-          value={u}
-          onChange={(e) => setU(e.target.value)}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          autoComplete="current-password"
-          value={p}
-          onChange={(e) => setP(e.target.value)}
-        />
-        {err && <p className="err">{err}</p>}
-        <button className="btn" disabled={!u || !p}>
-          Sign in
-        </button>
-      </form>
-    </main>
+    <LabCtx.Provider value={{ lab, reload: loadLab }}>
+      <PrefCtx.Provider value={{ prefs, set }}>
+        {me && me.mustChange ? (
+          <NewPassword
+            me={me}
+            onDone={() => setMe({ ...me, mustChange: 0 })}
+            onLogout={() => api('/logout', 'POST').finally(() => setMe(null))}
+          />
+        ) : me ? (
+          <MeCtx.Provider
+            value={{
+              me,
+              reload: () =>
+                api<Me>('/me')
+                  .then(setMe)
+                  .catch(() => {}),
+            }}
+          >
+            <Shell me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
+          </MeCtx.Provider>
+        ) : lab.setup === 'here' ? (
+          <Setup onDone={signedIn2} />
+        ) : lab.setup === 'elsewhere' ? (
+          <SetupElsewhere lab={lab} />
+        ) : (
+          <Login lab={lab} onLogin={signedIn2} />
+        )}
+      </PrefCtx.Provider>
+    </LabCtx.Provider>
   );
 }
 
@@ -126,6 +106,7 @@ function NewPassword({ me, onDone, onLogout }: { me: Me; onDone: () => void; onL
       <form className="card" onSubmit={go}>
         <h1>Choose your password</h1>
         <p className="mut">Hello {me.name}. You signed in with a temporary password; choose your own to continue.</p>
+
         <input
           type="password"
           placeholder="Temporary password"
@@ -135,7 +116,7 @@ function NewPassword({ me, onDone, onLogout }: { me: Me; onDone: () => void; onL
         />
         <input
           type="password"
-          placeholder="New password (at least 10 characters)"
+          placeholder="New password"
           autoComplete="new-password"
           value={nw}
           onChange={(e) => setNw(e.target.value)}
@@ -147,8 +128,9 @@ function NewPassword({ me, onDone, onLogout }: { me: Me; onDone: () => void; onL
           value={again}
           onChange={(e) => setAgain(e.target.value)}
         />
+        <PasswordRules pw={nw} again={again} />
         {err && <p className="err">{err}</p>}
-        <button className="btn" disabled={!cur || nw.length < 10 || !again}>
+        <button className="btn" disabled={!cur || !passwordOk(nw, again)}>
           Save and continue
         </button>
         <button type="button" className="link" onClick={onLogout}>

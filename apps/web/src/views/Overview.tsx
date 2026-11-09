@@ -1007,7 +1007,7 @@ function Equipment({ d, label }: { d: Dash; label: string }) {
               <SlideFrame
                 svgRef={sl.ref}
                 title="Equipment use"
-                sub={`${label}, booked hours (share of weekday working hours, 08:00–18:00)`}
+                sub={`${label}, booked hours (share of the lab's working hours)`}
               >
                 <g transform="translate(110 320)">
                   {d.equipment.map((e, i) => (
@@ -1066,7 +1066,7 @@ function Equipment({ d, label }: { d: Dash; label: string }) {
           ))}
         </div>
         <p className="mut small ov-foot">
-          Busy = booked time out of weekday working hours (08:00–18:00, {d.lab.workHours} h this {d.unit}).
+          Busy = booked time out of the lab's working hours ({d.lab.workHours} h this {d.unit}, set under Lab setup).
         </p>
       </section>
       {sl.holder}

@@ -2,6 +2,20 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.36.0 (2026-11-09)
+
+Perovskite Lab is now **PANOPTICA**, shown as PANOPTICA · lab name everywhere. A new install sets itself up; people ask for access.
+
+- **First setup**: a new install opens setup screens on the computer that runs PANOPTICA (other computers say it is not set up yet), instead of printing an admin password in the window: your admin account, the lab (name, institution, the email domains that may ask for access, departments), the sign-in screen (the lab's picture and logo, with a preview) and the working days and hours. Then you land in the app. **Admin settings › Lab setup** changes all of it later.
+- **New sign-in screen**: the lab's picture on the left (a drawing of a panopticon until there is one) with the logo in its corner; PANOPTICA · lab name and the sign-in on the right. Typing a username and continuing without a password says what that account needs: its password, a password to choose, a request waiting, a declined request with the reason, or an ended visit.
+- **Request access**: name (the username is every first name plus the first letter of a chosen surname, lower case, no accents; when taken, the next letter of the surname, never numbers), institutional email (the lab's domains), birth date, department, supervisor and co-supervisor, photo. Admins are notified and **Accept** (with tags) or **Decline** (with a reason) under **Admin settings › Access requests**. No email is sent: after acceptance the person types the username, leaves the password empty, confirms email and birth date, and chooses a password. **Reset password** works the same way (no more temporary passwords).
+- **Visitors**: the only accounts admins create, with the last day of the visit, after which they cannot sign in.
+- **Passwords**: at least 8 characters with an upper case letter, a number and a special character, shown as a checklist while typing. Letters of any alphabet count (Ã, Ç, Æ are upper case letters; ã is a letter, not a special character), and an accented letter typed either way (one character, or a letter plus an accent) is the same password. Existing passwords keep working.
+- **About you** in the profile: institutional email, birth date, department, supervisor, co-supervisor; accounts from before ask for the missing ones once per session. Admins see them under Users (with age) and can change them (**Details**).
+- **Working days and hours** (weekends can be working days): the calendar stripes the hours outside them in red, days off are narrow, **New booking** starts at the next working hour, and the Overview's busy share uses them. Booking outside them is allowed: the booking form says so, and the admins are notified.
+- **Birthdays** (day and month) in the calendar's week, day and month views; anyone can hide theirs.
+- Releases carry **panoptica.zip** (and perovskite-lab.zip, so installs from before update as usual); the update scripts take either.
+
 ## 0.35.1 (2026-11-09)
 
 - **Scheduling substrate preparation**: a recipe with a surface treatment gives two blocks, cleaning (sonication, N<sub>2</sub> dry) on the substrate cleaner and UV-ozone or plasma on the equipment named for it, both set for Substrate preparation. Its run data is asked once, after the surface treatment.

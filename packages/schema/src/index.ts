@@ -5,6 +5,87 @@ export const Visibility = z.enum(['private', 'shared']);
 export const Segment = z.enum(['s0', 's1', 's2', 's3', 's4', 'stk', 'sub', 'mask']);
 
 export const Login = z.object({ username: z.string().min(1), password: z.string().min(1) });
+/** The password rules (length, upper case, number, special character) are checked by the server with `passwordProblem`. */
+const Password = z.string().min(1, 'choose a password').max(512);
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'give the date');
+const Photo = z
+  .string()
+  .max(400_000, 'the photo is too large')
+  .refine(
+    (v) => v === '' || /^data:image\/(png|jpeg|webp);base64,/.test(v),
+    'the photo must be a PNG, JPEG or WebP image',
+  );
+/** A person's names: the username is built from every first name and the first letter(s) of the chosen surname. */
+const Names = {
+  firstNames: z.string().trim().min(1, 'give your first name').max(60),
+  surnames: z.string().trim().min(1, 'give your surname').max(80),
+  surname: z.string().trim().min(1, 'choose the surname for your username').max(40),
+};
+const Email = z.string().trim().toLowerCase().email('give a valid email address').max(120);
+export const AccessRequestIn = z.object({
+  ...Names,
+  email: Email,
+  birthDate: Day,
+  department: z.string().trim().min(1, 'choose your department').max(80),
+  supervisor: z.string().trim().min(1, 'give your supervisor').max(80),
+  cosupervisor: z.string().trim().max(80).optional(),
+  photo: Photo.refine((v) => v !== '', 'add a photo of you'),
+});
+/** Admins create accounts only for visitors, with the day their access ends. */
+export const VisitorIn = z.object({
+  ...Names,
+  email: Email,
+  birthDate: Day,
+  department: z.string().trim().max(80).optional(),
+  until: Day,
+});
+export const LoginCheck = z.object({ username: z.string().trim().min(1).max(60) });
+/** First sign-in (or after a reset): the person proves who they are with the email and birth date on the account. */
+export const LoginSet = z.object({
+  username: z.string().trim().min(1).max(60),
+  email: z.string().trim().max(120),
+  birthDate: z.string().max(10),
+  password: Password,
+});
+export const AcceptIn = z.object({ tags: z.array(z.number().int()).max(50).default([]) });
+export const DeclineIn = z.object({ reason: z.string().trim().max(300).default('') });
+const HM = z.string().regex(/^([01]\d|2[0-4]):[0-5]\d$/, 'time as HH:MM');
+export const WorkDayIn = z.object({ on: z.boolean(), from: HM, to: HM });
+const Background = z
+  .string()
+  .max(8_000_000, 'the image is too large (up to about 5 MB)')
+  .refine((v) => v === '' || /^data:image\/(png|jpeg|webp);base64,/.test(v), 'use a JPEG, PNG or WebP image');
+/** Lab setup: name, institution, who may ask for access (email domains), departments, working hours, login images. */
+export const LabIn = z.object({
+  name: z.string().trim().min(1, 'give the lab a name').max(80).optional(),
+  institution: z.string().trim().max(120).optional(),
+  domains: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'a domain like unicamp.br'),
+    )
+    .max(20)
+    .optional(),
+  departments: z.array(z.string().trim().min(1).max(80)).max(60).optional(),
+  hours: z.array(WorkDayIn).length(7).optional(),
+  background: Background.optional(),
+  logo: z.string().max(1_400_000).optional(),
+});
+/** The first setup, on the computer that runs the app: the first admin and the lab. */
+export const SetupIn = z.object({
+  admin: z.object({
+    ...Names,
+    email: Email,
+    birthDate: Day,
+    department: z.string().trim().max(80).optional(),
+    photo: Photo.optional(),
+    password: Password,
+  }),
+  lab: LabIn,
+});
 export const NewUser = z.object({
   username: z
     .string()
@@ -19,7 +100,14 @@ export const UserPatch = z.object({
   name: z.string().min(1).max(80).optional(),
   role: Role.optional(),
   active: z.boolean().optional(),
-  password: z.string().min(10, 'password needs at least 10 characters').max(128).optional(),
+  /** clears the password: the person sets a new one at the next sign-in, confirming their email and birth date */
+  resetPassword: z.literal(true).optional(),
+  department: z.string().trim().max(80).optional(),
+  supervisor: z.string().trim().max(80).optional(),
+  cosupervisor: z.string().trim().max(80).optional(),
+  email: z.string().trim().toLowerCase().max(120).optional(),
+  birthDate: Day.or(z.literal('')).optional(),
+  until: Day.or(z.literal('')).optional(),
 });
 
 /** Selected ions with their subscript fractions, e.g. { A: { FA: 0.85, Cs: 0.15 }, X: { I: 1 } } */
@@ -177,7 +265,7 @@ export const PrefsIn = z.object({
 export const FigureSettingsIn = z.object({ watermark: Watermark.optional(), group: z.string().max(120).optional() });
 export const PasswordIn = z.object({
   current: z.string().min(1),
-  next: z.string().min(10, 'password needs at least 10 characters').max(128),
+  next: Password,
 });
 
 // ---- J–V measurements ----
@@ -289,6 +377,13 @@ export const UpdateSettingsIn = z.object({
 /** Own profile: display name and photo (square JPEG or PNG, resized in the browser; '' removes it). */
 export const ProfileIn = z.object({
   name: z.string().trim().min(1, 'the name cannot be empty').max(80).optional(),
+  email: z.string().trim().toLowerCase().email('give a valid email address').max(120).optional(),
+  birthDate: Day.optional(),
+  department: z.string().trim().max(80).optional(),
+  supervisor: z.string().trim().max(80).optional(),
+  cosupervisor: z.string().trim().max(80).optional(),
+  /** whether the birthday shows in the calendar (day and month only) */
+  showBirthday: z.boolean().optional(),
   photo: z
     .string()
     .max(400_000, 'the photo is too large')

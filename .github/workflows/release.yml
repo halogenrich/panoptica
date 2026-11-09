@@ -1,6 +1,6 @@
 name: Release
 # On main: when package.json has a version without a release yet, check everything, then publish
-# perovskite-lab.zip and its SHA-256 as release v<version>, with that version's CHANGELOG section as notes.
+# panoptica.zip and its SHA-256 (and perovskite-lab.zip, for installs before 0.36) as release v<version>, with that version's CHANGELOG section as notes.
 # The lab computers download it from Admin settings › Updates.
 on:
   push:
@@ -32,9 +32,12 @@ jobs:
         name: Package and publish
         run: |
           v=${{ steps.v.outputs.version }}
+          git archive --format=zip --prefix=panoptica/ -o panoptica.zip HEAD
+          sha256sum panoptica.zip > panoptica.zip.sha256
+          # installs before 0.36 (Perovskite Lab) look for this name, and their update script for this folder inside it
           git archive --format=zip --prefix=perovskite-lab/ -o perovskite-lab.zip HEAD
           sha256sum perovskite-lab.zip > perovskite-lab.zip.sha256
           node tools/notes.mjs "$v" > notes.md
-          gh release create "v$v" perovskite-lab.zip perovskite-lab.zip.sha256 --title "Perovskite Lab $v" --notes-file notes.md --target "$GITHUB_SHA"
+          gh release create "v$v" panoptica.zip panoptica.zip.sha256 perovskite-lab.zip perovskite-lab.zip.sha256 --title "PANOPTICA $v" --notes-file notes.md --target "$GITHUB_SHA"
         env:
           GH_TOKEN: ${{ github.token }}

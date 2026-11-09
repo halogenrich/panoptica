@@ -72,7 +72,7 @@ export default function Invite({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal invite" role="dialog" aria-label="Invite to Perovskite Lab">
+      <div className="modal invite" role="dialog" aria-label="Invite to PANOPTICA">
         <div className="modal-head">
           <b>Open on a phone or another computer</b>
           <div className="grow" />

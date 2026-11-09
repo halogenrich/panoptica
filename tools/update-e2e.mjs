@@ -1,7 +1,7 @@
 // End-to-end test of the in-app update on a real machine (CI runs it on Windows and Linux):
 // starts an installed copy with its start script, serves a newer release from a fake GitHub, clicks through
 // Admin settings › Updates by API (token, download, install) and waits for the app to come back with the new version.
-//   node tools/update-e2e.mjs <installed app folder> <newer perovskite-lab.zip> <expected version>
+//   node tools/update-e2e.mjs <installed app folder> <newer panoptica.zip> <expected version>
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -29,13 +29,13 @@ createServer((q, r) => {
         published_at: new Date().toISOString(),
         html_url: 'x',
         assets: [
-          { id: 1, name: 'perovskite-lab.zip', size: zip.length },
-          { id: 2, name: 'perovskite-lab.zip.sha256', size: 90 },
+          { id: 1, name: 'panoptica.zip', size: zip.length },
+          { id: 2, name: 'panoptica.zip.sha256', size: 90 },
         ],
       }),
     );
   if (q.url.endsWith('/assets/1')) return r.writeHead(200).end(zip);
-  if (q.url.endsWith('/assets/2')) return r.writeHead(200).end(`${sum}  perovskite-lab.zip\n`);
+  if (q.url.endsWith('/assets/2')) return r.writeHead(200).end(`${sum}  panoptica.zip\n`);
   r.writeHead(404).end('{}');
 }).listen(GH);
 
@@ -50,7 +50,7 @@ const env = {
 };
 log('starting', app);
 if (process.platform === 'win32')
-  spawn('cmd.exe', ['/c', 'start', '"Perovskite Lab"', '/min', 'cmd', '/c', '"start.bat > app-console.log 2>&1"'], {
+  spawn('cmd.exe', ['/c', 'start', '"PANOPTICA"', '/min', 'cmd', '/c', '"start.bat > app-console.log 2>&1"'], {
     cwd: app,
     env,
     detached: true,

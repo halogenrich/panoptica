@@ -5,6 +5,8 @@ import { api } from '../api';
 import { MeCtx } from '../ctx';
 import { Seg } from '../lib/ui';
 import { showToast, useRefresh } from '../lib/trash';
+import { firstName, mdOf, useBirthdays, useHours } from '../lib/hours';
+import { minutesOf, withinHours, workDayOf, type WorkDay } from '@psc/core';
 import { batchesChanged } from './Batches';
 import { ROLE_NAME, bundlesOf, eqFor, placedOf, type Bundle } from '../lib/bundles';
 import type { StackD } from '../stacks/model';
@@ -126,9 +128,40 @@ const shortEq = (n: string) =>
     .replace(/^GB:\s*/i, '')
     .replace(/\s*\(.*\)\s*$/, '')
     .trim() || n;
-/** Lab hours (weekdays 08–18): the rest of the day is shaded, as in the Overview's equipment use. */
-const LAB_FROM = 8,
-  LAB_TO = 18;
+/** The first time from `t` at which a 1-hour booking fits in the working hours (looks a week ahead; else `t`). */
+function nextWorking(h: WorkDay[], t: Date): Date {
+  for (let i = 0; i < 8; i++) {
+    const d = addDays(sod(t), i),
+      w = workDayOf(h, d);
+    if (!w.on) continue;
+    const from = minutesOf(w.from),
+      to = minutesOf(w.to),
+      now = i ? 0 : t.getHours() * 60 + t.getMinutes(),
+      m = Math.max(now, from);
+    if (m + 60 <= to) return new Date(d.getTime() + m * 6e4);
+  }
+  return t;
+}
+/** A small cake, for birthdays in the calendar. */
+const Cake = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+    <path d="M2.5 14h11V9a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 9z" />
+    <path d="M2.5 11c1.2 0 1.6-1 2.75-1S6.9 11 8 11s1.6-1 2.75-1 1.55 1 2.75 1M8 7.5V5.5" />
+    <path d="M8 2.2c.7.8.9 1.5 0 2.3-.9-.8-.7-1.5 0-2.3z" fill="currentColor" />
+  </svg>
+);
+/** Booked, or moved, outside the lab's working days and hours: allowed, and the admins are told (the server does). */
+const OFF_HOURS = 'Outside working hours: booked, and the admins were told';
+/** The stretches of a day outside working hours, in minutes from midnight (the whole day when it is not a working day). */
+const offStretches = (w: WorkDay): [number, number][] =>
+  !w.on
+    ? [[0, 24 * 60]]
+    : (
+        [
+          [0, minutesOf(w.from)],
+          [minutesOf(w.to), 24 * 60],
+        ] as [number, number][]
+      ).filter(([a, b]) => b > a);
 const ended = (b: Booking) => new Date(b.end) < new Date();
 
 /** Side-by-side lanes for overlapping bookings in one column. */
@@ -279,7 +312,8 @@ export default function Calendar({
   const eqs = (data?.equipment ?? []).filter((e) => e.active),
     shown = eqs.filter((e) => !hidden.includes(e.id));
   const list = (data?.bookings ?? []).filter((b) => shown.some((e) => e.id === b.equipment_id));
-  const canManage = me.role === 'admin';
+  const canManage = me.role === 'admin',
+    work = useHours();
   // ---- dragging a tray block or a booking onto the grid
   const slotAt = (x: number, y: number, d: Drag): Preview | null => {
     const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest('.tg-col') as HTMLElement | null;
@@ -329,12 +363,14 @@ export default function Calendar({
               ...body,
             });
       req
-        .then(() => {
+        .then((r: { offHours?: boolean }) => {
           load();
           loadSb();
           batchesChanged();
           showToast(
-            drag.kind === 'bundle' ? `${drag.label} placed, ${hm(new Date(start))}` : `Moved to ${hm(new Date(start))}`,
+            (drag.kind === 'bundle'
+              ? `${drag.label} placed, ${hm(new Date(start))}`
+              : `Moved to ${hm(new Date(start))}`) + (r?.offHours ? `. ${OFF_HOURS}` : ''),
           );
         })
         .catch((x) => showToast(x.message));
@@ -407,11 +443,13 @@ export default function Calendar({
         start: new Date(s).toISOString(),
         end: new Date(e).toISOString(),
       })
-        .then(() => {
+        .then((r: { offHours?: boolean }) => {
           load();
           loadSb();
           batchesChanged();
-          showToast(`${b.equipment}: now ${hm(new Date(s))}–${hm(new Date(e))}`);
+          showToast(
+            `${b.equipment}: now ${hm(new Date(s))}–${hm(new Date(e))}` + (r?.offHours ? `. ${OFF_HOURS}` : ''),
+          );
         })
         .catch((x) => showToast(x.message));
     };
@@ -524,10 +562,9 @@ export default function Calendar({
           onClick={() => {
             const s = new Date();
             s.setMinutes(Math.ceil(s.getMinutes() / 30) * 30, 0, 0);
-            if (!sameDay(s, date) && view === 'day') {
-              s.setTime(date.getTime() + 9 * 3.6e6);
-            }
-            newAt(s, new Date(s.getTime() + 3.6e6));
+            if (!sameDay(s, date) && view === 'day') s.setTime(sod(date).getTime());
+            const w = nextWorking(work, s);
+            newAt(w, new Date(w.getTime() + 3.6e6));
           }}
         >
           New booking
@@ -733,6 +770,8 @@ function TimeGrid({
   const scroller = useRef<HTMLDivElement>(null),
     [now, setNow] = useState(new Date()),
     [drag, setDrag] = useState<{ col: number; a: number; b: number } | null>(null);
+  const hours = useHours(),
+    bdays = useBirthdays();
   // hover card: all the details of a booking whose block is too small (or too narrow) to show them in full
   const [card, setCard] = useState<{ b: Booking; r: DOMRect } | null>(null),
     hoverT = useRef<number>(0);
@@ -751,9 +790,17 @@ function TimeGrid({
   useEffect(() => {
     if (busy) hoverOut();
   }, [busy]);
+  // the working day in view: from an hour before the earliest start of the days shown
+  const firstHour = Math.min(
+    ...cols
+      .map((c) => workDayOf(hours, c.day))
+      .filter((w) => w.on)
+      .map((w) => Math.floor(minutesOf(w.from) / 60)),
+    8,
+  );
   useLayoutEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = 7 * HOUR_PX;
-  }, [view]); // the working day in view
+    if (scroller.current) scroller.current.scrollTop = Math.max(0, firstHour - 1) * HOUR_PX;
+  }, [view, firstHour]);
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
@@ -775,11 +822,11 @@ function TimeGrid({
     onNew(toDate(c.day, s), toDate(c.day, e), c.eq?.id);
   };
   const today = sod(new Date());
-  // empty Saturday and Sunday columns are narrow, so the working days get the room
+  // empty days that are not working days are narrow, so the working days get the room
   const busyCol = cols.map(
     (c) =>
       view === 'day' ||
-      ![0, 6].includes(c.day.getDay()) ||
+      workDayOf(hours, c.day).on ||
       list.some(
         (b) => new Date(b.end).getTime() > c.day.getTime() && new Date(b.start).getTime() < c.day.getTime() + DAY,
       ),
@@ -816,6 +863,21 @@ function TimeGrid({
               >
                 <span className="mut small">{c.day.toLocaleDateString('en-GB', { weekday: 'short' })}</span>
                 <b>{c.day.getDate()}</b>
+                {bdays.get(mdOf(c.day)) && (
+                  <span
+                    className="bday"
+                    title={`Birthday: ${bdays
+                      .get(mdOf(c.day))!
+                      .map((x) => x.name)
+                      .join(', ')}`}
+                  >
+                    <Cake />{' '}
+                    {bdays
+                      .get(mdOf(c.day))!
+                      .map((x) => firstName(x.name))
+                      .join(', ')}
+                  </span>
+                )}
               </div>
             ),
           )}
@@ -848,17 +910,7 @@ function TimeGrid({
             return (
               <div
                 key={c.key}
-                className={
-                  'tg-col' +
-                  (sameDay(c.day, today) ? ' today' : '') +
-                  (c.eq || ![0, 6].includes(c.day.getDay()) ? '' : ' weekend')
-                }
-                style={
-                  {
-                    '--lab-from': `${LAB_FROM * HOUR_PX}px`,
-                    '--lab-to': `${LAB_TO * HOUR_PX}px`,
-                  } as React.CSSProperties
-                }
+                className={'tg-col' + (sameDay(c.day, today) ? ' today' : '')}
                 data-day={ymd(c.day)}
                 data-eq={c.eq?.id ?? ''}
                 onPointerDown={(e) => {
@@ -871,6 +923,14 @@ function TimeGrid({
                 onPointerUp={finish}
                 onPointerCancel={() => setDrag(null)}
               >
+                {offStretches(workDayOf(hours, c.day)).map(([a, z]) => (
+                  <div
+                    key={'off' + a}
+                    className="tg-off"
+                    style={{ top: (a / 60) * HOUR_PX, height: ((z - a) / 60) * HOUR_PX }}
+                    aria-hidden
+                  />
+                ))}
                 {mine.map((b) => {
                   const s = Math.max(d0, new Date(b.start).getTime()),
                     e = Math.min(d1, new Date(b.end).getTime()),
@@ -1084,7 +1144,9 @@ function Month({
 }) {
   const [first] = range('month', date),
     today = sod(new Date()),
-    nm = namer(list);
+    nm = namer(list),
+    work = useHours(),
+    bdays = useBirthdays();
   const days = Array.from({ length: 42 }, (_, i) => addDays(first, i));
   return (
     <div className="month">
@@ -1101,11 +1163,31 @@ function Month({
           <div
             key={d.toISOString()}
             className={
-              'month-cell' + (d.getMonth() !== date.getMonth() ? ' out' : '') + (sameDay(d, today) ? ' today' : '')
+              'month-cell' +
+              (d.getMonth() !== date.getMonth() ? ' out' : '') +
+              (sameDay(d, today) ? ' today' : '') +
+              (workDayOf(work, d).on ? '' : ' off')
             }
             onClick={() => onDay(d)}
           >
-            <span className="month-d">{d.getDate()}</span>
+            <span className="month-top">
+              <span className="month-d">{d.getDate()}</span>
+              {bdays.get(mdOf(d)) && (
+                <span
+                  className="bday"
+                  title={`Birthday: ${bdays
+                    .get(mdOf(d))!
+                    .map((x) => x.name)
+                    .join(', ')}`}
+                >
+                  <Cake />{' '}
+                  {bdays
+                    .get(mdOf(d))!
+                    .map((x) => firstName(x.name))
+                    .join(', ')}
+                </span>
+              )}
+            </span>
             {here.slice(0, 3).map((b) => (
               <button
                 key={b.id}
@@ -1187,7 +1269,8 @@ function BookingForm({
     [f.eq, f.day, f.from, f.to, data.bookings],
   );
   const eq = eqs.find((e) => e.id === f.eq),
-    hours = (end.getTime() - start.getTime()) / 3.6e6;
+    hours = (end.getTime() - start.getTime()) / 3.6e6,
+    work = useHours();
   const ok = !!f.eq && !!f.batch && hours >= MIN_BOOK / 60 && (!clash || (isAdmin && f.force));
   const body = () => ({
     equipment_id: f.eq,
@@ -1203,8 +1286,11 @@ function BookingForm({
     if (!ok) return;
     setBusy(true);
     (existing ? api('/bookings/' + draft.id, 'PUT', body()) : api('/bookings', 'POST', body()))
-      .then(() => {
-        showToast(existing ? 'Booking saved' : `Booked ${eq?.name}, ${hm(start)}–${hm(end)}`);
+      .then((r: { offHours?: boolean }) => {
+        showToast(
+          (existing ? 'Booking saved' : `Booked ${eq?.name}, ${hm(start)}–${hm(end)}`) +
+            (r?.offHours ? `. ${OFF_HOURS}` : ''),
+        );
         onSaved();
       })
       .catch((x) => setErr(x.message))
@@ -1355,6 +1441,9 @@ function BookingForm({
                   ' Pick another time or equipment.'
                 )}
               </div>
+            )}
+            {!ro && !withinHours(work, start, end) && (
+              <p className="warn-text small">Outside the lab's working hours. You can book it; the admins are told.</p>
             )}
             <label className="fld">
               <span>Note</span>

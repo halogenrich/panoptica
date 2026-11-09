@@ -19,7 +19,7 @@ import { ROOT, readConfig, writeConfig } from './config.js';
 import { backupNow } from './backup.js';
 
 /**
- * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries perovskite-lab.zip and its
+ * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (and, for installs before 0.36, perovskite-lab.zip) and its
  * SHA-256. Once a day the app asks GitHub for the latest release; when it is newer, admins get a notification. In Admin settings ›
  * Updates an admin downloads it (checked against its SHA-256) and installs it: the app backs up the database, stops, and the
  * update script replaces the program files (never the data) and starts it again.
@@ -78,7 +78,7 @@ async function gh(path: string, accept = 'application/vnd.github+json') {
   const r = await fetch(`${API}${path}`, {
     headers: {
       accept,
-      'user-agent': 'perovskite-lab-updater',
+      'user-agent': 'panoptica-updater',
       'x-github-api-version': '2022-11-28',
       ...(s.token ? { authorization: `Bearer ${s.token}` } : {}),
     },
@@ -107,11 +107,14 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       notes: j.body ?? '',
       published: j.published_at,
       url: j.html_url,
-      zip: asset('perovskite-lab.zip') && {
-        id: asset('perovskite-lab.zip').id,
-        size: asset('perovskite-lab.zip').size,
+      // panoptica.zip since 0.36; releases before were perovskite-lab.zip
+      zip: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')) && {
+        id: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')).id,
+        size: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')).size,
       },
-      sha: asset('perovskite-lab.zip.sha256') && { id: asset('perovskite-lab.zip.sha256').id },
+      sha: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')) && {
+        id: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')).id,
+      },
     };
     const fresh = notify && newer(latest.version, current) && st.notified !== latest.version;
     putState({
@@ -143,7 +146,7 @@ async function download(): Promise<State> {
   const s = settings(),
     st = getState(),
     rel = st.latest;
-  if (!rel?.zip || !rel.sha) throw new Error('this release has no perovskite-lab.zip with its checksum');
+  if (!rel?.zip || !rel.sha) throw new Error('this release has no panoptica.zip with its checksum');
   const sum = (await (await gh(`/repos/${s.repo}/releases/assets/${rel.sha.id}`, 'application/octet-stream')).text())
     .trim()
     .split(/\s+/)[0]
@@ -156,13 +159,13 @@ async function download(): Promise<State> {
     throw new Error('the downloaded file does not match its checksum; nothing was installed');
   mkdirSync(DIR, { recursive: true });
   for (const f of readdirSync(DIR))
-    if (/^perovskite-lab-.*\.zip$/.test(f))
+    if (/^(panoptica|perovskite-lab)-.*\.zip$/.test(f))
       try {
         unlinkSync(join(DIR, f));
       } catch {
         /* in use */
       }
-  const file = join(DIR, `perovskite-lab-${rel.version}.zip`);
+  const file = join(DIR, `panoptica-${rel.version}.zip`);
   writeFileSync(file, zip);
   putState({ ...st, downloaded: { version: rel.version, file } });
   return getState();
@@ -195,7 +198,7 @@ function install(lan: boolean) {
     const line = [
       '/c',
       'start',
-      '"Perovskite Lab update"',
+      '"PANOPTICA update"',
       'cmd',
       '/c',
       `""${run}" ${args.map((a) => `"${a}"`).join(' ')}"`,
