@@ -135,24 +135,15 @@ function logoSpot(frame: Rect, busy: Rect[], W: number, H: number): [number, num
 
 function LogoMark({ logo, at, W }: { logo: Logo; at: [number, number]; W: number }) {
   return (
-    <g opacity={0.5}>
-      {logo.watermark && (
-        <image
-          href={logo.watermark}
-          x={at[0]}
-          y={at[1]}
-          width={W}
-          height={36}
-          opacity={0.7}
-          preserveAspectRatio="xMidYMid meet"
-        />
-      )}
-      {logo.group && (
-        <text x={at[0] + W / 2} y={at[1] + (logo.watermark ? 36 : 0) + 11} fontSize={10} textAnchor="middle" fill={INK}>
-          {logo.group}
-        </text>
-      )}
-    </g>
+    <image
+      href={logo.watermark}
+      x={at[0]}
+      y={at[1]}
+      width={W}
+      height={36}
+      opacity={0.35}
+      preserveAspectRatio="xMidYMid meet"
+    />
   );
 }
 
@@ -226,10 +217,8 @@ function busyOf(p: Panel, g: ReturnType<typeof panelGeom>, showDensity: boolean)
   );
   return busy;
 }
-const logoSize = (logo: Logo) => ({
-  W: Math.max(logo.watermark ? 96 : 0, (logo.group?.length ?? 0) * 6),
-  H: (logo.watermark ? 36 : 0) + (logo.group ? 14 : 0),
-});
+// box plots carry the lab logo only, never the lab name
+const LOGO = { W: 96, H: 36 };
 
 /**
  * The logo spot (index into the spots of `logoSpot`) that is free in every panel, so a set of box plots carries the logo in the
@@ -240,8 +229,8 @@ export function commonLogoSpot(
   logo: Logo | undefined,
   o: { showDensity?: boolean; outliers?: boolean; w?: number; h?: number } = {},
 ): number | null {
-  if (!logo || !(logo.watermark || logo.group) || !panels.length) return null;
-  const { W, H } = logoSize(logo);
+  if (!logo?.watermark || !panels.length) return null;
+  const { W, H } = LOGO;
   const free = panels.map((p) => {
     const g = panelGeom(p, 0, 0, o.w ?? PW, o.h ?? PH, p.key === 'rsh', o.outliers ?? true, !!o.showDensity);
     return spotsOf([g.ox, g.oy, g.ox + g.pw, g.oy + g.ph], W, H).map(
@@ -287,8 +276,8 @@ function PanelSvg({
   const tip = (e: React.PointerEvent, text: string) => onTip({ x: e.clientX, y: e.clientY, text });
   // the logo: in the spot shared by a set of panels when there is one, else where this panel has room
   let mark: React.ReactNode = null;
-  if (logo && (logo.watermark || logo.group)) {
-    const { W, H } = logoSize(logo),
+  if (logo?.watermark) {
+    const { W, H } = LOGO,
       frame: Rect = [ox, oy, ox + pw, oy + ph];
     mark = (
       <LogoMark
@@ -503,7 +492,7 @@ function PanelSvg({
   );
 }
 
-/** One metric as its own figure (for the screen and for export), with the group logo when chosen. */
+/** One metric as its own figure (for the screen and for export), with the lab logo when the lab has one. */
 export const PW = 560,
   PH = 360;
 export function BoxPanel({
