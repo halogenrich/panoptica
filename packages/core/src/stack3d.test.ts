@@ -19,16 +19,16 @@ describe('stack geometry', () => {
 
   it('uses the visual scale: glass 1 mm, 100 nm = 0.1 mm, minimum for very thin layers', () => {
     expect(glass.h).toBe(VIS.glass);
-    expect(ito.h).toBeCloseTo(0.15, 9);
+    expect(ito.h).toBeCloseTo(VIS.ito, 9); // a thin coloured film, whatever its nm
+    expect(ito.label).toBe('ITO · 150 nm');
     expect(top(pvk) - top(htl)).toBeCloseTo(0.5, 9);
     expect(top(htl) - top(ito)).toBeCloseTo(VIS.min, 9);
   });
-  it('the first film sits on ITO and fills down to the glass where there is no ITO', () => {
-    const onIto = htl.parts.find((p) => p.y0 === top(ito))!,
-      onGlass = htl.parts.find((p) => p.y0 === VIS.glass)!;
-    expect(area(onIto.region)).toBeCloseTo(96 - 18, 6); // ITO minus the scrape strip
-    expect(area(onGlass.region)).toBeCloseTo(144 - 96, 6); // ITO-free glass
-    expect(htl.parts.every((p) => p.y0 >= VIS.glass)).toBe(true); // never inside the glass or the ITO
+  it('the first film is one flat slab over the glass and the thin ITO, with no step cut out', () => {
+    expect(htl.parts).toHaveLength(1);
+    expect(htl.parts[0].y0).toBe(VIS.glass);
+    expect(area(htl.parts[0].region)).toBeCloseTo(144 - 18, 6); // everything but the scrape strip
+    expect(htl.parts.every((p) => p.y0 >= VIS.glass)).toBe(true); // never inside the glass
   });
   it('later films have a single part with a flat top', () => {
     expect(pvk.parts).toHaveLength(1);

@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ageOn } from '@psc/core';
 import { useRefresh } from '../lib/trash';
 import { api } from '../api';
 import { Badge, Seg } from '../lib/ui';
 import { Activity, Security, Updates } from './AdminSecurity';
-import { saveFigureSettings, useFigureSettings } from '../lib/figure';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
 import { useContext } from 'react';
@@ -897,10 +896,9 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
 /** Lab setup: what the first setup asked, to change later. Each part is saved on its own. */
 function LabSetup() {
   const { reload } = useContext(LabCtx),
-    fig = useFigureSettings();
+    lastSaved = useRef<string>('');
   const [d, setD] = useState<LabDraft | null>(null),
-    [saved, setSaved] = useState<{ bg: string; logo: string }>({ bg: '', logo: '' }),
-    [group, setGroup] = useState<string | null>(null),
+    [saved, setSaved] = useState<{ bg: string; logo: string; inst: string }>({ bg: '', logo: '', inst: '' }),
     [msg, setMsg] = useState<Record<string, string>>({});
   const take = (l: any) => {
     setD({
@@ -910,10 +908,15 @@ function LabSetup() {
       domains: l.domains.join(', '),
       departments: l.departments.join('\n'),
       hours: l.hours,
+      logoPos: l.logoPos ?? 'br',
+      logoPlate: l.logoPlate ?? true,
+      foot: l.foot ?? 'name',
     });
+    lastSaved.current = JSON.stringify([l.logoPos ?? 'br', l.logoPlate ?? true, l.foot ?? 'name']);
     setSaved({
       bg: l.hasBackground ? `/api/lab/background?v=${l.bgV}` : '',
-      logo: l.hasLogo ? `/api/lab/logo?v=${Date.now()}` : '',
+      logo: l.hasLogo ? `/api/lab/logo?v=${l.bgV}` : '',
+      inst: l.hasInstLogo ? `/api/lab/institution-logo?v=${l.bgV}` : '',
     });
   };
   useEffect(() => {
@@ -935,20 +938,6 @@ function LabSetup() {
       <h3 className="sub">The lab</h3>
       <section className="group lab-setup">
         <LabFields d={d} set={set} />
-        <label className="fld">
-          <span>Name on exported figures</span>
-          <input
-            value={group ?? fig.group ?? ''}
-            placeholder={d.name}
-            onChange={(e) => setGroup(e.target.value)}
-            onBlur={() =>
-              group !== null &&
-              group !== (fig.group ?? '') &&
-              saveFigureSettings({ group }).then(() => setMsg({ lab: 'Saved' }))
-            }
-          />
-          <span className="mut small">Next to the logo on J–V figures and box plots, when people include it.</span>
-        </label>
         <div className="inline">
           <button
             className="btn"
@@ -968,11 +957,20 @@ function LabSetup() {
         <div className="inline">
           <button
             className="btn"
-            disabled={d.background === undefined && d.logo === undefined}
+            disabled={
+              d.background === undefined &&
+              d.logo === undefined &&
+              d.instLogo === undefined &&
+              lastSaved.current === JSON.stringify([d.logoPos, d.logoPlate, d.foot])
+            }
             onClick={() =>
               save('look', {
+                logoPos: d.logoPos,
+                logoPlate: d.logoPlate,
+                foot: d.foot,
                 ...(d.background !== undefined ? { background: d.background } : {}),
                 ...(d.logo !== undefined ? { logo: d.logo } : {}),
+                ...(d.instLogo !== undefined ? { instLogo: d.instLogo } : {}),
               })
             }
           >

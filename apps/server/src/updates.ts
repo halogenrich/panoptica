@@ -19,7 +19,7 @@ import { ROOT, readConfig, writeConfig } from './config.js';
 import { backupNow } from './backup.js';
 
 /**
- * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (and, for installs before 0.36, perovskite-lab.zip) and its
+ * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip and its
  * SHA-256. Once a day the app asks GitHub for the latest release; when it is newer, admins get a notification. In Admin settings ›
  * Updates an admin downloads it (checked against its SHA-256) and installs it: the app backs up the database, stops, and the
  * update script replaces the program files (never the data) and starts it again.

@@ -110,11 +110,11 @@ const overlap = (a: Rect, b: Rect) =>
  * Where the logo goes inside the plot frame: bottom centre; if a box, whisker, dot or density curve is in the way, top centre,
  * then the corners (bottom left, bottom right, top left, top right); if every spot is taken, the one that covers the least.
  */
-function logoSpot(frame: Rect, busy: Rect[], W: number, H: number): [number, number] {
+function spotsOf(frame: Rect, W: number, H: number): [number, number][] {
   const m = 8,
     [x0, y0, x1, y1] = frame,
     cx = (x0 + x1) / 2 - W / 2;
-  const spots: [number, number][] = [
+  return [
     [cx, y1 - m - H],
     [cx, y0 + m],
     [x0 + m, y1 - m - H],
@@ -122,7 +122,11 @@ function logoSpot(frame: Rect, busy: Rect[], W: number, H: number): [number, num
     [x0 + m, y0 + m],
     [x1 - m - W, y0 + m],
   ];
-  const rect = ([x, y]: [number, number]): Rect => [x - 4, y - 4, x + W + 4, y + H + 4];
+}
+const spotRect = ([x, y]: [number, number], W: number, H: number): Rect => [x - 4, y - 4, x + W + 4, y + H + 4];
+function logoSpot(frame: Rect, busy: Rect[], W: number, H: number): [number, number] {
+  const spots = spotsOf(frame, W, H),
+    rect = (sp: [number, number]) => spotRect(sp, W, H);
   const free = spots.find((sp) => !busy.some((b) => hit(rect(sp), b)));
   if (free) return free;
   const cost = (sp: [number, number]) => busy.reduce((a, b) => a + overlap(rect(sp), b), 0);
@@ -152,33 +156,17 @@ function LogoMark({ logo, at, W }: { logo: Logo; at: [number, number]; W: number
   );
 }
 
-function PanelSvg({
-  p,
-  x,
-  y,
-  w,
-  h,
-  unit,
-  digits,
-  showDensity,
-  onTip,
-  log = false,
-  logo,
-  outliers = true,
-}: {
-  p: Panel;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  unit: string;
-  digits: number;
-  showDensity: boolean;
-  onTip: (t: { x: number; y: number; text: string } | null) => void;
-  log?: boolean;
-  logo?: Logo;
-  outliers?: boolean;
-}) {
+/** The plot area and scales of one panel (shared by the drawing and by the logo placement). */
+function panelGeom(
+  p: Panel,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  log: boolean,
+  outliers: boolean,
+  showDensity: boolean,
+) {
   const L = 62,
     R = 14,
     T = 34,
@@ -213,30 +201,102 @@ function PanelSvg({
     dw = Math.min(34, (gw - nS * bw) / 2 - 6);
   const ticks = Array.from({ length: Math.round((top - lo) / step) + 1 }, (_, i) => +(lo + i * step).toFixed(6));
   const dig = step < 0.1 ? 2 : step < 1 ? (step === 0.25 ? 2 : 1) : step === 2.5 ? 1 : 0;
+  return { L, R, T, B, pw, ph, ox, oy, f, lo, top, step, Y, Yf, gw, nS, bw, dw, ticks, dig };
+}
+
+/** What a panel draws inside its frame (boxes, whiskers, points, density curves), as rectangles, for placing the logo. */
+function busyOf(p: Panel, g: ReturnType<typeof panelGeom>, showDensity: boolean): Rect[] {
+  const { ox, gw, bw, dw, Y } = g,
+    busy: Rect[] = [];
+  p.groups.forEach((gr, gi) =>
+    gr.series.forEach((se, si) => {
+      const n = gr.series.length,
+        cx = ox + gw * (gi + 0.5) + (si - (n - 1) / 2) * bw,
+        s = se.stats;
+      if (!s) return;
+      const ys = [s.lo, s.hi, ...se.points.map((q) => q.v)].map(Y),
+        side = n > 1 && si === 0 ? -1 : 1;
+      busy.push([cx - bw / 2, Math.min(...ys) - 6, cx + bw / 2, Math.max(...ys) + 6]);
+      if (showDensity && dw > 6 && se.points.length >= 5) {
+        const a = cx + side * (bw / 2 + 4),
+          b = a + side * dw;
+        busy.push([Math.min(a, b), Math.min(...ys) - 6, Math.max(a, b), Math.max(...ys) + 6]);
+      }
+    }),
+  );
+  return busy;
+}
+const logoSize = (logo: Logo) => ({
+  W: Math.max(logo.watermark ? 96 : 0, (logo.group?.length ?? 0) * 6),
+  H: (logo.watermark ? 36 : 0) + (logo.group ? 14 : 0),
+});
+
+/**
+ * The logo spot (index into the spots of `logoSpot`) that is free in every panel, so a set of box plots carries the logo in the
+ * same place; null when no spot is free in all of them (each panel then finds its own).
+ */
+export function commonLogoSpot(
+  panels: Panel[],
+  logo: Logo | undefined,
+  o: { showDensity?: boolean; outliers?: boolean; w?: number; h?: number } = {},
+): number | null {
+  if (!logo || !(logo.watermark || logo.group) || !panels.length) return null;
+  const { W, H } = logoSize(logo);
+  const free = panels.map((p) => {
+    const g = panelGeom(p, 0, 0, o.w ?? PW, o.h ?? PH, p.key === 'rsh', o.outliers ?? true, !!o.showDensity);
+    return spotsOf([g.ox, g.oy, g.ox + g.pw, g.oy + g.ph], W, H).map(
+      (sp) => !busyOf(p, g, !!o.showDensity).some((b) => hit(spotRect(sp, W, H), b)),
+    );
+  });
+  const i = free[0].findIndex((_, k) => free.every((f) => f[k]));
+  return i < 0 ? null : i;
+}
+
+function PanelSvg({
+  p,
+  x,
+  y,
+  w,
+  h,
+  unit,
+  digits,
+  showDensity,
+  onTip,
+  log = false,
+  logo,
+  outliers = true,
+  spot,
+}: {
+  p: Panel;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  unit: string;
+  digits: number;
+  showDensity: boolean;
+  onTip: (t: { x: number; y: number; text: string } | null) => void;
+  log?: boolean;
+  logo?: Logo;
+  outliers?: boolean;
+  /** the logo spot shared by a set of panels (commonLogoSpot) */
+  spot?: number | null;
+}) {
+  const g = panelGeom(p, x, y, w, h, log, outliers, showDensity),
+    { pw, ph, ox, oy, f, lo, top, Y, Yf, gw, nS, bw, dw, ticks, dig } = g;
   const tip = (e: React.PointerEvent, text: string) => onTip({ x: e.clientX, y: e.clientY, text });
-  // everything drawn in the frame, for placing the logo
-  const busy: Rect[] = [];
+  // the logo: in the spot shared by a set of panels when there is one, else where this panel has room
   let mark: React.ReactNode = null;
   if (logo && (logo.watermark || logo.group)) {
-    p.groups.forEach((g, gi) =>
-      g.series.forEach((se, si) => {
-        const n = g.series.length,
-          cx = ox + gw * (gi + 0.5) + (si - (n - 1) / 2) * bw,
-          s = se.stats;
-        if (!s) return;
-        const ys = [s.lo, s.hi, ...se.points.map((q) => q.v)].map(Y),
-          side = n > 1 && si === 0 ? -1 : 1;
-        busy.push([cx - bw / 2, Math.min(...ys) - 6, cx + bw / 2, Math.max(...ys) + 6]);
-        if (showDensity && dw > 6 && se.points.length >= 5) {
-          const a = cx + side * (bw / 2 + 4),
-            b = a + side * dw;
-          busy.push([Math.min(a, b), Math.min(...ys) - 6, Math.max(a, b), Math.max(...ys) + 6]);
-        }
-      }),
+    const { W, H } = logoSize(logo),
+      frame: Rect = [ox, oy, ox + pw, oy + ph];
+    mark = (
+      <LogoMark
+        logo={logo}
+        W={W}
+        at={spot != null ? spotsOf(frame, W, H)[spot] : logoSpot(frame, busyOf(p, g, showDensity), W, H)}
+      />
     );
-    const W = Math.max(logo.watermark ? 96 : 0, (logo.group?.length ?? 0) * 6),
-      H = (logo.watermark ? 36 : 0) + (logo.group ? 14 : 0);
-    mark = <LogoMark logo={logo} W={W} at={logoSpot([ox, oy, ox + pw, oy + ph], busy, W, H)} />;
   }
   return (
     <g>
@@ -453,6 +513,7 @@ export function BoxPanel({
   logo,
   log = false,
   outliers = true,
+  spot,
 }: {
   panel: Panel & { unit: string; digits: number };
   svgRef?: React.Ref<SVGSVGElement>;
@@ -461,6 +522,8 @@ export function BoxPanel({
   log?: boolean;
   /** false: axis fitted to the boxes; points beyond it shown as edge arrows with their count */
   outliers?: boolean;
+  /** the logo spot shared with the other plots of the set (commonLogoSpot), so the logo sits in the same place on each */
+  spot?: number | null;
 }) {
   const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
   return (
@@ -489,6 +552,7 @@ export function BoxPanel({
           log={log}
           logo={logo}
           outliers={outliers}
+          spot={spot}
         />
       </svg>
       {tip && (
@@ -506,25 +570,29 @@ export function BoxFigure({
   showDensity = false,
   logo,
   outliers = true,
+  height = BFH,
 }: {
   panels: (Panel & { unit: string; digits: number })[];
   svgRef?: React.Ref<SVGSVGElement>;
   showDensity?: boolean;
   logo?: { watermark?: string; group?: string };
   outliers?: boolean;
+  /** canvas height (the width is always BFW): taller when a slide has room, so the panels grow */
+  height?: number;
 }) {
   // 1–6 panels: one row up to 2, a 2 × 2 grid for 3–4, 3 columns for 5–6
   const n = Math.min(panels.length, 6),
     cols = n <= 2 ? Math.max(n, 1) : n <= 4 ? 2 : 3,
     rows = Math.ceil(n / cols) || 1,
     w = BFW / cols,
-    h = n <= 2 ? BFH : BFH / rows,
-    [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
+    h = n <= 2 ? height : height / rows,
+    [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null),
+    spot = commonLogoSpot(panels.slice(0, 6), logo, { showDensity, outliers, w, h });
   return (
     <>
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${BFW} ${BFH}`}
+        viewBox={`0 0 ${BFW} ${height}`}
         width="100%"
         className="box-figure"
         xmlns="http://www.w3.org/2000/svg"
@@ -532,7 +600,7 @@ export function BoxFigure({
         role="img"
         aria-label={`Box plots of ${panels.map((p) => p.key).join(', ')}`}
       >
-        <rect width={BFW} height={BFH} fill="#fff" />
+        <rect width={BFW} height={height} fill="#fff" />
         {panels.slice(0, 6).map((p, i) => (
           <PanelSvg
             key={p.key}
@@ -548,6 +616,7 @@ export function BoxFigure({
             h={h}
             logo={logo}
             outliers={outliers}
+            spot={spot}
           />
         ))}
       </svg>
