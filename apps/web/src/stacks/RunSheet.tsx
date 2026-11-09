@@ -3,19 +3,21 @@ import { SlotSheet } from '../views/Sheets';
 import type { Ctx } from '../recipes/types';
 import type { StackD } from './model';
 
-/** Printable run sheet: one block per layer with the recipe output, blank write-in cells and a notes box. */
+/** Printable run sheet: one block per layer with the recipe output, blank write-in cells and, if wanted, a notes box. */
 export default function RunSheet({
   st,
   ctx,
   name,
   batch,
   variants,
+  notes = true,
 }: {
   st: StackD;
   ctx: Ctx;
   name: string;
   batch?: string;
   variants?: Variants;
+  notes?: boolean;
 }) {
   const data = (id: string) => (id ? ctx.all.find((p) => String(p.id) === id)?.data : undefined);
   return (
@@ -62,7 +64,7 @@ export default function RunSheet({
             </small>
           </h3>
           <SlotSheet m={x.m} a={data(x.a)} b={data(x.b)} t={x.t} ctx={ctx} />
-          <div className="notes">Notes / data</div>
+          {notes && <div className="notes">Notes / data</div>}
         </div>
       ))}
     </section>

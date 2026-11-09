@@ -1,6 +1,6 @@
 import { api } from '../api';
 import { KINDS } from '../recipes';
-import { norm, type Ctx } from '../recipes/types';
+import { norm, oneLine, type Ctx } from '../recipes/types';
 import { SEG, type Slot } from '../stacks/model';
 import { describeChanges } from '@psc/core';
 import { fmtDate } from '../lib/ui';
@@ -391,7 +391,7 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
               `Variant ${x.variant}, ${x.layer}`,
               x.name,
               a,
-              v,
+              oneLine(v),
             ])
           : [];
       }),
@@ -400,7 +400,12 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
           const r = dataOf(p.id),
             k = KINDS[p.seg];
           if (!r || !k) return [];
-          return Object.entries(k.describe(norm(k, r.data), ctx)).map(([a, v]) => [`${i + 1}. ${s.n}`, r.name, a, v]);
+          return Object.entries(k.describe(norm(k, r.data), ctx)).map(([a, v]) => [
+            `${i + 1}. ${s.n}`,
+            r.name,
+            a,
+            oneLine(v),
+          ]);
         }),
       ),
     ],

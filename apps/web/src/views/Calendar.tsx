@@ -6,7 +6,7 @@ import { MeCtx } from '../ctx';
 import { Seg } from '../lib/ui';
 import { showToast, useRefresh } from '../lib/trash';
 import { batchesChanged } from './Batches';
-import { ROLE_NAME, bundlesOf, placedOf, type Bundle } from '../lib/bundles';
+import { ROLE_NAME, bundlesOf, eqFor, placedOf, type Bundle } from '../lib/bundles';
 import type { StackD } from '../stacks/model';
 import { DragHandle, useReorder } from './common';
 
@@ -1399,7 +1399,12 @@ function Tray({
   onStart,
   onEnd,
 }: {
-  batch: { id: number; code: string; snapshot: { stack: StackD }; status: string } | null;
+  batch: {
+    id: number;
+    code: string;
+    snapshot: { stack: StackD; resolved?: Record<number, any> };
+    status: string;
+  } | null;
   books: Booking[];
   eqs: Eq[];
   onStart: (d: Drag) => void;
@@ -1411,7 +1416,7 @@ function Tray({
         <p className="mut">Loading the batch…</p>
       </div>
     );
-  const blocks = bundlesOf(batch.snapshot.stack),
+  const blocks = bundlesOf(batch.snapshot.stack, batch.snapshot.resolved),
     left = blocks.filter((b) => !placedOf(b, books)).length;
   return (
     <section className="tray" aria-label={`Equipment blocks for batch ${batch.code}`}>
@@ -1432,8 +1437,9 @@ function Tray({
       </div>
       <div className="tray-blocks">
         {blocks.map((b) => {
-          const eq = eqs.find((e) => e.role === b.role),
-            placed = placedOf(b, books);
+          const eq = eqFor(b, eqs),
+            placed = placedOf(b, books),
+            dur = Math.max(MIN_BOOK, b.minutes); // what will be booked: the recipe's time, at least the shortest booking
           return (
             <button
               key={b.key}
@@ -1442,7 +1448,7 @@ function Tray({
               style={
                 {
                   '--eq': eq?.color ?? 'var(--sep)',
-                  height: Math.max(52, Math.min(110, (b.minutes / 60) * HOUR_PX)),
+                  minHeight: Math.max(52, Math.min(110, (dur / 60) * HOUR_PX)), // grows to show its text
                 } as React.CSSProperties
               }
               disabled={!eq || !!placed}
@@ -1460,7 +1466,7 @@ function Tray({
                   kind: 'bundle',
                   bundle: b,
                   eq: eq.id,
-                  dur: Math.max(MIN_BOOK, b.minutes),
+                  dur,
                   color: eq.color,
                   label: eq.name,
                   grab: Math.min(30, b.minutes / 2),
@@ -1468,11 +1474,11 @@ function Tray({
               }}
             >
               <b>{eq?.name ?? ROLE_NAME[b.role]}</b>
-              <span>{b.layers.join(', ')}</span>
+              <span>{b.what ?? b.layers.join(', ')}</span>
               <span className="tray-t">
                 {placed
                   ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })} ${hm(new Date(placed.start))}`
-                  : `${b.minutes >= 60 ? `${Math.floor(b.minutes / 60)} h${b.minutes % 60 ? ` ${b.minutes % 60}` : ''}` : `${b.minutes} min`}`}
+                  : `${dur >= 60 ? `${Math.floor(dur / 60)} h${dur % 60 ? ` ${dur % 60}` : ''}` : `${dur} min`}`}
               </span>
             </button>
           );

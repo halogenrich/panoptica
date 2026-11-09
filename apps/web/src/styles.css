@@ -1619,6 +1619,13 @@ table.list td {
   font-weight: 500;
   word-break: break-word;
 }
+/* steps in order, one per line, numbered as on the printed sheet */
+.facts-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 2px;
+}
 .disp {
   display: grid;
   gap: 6px;
@@ -2137,13 +2144,23 @@ table.list td {
   margin: 8px 0;
 }
 .slot {
-  break-inside: avoid;
   margin-bottom: 12px;
+}
+/* a layer may continue on the next page, but its title stays with its first lines and no table or notes box is cut */
+.slot h3,
+.slot .headline {
+  break-after: avoid;
+}
+.slot table,
+.slot ol,
+.slot svg,
+.slot .notes {
+  break-inside: avoid;
 }
 .notes {
   border: 1px solid var(--sep);
   border-radius: 6px;
-  height: 56px;
+  height: 92px; /* about five handwritten lines */
   margin: 8px 0;
   padding: 4px 8px;
   color: var(--mut);
@@ -2851,6 +2868,31 @@ table.list td {
     border-bottom: 1px solid #000 !important;
     border-radius: 0;
   }
+  /* the run sheet is read at the bench: text a size up from the screen's small print */
+  .sheet {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .sheet h2 {
+    font-size: 19px;
+  }
+  .sheet h3 {
+    font-size: 16px;
+    margin-top: 18px;
+  }
+  .sheet table {
+    font-size: 12.5px;
+  }
+  .sheet th,
+  .sheet td {
+    padding: 4px 6px;
+  }
+  .sheet .headline {
+    font-size: 15px;
+  }
+  .sheet .notes {
+    font-size: 11px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -3377,6 +3419,9 @@ td.used {
   padding: 3px 6px;
   text-align: left;
   vertical-align: top;
+}
+.report table.kv td {
+  white-space: pre-line; /* steps in order, one per line */
 }
 .report table.kv th {
   width: 30%;

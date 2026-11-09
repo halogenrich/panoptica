@@ -15,7 +15,7 @@ export type StepPreset = { slot: number; id: string; seg: string; name: string; 
 export function stepPresets(b: Pick<Batch, 'snapshot'>, step: string): StepPreset[] {
   const sl = b.snapshot.stack.sl,
     name = (i: number, seg: string) => (b.snapshot.resolved[i] ?? {})[seg === 's2' ? 'b' : 'a']?.name ?? 'Recipe';
-  const bundle = bundlesOf(b.snapshot.stack).find((x) => x.step === step);
+  const bundle = bundlesOf(b.snapshot.stack, b.snapshot.resolved).find((x) => x.step === step);
   const slots = bundle
     ? sl.map((s, i) => ({ s, i })).filter(({ s }) => bundle.layers.includes(s.n))
     : sl.map((s, i) => ({ s, i })).filter(({ s }) => s.n === step);
@@ -26,6 +26,12 @@ export function stepPresets(b: Pick<Batch, 'snapshot'>, step: string): StepPrese
       .filter((p) => segOk(p.seg))
       .map((p) => ({ slot: i, id: p.id, seg: p.seg, name: name(i, p.seg), layer: s.n })),
   );
+}
+
+/** The recipes whose run data is asked for when a booked step is concluded (substrate cleaning leaves it to the surface treatment). */
+export function stepCaptures(b: Pick<Batch, 'snapshot'>, step: string): StepPreset[] {
+  const bundle = bundlesOf(b.snapshot.stack, b.snapshot.resolved).find((x) => x.step === step);
+  return bundle?.noRuns ? [] : stepPresets(b, step);
 }
 
 /** A layer's state from the calendar: its bookings (a scheduler block covers several layers) and their outcomes. */
