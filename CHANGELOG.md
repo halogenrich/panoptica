@@ -2,6 +2,10 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.36.2 (2026-11-09)
+
+- Box plots carry the lab logo only, without the lab name, on screen, in exports, the batch report, comparisons and slides. With no logo set, box plots have none.
+
 ## 0.36.1 (2026-11-09)
 
 - **Sign-in screen**: the lab logo can sit in any corner, in the middle of an edge or in the centre of the picture, with or without its white background. The institution can have a logo too: the foot of the panel shows its name, its logo, or both. All in Lab setup and the first setup, with the preview.
