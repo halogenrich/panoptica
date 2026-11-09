@@ -23,6 +23,10 @@ export type LabDraft = {
   hours: WorkDay[];
   background?: string;
   logo?: string;
+  instLogo?: string;
+  logoPos: string;
+  logoPlate: boolean;
+  foot: 'name' | 'logo' | 'both';
 };
 export const blankLab = (): LabDraft => ({
   name: '',
@@ -30,6 +34,9 @@ export const blankLab = (): LabDraft => ({
   domains: '',
   departments: '',
   hours: DEFAULT_HOURS.map((d) => ({ ...d })),
+  logoPos: 'br',
+  logoPlate: true,
+  foot: 'name',
 });
 const list = (s: string, sep: RegExp) =>
   s
@@ -43,8 +50,12 @@ export const labBody = (d: LabDraft) => ({
   domains: list(d.domains, /[\s,;]+/).map((x) => x.replace(/^@/, '').toLowerCase()),
   departments: [...new Set(list(d.departments, /\n/))],
   hours: d.hours,
+  logoPos: d.logoPos,
+  logoPlate: d.logoPlate,
+  foot: d.foot,
   ...(d.background !== undefined ? { background: d.background } : {}),
   ...(d.logo !== undefined ? { logo: d.logo } : {}),
+  ...(d.instLogo !== undefined ? { instLogo: d.instLogo } : {}),
 });
 
 /** Name, institution, who may ask for access, departments. */
@@ -98,18 +109,19 @@ export function LookFields({
   d: LabDraft;
   set: (p: Partial<LabDraft>) => void;
   /** the images already saved (Admin settings), shown until replaced */
-  saved?: { bg: string; logo: string };
+  saved?: { bg: string; logo: string; inst: string };
 }) {
   const [err, setErr] = useState('');
   const bg = d.background ?? saved?.bg ?? '',
-    logo = d.logo ?? saved?.logo ?? '';
-  const pick = (k: 'background' | 'logo', f?: File) =>
+    logo = d.logo ?? saved?.logo ?? '',
+    inst = d.instLogo ?? saved?.inst ?? '';
+  const pick = (k: 'background' | 'logo' | 'instLogo', f?: File) =>
     f &&
-    readImage(f, k === 'logo' ? 0 : 2400)
+    readImage(f, k === 'background' ? 2400 : 0)
       .then((v) => {
-        if (k === 'logo' && v.length > 1_400_000)
+        if (k !== 'background' && v.length > 1_400_000)
           throw new Error('The logo is larger than 1 MB; export a smaller one.');
-        if (k === 'logo' && !/^data:image\/(png|jpeg|svg\+xml)/.test(v))
+        if (k !== 'background' && !/^data:image\/(png|jpeg|svg\+xml)/.test(v))
           throw new Error('Use a PNG, JPEG or SVG logo.');
         setErr('');
         set({ [k]: v });
@@ -123,13 +135,17 @@ export function LookFields({
     hasLogo: !!logo,
     hasBackground: !!bg,
     bgV: 0,
+    logoPos: d.logoPos,
+    logoPlate: d.logoPlate,
+    hasInstLogo: !!inst,
+    foot: d.foot,
     setup: null,
     professors: [],
   };
   return (
     <>
       <div className="look-preview" aria-label="Preview of the sign-in screen">
-        <SignInFrame lab={demo} preview={{ bg, logo }}>
+        <SignInFrame lab={demo} preview={{ bg, logo, inst }}>
           <h1>Sign in</h1>
           <div className="mini-field" />
           <div className="mini-field" />
@@ -177,11 +193,82 @@ export function LookFields({
           </div>
           <span className="mut small">PNG, JPEG or SVG, up to 1 MB. Also offered on exported figures.</span>
         </div>
+        {logo && (
+          <div className="fld">
+            <span>Where the logo sits</span>
+            <div className="pos-row">
+              <div className="pos-pick" role="radiogroup" aria-label="Where the logo sits on the picture">
+                {POS.map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={d.logoPos === k}
+                    aria-label={label}
+                    title={label}
+                    className={d.logoPos === k ? 'on' : ''}
+                    onClick={() => set({ logoPos: k })}
+                  >
+                    <i />
+                  </button>
+                ))}
+              </div>
+              <label className="inline small">
+                <input type="checkbox" checked={d.logoPlate} onChange={(e) => set({ logoPlate: e.target.checked })} />
+                White background behind the logo
+              </label>
+            </div>
+          </div>
+        )}
+        <div className="fld">
+          <span>Institution logo</span>
+          <div className="inline">
+            <label className="btn secondary">
+              {inst ? 'Replace logo…' : 'Choose a logo…'}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/svg+xml"
+                hidden
+                onChange={(e) => pick('instLogo', e.target.files?.[0])}
+              />
+            </label>
+            {inst && (
+              <button type="button" className="link" onClick={() => set({ instLogo: '' })}>
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+        <label className="fld">
+          <span>At the bottom of the sign-in panel</span>
+          <select value={d.foot} onChange={(e) => set({ foot: e.target.value as LabDraft['foot'] })}>
+            <option value="name">The institution's name</option>
+            <option value="logo" disabled={!inst}>
+              The institution's logo
+            </option>
+            <option value="both" disabled={!inst}>
+              The logo and the name
+            </option>
+          </select>
+        </label>
         {err && <p className="err small">{err}</p>}
       </div>
     </>
   );
 }
+
+/** Logo positions on the picture: the corners, the middle of each edge, the centre. */
+const POS: [string, string][] = [
+  ['tl', 'Top left'],
+  ['tc', 'Top, centred'],
+  ['tr', 'Top right'],
+  ['ml', 'Left edge, centred'],
+  ['mc', 'Centre'],
+  ['mr', 'Right edge, centred'],
+  ['bl', 'Bottom left'],
+  ['bc', 'Bottom, centred'],
+  ['br', 'Bottom right'],
+];
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 /** Working days and hours: the calendar shades the rest, and bookings there are flagged to the admins. */

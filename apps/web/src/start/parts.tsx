@@ -189,7 +189,7 @@ export function PhotoField({
           {value ? (
             <img src={value} alt="" className="photo-thumb" />
           ) : (
-            <span className="photo-thumb empty" aria-hidden />
+            <span className="photo-thumb blank" aria-hidden />
           )}
           <button type="button" className="btn secondary" onClick={() => file.current?.click()}>
             {value ? 'Choose another photo' : 'Choose a photo'}

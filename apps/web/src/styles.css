@@ -2442,7 +2442,7 @@ table.list td {
   font-variant-numeric: tabular-nums;
 }
 .layer-state.ok {
-  color: #15803d;
+  color: var(--ok);
   font-weight: 600;
 }
 .check-presets {
@@ -3706,7 +3706,7 @@ button.tag.off {
   background: color-mix(in srgb, #7c3aed 13%, transparent);
 }
 .c-badge.priv {
-  color: #b45309;
+  color: var(--warn);
   background: color-mix(in srgb, #b45309 13%, transparent);
 }
 .c-head {
@@ -5190,8 +5190,8 @@ body.resizing-block * {
   color: var(--ac);
 }
 .status-pill.st-done {
-  background: color-mix(in srgb, #16a34a 15%, transparent);
-  color: #15803d;
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
 }
 .sched-bar {
   display: flex;
@@ -5206,7 +5206,7 @@ body.resizing-block * {
   gap: 6px;
 }
 .sched-bar .btn.scheduled {
-  color: #15803d;
+  color: var(--ok);
 }
 .dialog.sched {
   width: min(760px, 100%);
@@ -5353,11 +5353,11 @@ body.resizing-block * {
   white-space: nowrap;
 }
 .oc-done {
-  color: #15803d;
-  background: color-mix(in srgb, #16a34a 14%, transparent);
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
 }
 .oc-postponed {
-  color: #b45309;
+  color: var(--warn);
   background: color-mix(in srgb, #d97706 14%, transparent);
 }
 .oc-canceled {
@@ -5365,7 +5365,7 @@ body.resizing-block * {
   background: color-mix(in srgb, var(--err) 12%, transparent);
 }
 .oc-wait {
-  color: #b45309;
+  color: var(--warn);
   background: color-mix(in srgb, #d97706 10%, transparent);
 }
 /* after the step: concluded fades back, canceled is struck through, a step waiting for its outcome is outlined */
@@ -5407,8 +5407,8 @@ body.resizing-block * {
 }
 .sched-btn.scheduled {
   background: var(--card);
-  color: #15803d;
-  border: 1px solid color-mix(in srgb, #16a34a 40%, var(--sep));
+  color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--sep));
 }
 
 /* 0.23: scheduling a batch by dragging its equipment blocks onto the calendar */
@@ -6109,7 +6109,7 @@ body.dragging-block * {
 .ov-record-k {
   font-size: 12px;
   font-weight: 700;
-  color: #15803d;
+  color: var(--ok);
 }
 .ov-record b {
   font-size: 18px;
@@ -7456,9 +7456,10 @@ body.dragging-block * {
   opacity: 0.32;
 }
 .signin-logo {
+  --gap: 28px;
   position: absolute;
-  right: 28px;
-  bottom: 28px;
+  right: var(--gap);
+  bottom: var(--gap);
   background: #fff;
   border-radius: 12px;
   padding: 12px 16px;
@@ -7474,6 +7475,98 @@ body.dragging-block * {
   max-height: 64px;
   max-width: 220px;
   object-fit: contain;
+}
+/* where the lab placed its logo on the picture */
+.signin-logo.at-tl,
+.signin-logo.at-tc,
+.signin-logo.at-tr {
+  top: var(--gap);
+  bottom: auto;
+}
+.signin-logo.at-ml,
+.signin-logo.at-mc,
+.signin-logo.at-mr {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+.signin-logo.at-tl,
+.signin-logo.at-ml,
+.signin-logo.at-bl {
+  left: var(--gap);
+  right: auto;
+}
+.signin-logo.at-tc,
+.signin-logo.at-mc,
+.signin-logo.at-bc {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+.signin-logo.at-mc {
+  transform: translate(-50%, -50%);
+}
+.signin-logo.bare {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+.signin-logo.at-mc img {
+  height: 96px;
+  max-height: 120px;
+  max-width: 320px;
+}
+.signin-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.signin-foot img {
+  height: 36px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+}
+.pos-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.pos-pick {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 3px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--sep);
+  background: var(--bg);
+}
+.pos-pick button {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.pos-pick button i {
+  width: 12px;
+  height: 7px;
+  border-radius: 2px;
+  border: 1.5px solid var(--mut);
+}
+.pos-pick button:hover {
+  background: color-mix(in srgb, var(--ac) 12%, transparent);
+}
+.pos-pick button.on i {
+  background: var(--ac);
+  border-color: var(--ac);
+}
+.pos-pick button:focus-visible {
+  outline: 2px solid var(--ac);
 }
 .signin-panel {
   display: flex;
@@ -7552,7 +7645,7 @@ body.dragging-block * {
   object-fit: cover;
   flex: none;
 }
-.photo-thumb.empty {
+.photo-thumb.blank {
   display: block;
   background: var(--bg);
   border: 1px dashed var(--sep);
@@ -7704,10 +7797,24 @@ label.btn {
 }
 .signin.mini .signin-foot {
   font-size: 1.8cqw;
+  gap: 1cqw;
+}
+.signin.mini .signin-foot img {
+  height: 3.4cqw;
+}
+.signin.mini .signin-foot .small {
+  font-size: 1.8cqw;
+}
+.signin.mini .signin-logo.bare {
+  padding: 0;
+}
+.signin.mini .signin-logo.at-mc img {
+  height: 9cqw;
+  max-height: 11cqw;
+  max-width: 30cqw;
 }
 .signin.mini .signin-logo {
-  right: 3cqw;
-  bottom: 3cqw;
+  --gap: 3cqw;
   padding: 1.2cqw 1.8cqw;
   border-radius: 1.4cqw;
 }
@@ -7757,8 +7864,7 @@ label.btn {
     padding: 24px 20px;
   }
   .signin-logo {
-    right: 14px;
-    bottom: 14px;
+    --gap: 14px;
     padding: 8px 10px;
   }
   .signin-logo img {
@@ -7883,4 +7989,65 @@ label.btn {
 }
 .lab-setup .look-preview {
   max-width: 520px;
+}
+
+/* ============ dark mode: lift the colours the lab chooses (0.36.1) ============
+   Equipment, tag and group colours are picked on white; on the dark background thin lines, dots and text in them get lost.
+   In dark mode they are mixed with white, fills less with black, and the chart colours are brighter (not darker) than in light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --series-1: #5a9cf0;
+    --series-2: #f27f4f;
+    --series-3: #34c98f;
+    --series-4: #f2b733;
+    --series-5: #ef8db3;
+    --series-6: #4cb84c;
+    --series-7: #a39af2;
+    --series-8: #f07878;
+    --viz-1: #5a9cf0;
+    --viz-2: #f27f4f;
+  }
+  :root:not([data-theme='light']) .tag {
+    color: color-mix(in oklab, var(--tag) 55%, #fff);
+    background: color-mix(in srgb, var(--tag) 24%, transparent);
+    border-color: color-mix(in srgb, var(--tag) 55%, transparent);
+  }
+  :root:not([data-theme='light']) :is(.cbar, .eq-chip i, .eq-pick button i, .month-bk i) {
+    background: color-mix(in oklab, var(--eq) 72%, #fff);
+  }
+  :root:not([data-theme='light']) :is(.bk, .tray-block, .bk-ghost) {
+    --fill: color-mix(in oklab, var(--eq) 88%, #fff);
+  }
+  :root:not([data-theme='light']) .c-badge {
+    color: #b69cf6;
+  }
+}
+:root[data-theme='dark'] {
+  --series-1: #5a9cf0;
+  --series-2: #f27f4f;
+  --series-3: #34c98f;
+  --series-4: #f2b733;
+  --series-5: #ef8db3;
+  --series-6: #4cb84c;
+  --series-7: #a39af2;
+  --series-8: #f07878;
+  --viz-1: #5a9cf0;
+  --viz-2: #f27f4f;
+}
+:root[data-theme='dark'] .tag {
+  color: color-mix(in oklab, var(--tag) 55%, #fff);
+  background: color-mix(in srgb, var(--tag) 24%, transparent);
+  border-color: color-mix(in srgb, var(--tag) 55%, transparent);
+}
+:root[data-theme='dark'] :is(.cbar, .eq-chip i, .eq-pick button i, .month-bk i) {
+  background: color-mix(in oklab, var(--eq) 72%, #fff);
+}
+:root[data-theme='dark'] :is(.bk, .tray-block, .bk-ghost) {
+  --fill: color-mix(in oklab, var(--eq) 88%, #fff);
+}
+:root[data-theme='dark'] .c-badge {
+  color: #b69cf6;
+}
+.fld .pos-row input[type='checkbox'] {
+  width: 18px;
 }

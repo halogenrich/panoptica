@@ -54,6 +54,12 @@ export type LabPublic = {
   hasLogo: boolean;
   hasBackground: boolean;
   bgV: number;
+  /** where the logo sits on the picture: t/m/b + l/c/r */
+  logoPos?: string;
+  logoPlate?: boolean;
+  hasInstLogo?: boolean;
+  /** the foot of the sign-in panel: the institution's name, its logo, or both */
+  foot?: 'name' | 'logo' | 'both';
   /** while there is no admin: 'here' on the computer that runs the app, 'elsewhere' on others */
   setup: 'here' | 'elsewhere' | null;
   professors: string[];

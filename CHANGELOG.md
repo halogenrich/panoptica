@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.36.1 (2026-11-09)
+
+- **Sign-in screen**: the lab logo can sit in any corner, in the middle of an edge or in the centre of the picture, with or without its white background. The institution can have a logo too: the foot of the panel shows its name, its logo, or both. All in Lab setup and the first setup, with the preview.
+- The photo placeholder on the request form is a circle again (a shared style made it an oval).
+- Lab setup: no separate "Name on exported figures"; figures use the lab's name.
+- **3D view**: the ITO is a thin coloured film on the glass, so the first layer on it is a flat slab, without the step cut out over the ITO.
+- **Comparison slide**: the logo and the lab's name sit top right; the table goes to the bottom, so the box plots and the J–V curve are larger. The note about check sweeps is gone from the slide.
+- **Box plots**: the logo sits in the same place on every plot of a set (each plot exported on its own, or the combined figure) whenever one place is free on all of them.
+- **Dark mode**: chart colours are brighter than in light mode instead of darker; equipment, tag and group colours are lightened for lines, dots and text, booking blocks are less dark; status colours (Done, Concluded, Postponed) follow the theme.
+- Releases carry only panoptica.zip (the repository is private again; updates need the read-only token in Admin settings › Updates).
+
 ## 0.36.0 (2026-11-09)
 
 Perovskite Lab is now **PANOPTICA**, shown as PANOPTICA · lab name everywhere. A new install sets itself up; people ask for access.
