@@ -65,13 +65,13 @@ export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>)
       <div className="grid2">
         <label className="fld">
           <span>Lab name</span>
-          <input value={d.name} placeholder="e.g. LNES" onChange={(e) => set({ name: e.target.value })} />
+          <input value={d.name} placeholder="For example, LNES" onChange={(e) => set({ name: e.target.value })} />
         </label>
         <label className="fld">
           <span>Institution</span>
           <input
             value={d.institution}
-            placeholder="e.g. Unicamp"
+            placeholder="For example, Unicamp"
             onChange={(e) => set({ institution: e.target.value })}
           />
         </label>
@@ -81,7 +81,11 @@ export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>)
       </p>
       <label className="fld">
         <span>Institutional email domains, separated by commas</span>
-        <input value={d.domains} placeholder="e.g. unicamp.br" onChange={(e) => set({ domains: e.target.value })} />
+        <input
+          value={d.domains}
+          placeholder="For example, unicamp.br"
+          onChange={(e) => set({ domains: e.target.value })}
+        />
         <span className="mut small">
           Only these emails can ask for access (subdomains too: unicamp.br accepts dac.unicamp.br). Empty: any email.
         </span>

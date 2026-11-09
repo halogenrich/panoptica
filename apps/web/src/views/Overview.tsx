@@ -134,10 +134,10 @@ const endOf = (s: Date, u: Unit) =>
 const periodName = (s: Date, u: Unit) => {
   if (u === 'month') return s.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const e = new Date(endOf(s, u).getTime() - 864e5);
-  return `${s.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return `${s.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 };
 const tick = (iso: string, u: Unit) =>
-  new Date(iso).toLocaleDateString('en-GB', u === 'month' ? { month: 'short' } : { day: 'numeric', month: 'short' });
+  new Date(iso).toLocaleDateString('en-GB', u === 'month' ? { month: 'long' } : { day: '2-digit', month: '2-digit' });
 const pct = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? '—' : `${v.toFixed(d)} %`);
 const hrs = (h: number) => (h >= 10 ? `${Math.round(h)} h` : `${(Math.round(h * 2) / 2).toString()} h`);
 const seen = (iso: string | null) => {
@@ -837,7 +837,7 @@ function Person({
     null,
   );
   const tickDay = (x: string) =>
-    new Date(x + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    new Date(x + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
   return (
     <div className="ov-body">
       <button className="link back" onClick={onBack}>

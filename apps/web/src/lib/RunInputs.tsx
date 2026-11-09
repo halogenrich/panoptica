@@ -91,7 +91,7 @@ export function SciInput({
   );
 }
 
-/** Percentage input with a fixed prefix, e.g. "T.V = [87.5] %". */
+/** Percentage input with a fixed prefix, for example "T.V = [87.5] %". */
 export function PctInput({
   value,
   on,

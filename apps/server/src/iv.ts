@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { checkSweeps, ivMetrics } from '@psc/core';
+import { checkSweeps, ivMetrics, shortedPixels } from '@psc/core';
 import { IvCurvePatch, IvSetIn, IvSetPatch } from '@psc/schema';
 import { db, tx } from './db.js';
 import { checkRecord } from './social.js';
@@ -77,6 +77,30 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
     const up = db.prepare('UPDATE iv_curves SET kind=? WHERE id=?');
     for (const c of cs) up.run(chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`) ? 'check' : null, c.id);
   };
+  /**
+   * 0.37: a pixel that shorted in one regular scan counts as shorted in all of them (forward working but backward shorted is a
+   * shorted pixel). The scan that worked keeps its numbers, with status 'short' and shortBy 'pixel'; a scan that no longer shares a
+   * pixel with a shorted one (after a check sweep is reclassified, say) gets its own status back.
+   */
+  const markShorts = (setId: number) => {
+    const rows = (
+      db.prepare('SELECT id,sample,substrate,pixel,kind,metrics FROM iv_curves WHERE set_id=?').all(setId) as any[]
+    ).map((r) => ({ ...r, m: JSON.parse(r.metrics) }));
+    const own = (r: any) => (r.m.shortBy === 'pixel' ? 'ok' : r.m.status);
+    const short = shortedPixels(rows.map((r) => ({ ...r, status: own(r) })));
+    const up = db.prepare('UPDATE iv_curves SET metrics=? WHERE id=?');
+    for (const r of rows) {
+      const want = !r.kind && own(r) === 'ok' && short.has(`${r.sample}|${r.substrate}|${r.pixel}`);
+      if (want === (r.m.shortBy === 'pixel')) continue;
+      const m = { ...r.m };
+      if (want) Object.assign(m, { status: 'short', shortBy: 'pixel' });
+      else {
+        m.status = 'ok';
+        delete m.shortBy;
+      }
+      up.run(JSON.stringify(m), r.id);
+    }
+  };
   // 0.35: lifetime runs (the same pixels scanned over time): the set's kind and run details, each curve's time since the start
   if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
     db.exec("ALTER TABLE iv_sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'jv'");
@@ -89,6 +113,11 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
       for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) classify(r.id); // existing data
     });
   }
+  if (!db.prepare("SELECT 1 FROM meta WHERE key='short-pixels'").get())
+    tx(() => {
+      for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) markShorts(r.id); // existing data
+      db.prepare("INSERT INTO meta(key,value) VALUES('short-pixels','1')").run();
+    });
   /** The first measurement of a series (follow-ups may point at another follow-up). */
   const baseOf = (id: number) => {
     let cur = id;
@@ -252,6 +281,7 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
         db.prepare(
           "UPDATE iv_curves SET kind='life' WHERE set_id=? AND scan > (SELECT MIN(scan) FROM iv_curves WHERE set_id=?)",
         ).run(r.lastInsertRowid, r.lastInsertRowid);
+      markShorts(Number(r.lastInsertRowid));
       return Number(r.lastInsertRowid);
     });
     const record = d.stability_of ? null : checkRecord(id, req.user); // a follow-up of an aged device is no record

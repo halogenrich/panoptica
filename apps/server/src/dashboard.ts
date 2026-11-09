@@ -110,7 +110,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
     );
     const books = db
       .prepare(
-        `SELECT k.*, e.name AS equipment, e.color, u.name AS user_name, b.code AS batch_code FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN users u ON u.id=k.user_id JOIN batches b ON b.id=k.batch_id
+        `SELECT k.*, e.name AS equipment, e.color, e.role AS role, u.name AS user_name, b.code AS batch_code FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN users u ON u.id=k.user_id LEFT JOIN batches b ON b.id=k.batch_id
       WHERE k.end > ? AND k.start < ? AND b.deleted_at IS NULL`,
       )
       .all(f, t) as any[];
@@ -217,7 +217,8 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
           user: k.user_name,
           start: k.start,
         })),
-      waiting: books.filter((k) => !k.outcome && k.end < iso(new Date())).length,
+      // batch steps still waiting for their outcome (bookings outside a batch and J–V measurements have none)
+      waiting: books.filter((k) => !k.outcome && k.batch_id && k.role !== 'measure' && k.end < iso(new Date())).length,
     };
     const lab = {
       batchesStarted: started.length,
@@ -280,7 +281,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       .all(u.id);
     const setbacks = db
       .prepare(
-        `SELECT k.outcome, k.reason, k.start, k.step, e.name AS equipment, b.code AS batch FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN batches b ON b.id=k.batch_id WHERE k.user_id=? AND k.outcome IN ('postponed','canceled') ORDER BY k.start DESC LIMIT 10`,
+        `SELECT k.outcome, k.reason, k.start, k.step, e.name AS equipment, b.code AS batch FROM bookings k JOIN equipment e ON e.id=k.equipment_id LEFT JOIN batches b ON b.id=k.batch_id WHERE k.user_id=? AND k.outcome IN ('postponed','canceled') ORDER BY k.start DESC LIMIT 10`,
       )
       .all(u.id);
     return { ...u, tags: tagsOf(u.id), progress, batches, hours, setbacks };
