@@ -47,6 +47,8 @@ export interface IvMetrics {
   rsh: number; // Ω·cm² (slopes at Voc and at 0 V)
   status: PixelStatus;
   spikes: number; // glitch points left out of the calculation
+  /** 'pixel': this scan worked, but another scan of the same pixel shorted, so the pixel counts as shorted (`shortedPixels`) */
+  shortBy?: 'pixel';
 }
 
 export interface IvFile {
@@ -312,6 +314,19 @@ export function checkSweeps(curves: SweepKey[]): Set<string> {
         }
       }
   }
+  return out;
+}
+
+/**
+ * A pixel that shorts in one regular scan (backward, say) and works in another (forward) is a shorted pixel: every regular scan
+ * of it then counts as short. Check sweeps and later readings of a lifetime run (`kind` set) are not looked at and not changed.
+ * Returns the keys `sample|substrate|pixel` of the shorted pixels.
+ */
+export function shortedPixels(
+  curves: { sample: string; substrate: string; pixel: string; kind?: string | null; status: PixelStatus }[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of curves) if (!c.kind && c.status === 'short') out.add(`${c.sample}|${c.substrate}|${c.pixel}`);
   return out;
 }
 

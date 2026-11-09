@@ -332,7 +332,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
               · follow-up of {others.find((o) => o.id === s.stabilityOf)?.name ?? 'an earlier measurement'}, measured{' '}
               {new Date(s.measuredAt!).toLocaleString('en-GB', {
                 day: 'numeric',
-                month: 'short',
+                month: 'long',
                 year: 'numeric',
                 hour: '2-digit',
                 minute: '2-digit',
@@ -413,9 +413,9 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         {tab === 'cells' && (
           <span className="mut small legend-px">
             <i className="k-ok" />
-            PCE in % (darker = higher){dir === 'both' ? ', backward above forward' : ''} <i className="k-dead" />
+            PCE in % (darker = higher){dir === 'both' ? ', backward / forward' : ''} <i className="k-dead" />
             dead <i className="k-short" />
-            short · click a pixel for its curves, Shift-click to compare pixels
+            short (in either direction) · click a pixel for its curves, Shift-click to compare pixels
           </span>
         )}
       </div>
@@ -531,7 +531,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
     [dens, setDens] = useState(false),
     [outl, setOutl] = useOutliers();
   const fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group),
+    hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   const figs = useRef<Record<string, SVGSVGElement | null>>({}),
     [figErr, setFigErr] = useState('');
@@ -675,7 +675,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
         <OutlierToggle v={outl} on={setOutl} />
         {hasLogo && (
           <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
+            <Check v={logo} on={setLogo} /> Lab logo
           </label>
         )}
         <div className="grow" />
@@ -685,10 +685,10 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
         <p className="mut small">
           Dots: pixels (gold ring = best) ·{' '}
           {outl
-            ? 'triangles: outliers (beyond 1.5 × IQR)'
+            ? 'triangles: outliers (beyond 1.5 × the interquartile range)'
             : 'axis fitted to the boxes; an arrow with a number marks outliers beyond it (still counted)'}
-          {dirs.length > 1 ? ' · bwd = backward, fwd = forward (lighter)' : ''} · hover for values · each plot exports
-          on its own (PNG and SVG under it), or from Export{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
+          {dirs.length > 1 ? ' · forward in the lighter shade' : ''} · hover for values · each plot exports on its own
+          (PNG and SVG under it), or from Export{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
         </p>
       )}
       {rows.length > 0 && (
@@ -764,7 +764,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
               {METRICS.map((m) => (
                 <th key={m.key}>
                   {m.label} ({m.unit})<br />
-                  <span className="mut small">mean ± sd · median · best</span>
+                  <span className="mut small">mean ± standard deviation · median · best</span>
                 </th>
               ))}
             </tr>

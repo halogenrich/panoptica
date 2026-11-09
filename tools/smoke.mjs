@@ -137,7 +137,7 @@ cookie = set.split(';')[0];
 ok(/HttpOnly/i.test(set) && /SameSite=Lax/i.test(set), 'session cookie is HttpOnly and SameSite=Lax');
 const raw = cookie.split('=')[1];
 const { DatabaseSync } = await import('node:sqlite');
-const db = new DatabaseSync(env.DB_PATH);
+const db = new DatabaseSync(env.DB_PATH, { timeout: 5000 }); // wait for the server's writes instead of failing on a lock
 ok(
   !db.prepare('SELECT 1 FROM sessions WHERE token=?').get(raw) && !!db.prepare('SELECT 1 FROM sessions').get(),
   'session stored as a hash, not the cookie value',
@@ -442,6 +442,32 @@ console.log('Measurements and comparisons');
     'and listed there, to restore',
   );
 
+  // a pixel that works forward but shorts backward is a shorted pixel: neither scan counts
+  {
+    const good = cell(0.02, 22, 'Shorty'),
+      bad = { ...good, J: good.V.map((v) => 20 - 100 * v) }; // Voc 0.2 V: shorted
+    const sr = await call('POST', '/api/iv', {
+      name: 'smoke short',
+      date: '2026-11-09',
+      system: 'padrao',
+      visibility: 'shared',
+      curves: [
+        curve(good, '01', 'fwd'),
+        curve(bad, '01', 'rev'),
+        curve(good, '01', 'fwd', '2'),
+        curve(good, '01', 'rev', '2'),
+      ],
+    });
+    const sc = (await call('GET', '/api/iv/' + sr.j.id)).j.curves;
+    const st = (sub, dir) => sc.find((c) => c.substrate === sub && c.dir === dir).m;
+    ok(
+      st('1', 'fwd').status === 'short' && st('1', 'fwd').shortBy === 'pixel' && st('1', 'rev').status === 'short',
+      'a pixel shorted backward counts as shorted forward too',
+    );
+    ok(st('2', 'fwd').status === 'ok' && st('2', 'rev').status === 'ok', 'a pixel working both ways stays working');
+    await call('DELETE', '/api/iv/' + sr.j.id);
+  }
+
   // a lifetime run: the same pixel read three times; only the first reading counts (here the later ones are better, so they
   // would be the best if they were counted)
   const age = (k) => ({
@@ -540,6 +566,41 @@ console.log('Calendar: shortest booking and cleanup');
     (await call('GET', '/api/lab/birthdays')).j.some((x) => x.md === '04-02'),
     'birthdays for the calendar: day and month',
   );
+
+  // outside a batch: allowed with a purpose
+  const free = (body) =>
+    call('POST', '/api/bookings', { equipment_id: plain.j.id, start: at(13, 9), end: at(13, 10), ...body });
+  ok((await free({})).s === 400, 'a booking outside a batch needs to say what it is for');
+  const fr = await free({ purpose: 'Testing a new holder' });
+  ok(fr.s === 200, 'with a purpose it is booked');
+  const listed = (await call('GET', `/api/calendar?from=${at(13, 0)}&to=${at(14, 0)}`)).j.bookings;
+  ok(
+    listed.some((k) => k.id === fr.j.id && k.batch_id === null && k.purpose === 'Testing a new holder'),
+    'and listed with it',
+  );
+  // the solar simulator (J–V measurement): a finished batch or a reason
+  const sim = await call('POST', '/api/equipment', { name: 'Smoke solar simulator', role: 'measure' });
+  const simBook = (body) =>
+    call('POST', '/api/bookings', { equipment_id: sim.j.id, start: at(14, 9), end: at(14, 10), ...body });
+  ok((await simBook({ batch_id: b.j.id })).s === 400, 'the solar simulator refuses a batch that is not finished');
+  ok((await simBook({})).s === 400, 'and a booking without a batch or a reason');
+  ok((await simBook({ purpose: 'Lamp calibration' })).s === 200, 'a reason is enough');
+  db.prepare("UPDATE batches SET status='done', done_at='2020-01-01T00:00:00Z' WHERE id=?").run(b.j.id);
+  const stepsBefore = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id).steps;
+  const simDone = await call('POST', '/api/bookings', {
+    equipment_id: sim.j.id,
+    batch_id: b.j.id,
+    start: at(15, 9),
+    end: at(15, 10),
+  });
+  ok(simDone.s === 200, 'a finished (even locked) batch can be measured');
+  ok(
+    (await call('GET', '/api/bookings/pending')).j.every((k) => k.batch_id && k.equipment_id !== sim.j.id),
+    'no outcome is asked for bookings outside a batch nor for measurements',
+  );
+  const bl2 = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id);
+  ok(bl2.steps === stepsBefore, 'measurements do not count as fabrication steps');
+  ok((await call('DELETE', '/api/bookings/' + simDone.j.id)).s === 200, 'and its booking can be removed');
 }
 
 console.log('Batches: variants, lock, mentions');

@@ -463,7 +463,7 @@ export function PresetSheet({
                         id="name-pop-input"
                         autoFocus
                         value={naming}
-                        placeholder={`e.g. ${kind.summary(norm(kind, draft.data), ctx).split(' · ')[0]}`}
+                        placeholder={`For example, ${kind.summary(norm(kind, draft.data), ctx).split(' · ')[0]}`}
                         onChange={(e) => setNaming(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Escape') {

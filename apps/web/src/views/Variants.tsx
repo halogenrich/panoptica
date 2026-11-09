@@ -3,7 +3,7 @@ import { describeChanges, nextVariantId, type VarChange, type Variant, type Vari
 import { api } from '../api';
 import { Seg } from '../lib/ui';
 import { RemoveRow } from './common';
-import { SEG, METHODS, type Method } from '../stacks/model';
+import { SEG, METHODS, type Method, methodName } from '../stacks/model';
 import type { Batch } from './Batches';
 
 type P = { id: number; name: string; segment: string; parent_id: number | null };
@@ -98,7 +98,7 @@ export default function Variants({ b, onSaved }: { b: Batch; onSaved: (v: Varian
               setControl(x);
               save(v.list, x).catch((e) => setErr(e.message));
             },
-            v.list.length ? 'e.g. 1 to 4' : 'All',
+            v.list.length ? 'For example, 1 to 4' : 'All',
             'Substrates of the default device',
           )}
         </div>
@@ -135,7 +135,7 @@ export default function Variants({ b, onSaved }: { b: Batch; onSaved: (v: Varian
                   save(v.list.map((y) => (y.id === x.id ? { ...y, substrates: n } : y))).catch((e) =>
                     setErr(e.message),
                   ),
-                'e.g. 5 to 8',
+                'For example, 5 to 8',
                 `Substrates of ${x.name}`,
               )}
             </div>
@@ -331,7 +331,7 @@ function Editor({
           <input
             value={v.name}
             autoFocus
-            placeholder="e.g. 5 % MACl"
+            placeholder="For example, 5 % MACl"
             onChange={(e) => onChange({ ...v, name: e.target.value })}
           />
         </label>
@@ -339,7 +339,7 @@ function Editor({
           <span className="mut small">Substrates</span>
           <input
             value={v.substrates}
-            placeholder="e.g. 5 to 8"
+            placeholder="For example, 5 to 8"
             onChange={(e) => onChange({ ...v, substrates: e.target.value })}
           />
         </label>
@@ -412,7 +412,7 @@ function Editor({
                       />
                       <input
                         className="var-amount"
-                        placeholder="Amount, e.g. 1 mg/mL"
+                        placeholder="Amount, for example 1 mg/mL"
                         value={c.amount}
                         onChange={(e) => set(i, { ...c, amount: e.target.value })}
                       />
@@ -433,7 +433,9 @@ function Editor({
                         aria-label="Method"
                       >
                         {METHODS.filter((m) => m !== 'Substrate').map((m) => (
-                          <option key={m}>{m}</option>
+                          <option key={m} value={m}>
+                            {methodName(m)}
+                          </option>
                         ))}
                       </select>
                       {SEG[c.m as Method] && (
@@ -460,7 +462,7 @@ function Editor({
                       {layerSel(c.slot, (n) => set(i, { ...c, slot: n }), { whole: true })}
                       <input
                         className="var-text"
-                        placeholder="e.g. annealed at 120 °C instead of 100 °C"
+                        placeholder="For example, annealed at 120 °C instead of 100 °C"
                         value={c.text}
                         onChange={(e) => set(i, { ...c, text: e.target.value })}
                       />

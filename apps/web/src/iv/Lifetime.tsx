@@ -57,7 +57,7 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
   const fig = useRef<SVGSVGElement>(null),
     jvFig = useRef<SVGSVGElement>(null),
     fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group),
+    hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   const devs = useMemo(() => [...new Set(s.curves.map((c) => `${c.sample}|${c.substrate}|${c.pixel}`))].sort(), [s]);
   const several = new Set(devs.map((d) => d.split('|').slice(0, 2).join('|'))).size > 1;
@@ -130,8 +130,7 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
     X = (t: number) => L + (t / X1) * PWT,
     xt = Array.from({ length: Math.round(X1 / xStep) + 1 }, (_, i) => +(i * xStep).toFixed(6));
   const ylab = norm ? `Normalised ${NAME[metric]}` : `${NAME[metric]} (${UNIT[metric]})`;
-  const wm = logo && hasLogo ? fs.watermark : '',
-    grp = logo && hasLogo ? fs.group : '';
+  const wm = logo && hasLogo ? fs.watermark : '';
   const fT = (t: number | null, l: (typeof lines)[number]) =>
     metric === 'rs' || metric === 'rsh'
       ? '—'
@@ -208,24 +207,12 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
         <image
           href={wm}
           x={pw < PW ? L + pw + STRIP / 2 - 56 : L + pw * 0.5 - 80}
-          y={T + PH - (grp ? 96 : 78)}
+          y={T + PH - 78}
           width={pw < PW ? 112 : 160}
           height={62}
           opacity={0.3}
           preserveAspectRatio="xMidYMax meet"
         />
-      )}
-      {grp && (
-        <text
-          x={pw < PW ? L + pw + STRIP / 2 : L + pw * 0.5}
-          y={T + PH - 16}
-          fontSize={12.5}
-          textAnchor="middle"
-          fill={INK}
-          opacity={0.5}
-        >
-          {grp}
-        </text>
       )}
       <rect x={L} y={T} width={pw} height={PH} fill="none" stroke={INK} strokeWidth={1.6} />
     </svg>
@@ -417,7 +404,7 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
       <div className="inline">
         {hasLogo && (
           <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
+            <Check v={logo} on={setLogo} /> Lab logo
           </label>
         )}
         <button

@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.37.0 (2026-11-09)
+
+- **Plots carry the lab logo only**, never the lab name: J–V figures, comparisons, lifetime and stability plots, box plots, the pixel map. The option is now called **Lab logo**.
+- **Shorted pixels**: a pixel that shorts in one direction and works in the other is a shorted pixel; neither scan counts in best values, statistics, comparisons or records. Existing measurements are checked once on start. The import preview counts the same way.
+- **Pixel map, both directions**: backward / forward PCE on one line under the pixel number ("22.9 / 23.0"), sized to fit; a pixel dead or shorted both ways shows the word once.
+- **Bookings outside batches**: choose **No batch** and say what the booking is for. **J–V measurement** is a new procedure for equipment (the solar simulator, set by its name once): it takes a finished (Done) batch, locked ones included, or no batch with the reason. Such bookings ask no outcome and do not count in a batch's progress.
+- **Full words**: Substrate preparation, Organic evaporation, Metal evaporation, Evaporated perovskite in the side menu, recipes and stacks; layer methods written out (Spin coating, Organic evaporation…); forward and backward instead of fwd and bwd; standard deviation, interquartile range, minimum and maximum; "for example" instead of e.g.; day and month names in full (chart axes use dd/mm and mm/yyyy). GB: stays.
+- Colour pickers are circles everywhere. Dialogs keep their rounded corners when they scroll (slim scrollbar inside the corners instead of the square Windows one).
+
 ## 0.36.2 (2026-11-09)
 
 - Box plots carry the lab logo only, without the lab name, on screen, in exports, the batch report, comparisons and slides. With no logo set, box plots have none.
