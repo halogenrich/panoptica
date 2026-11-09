@@ -83,7 +83,7 @@ export function encrypt(plain: Buffer, keyHex = backupKey()) {
   return Buffer.concat([MAGIC, iv, c.update(plain), c.final(), c.getAuthTag()]);
 }
 export function decrypt(box: Buffer, keyHex = backupKey()) {
-  if (!box.subarray(0, 4).equals(MAGIC)) throw new Error('not an encrypted Perovskite Lab backup');
+  if (!box.subarray(0, 4).equals(MAGIC)) throw new Error('not an encrypted PANOPTICA backup');
   const iv = box.subarray(4, 16),
     tag = box.subarray(box.length - 16),
     d = createDecipheriv('aes-256-gcm', Buffer.from(keyHex, 'hex'), iv);

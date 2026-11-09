@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Perovskite Lab
+title PANOPTICA
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -41,7 +41,7 @@ if "%PORT%"=="" set PORT=3000
 set HOST=127.0.0.1
 if /i "%~1"=="lan" set HOST=0.0.0.0
 echo.
-echo Perovskite Lab is starting at http://localhost:%PORT%
+echo PANOPTICA is starting at http://localhost:%PORT%
 echo Close this window to stop it.
 if /i "%~1"=="lan" (
   echo Other computers and phones on the same network can open:

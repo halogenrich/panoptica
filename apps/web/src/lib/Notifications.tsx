@@ -4,7 +4,7 @@ import { api } from '../api';
 
 export type Note = {
   id: number;
-  kind: 'record' | 'fork' | 'comment' | 'reply' | 'mention' | 'update' | 'batch' | 'runs';
+  kind: 'record' | 'fork' | 'comment' | 'reply' | 'mention' | 'update' | 'batch' | 'runs' | 'access' | 'hours';
   text: string;
   link: { view: string; id: number };
   actor: string;
@@ -19,6 +19,8 @@ const ICON: Record<string, string> = {
   mention: '@',
   batch: '▶︎',
   update: '⬆︎',
+  access: '＋',
+  hours: '◐',
 };
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 1000;

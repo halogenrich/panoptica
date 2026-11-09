@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Perovskite Lab on Linux (made for Fedora; works on other distributions with bash and Node.js 22.13+).
+# PANOPTICA on Linux (made for Fedora; works on other distributions with bash and Node.js 22.13+).
 #   ./start.sh        this computer only (http://localhost:3000)
 #   ./start.sh lan    also other computers and phones on the network
 # Environment: PORT (3000), OPEN_BROWSER=0 to not open the browser.
@@ -11,7 +11,7 @@ if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.
   fail "Node.js 22.13 or newer is required (found: $(node -v 2>/dev/null || echo none)). On Fedora 41 or newer:  sudo dnf install nodejs npm
 On Fedora 40:  sudo dnf install nodejs22 nodejs22-npm   (other systems: https://nodejs.org)"
 fi
-echo "Perovskite Lab $(node -p "require('./package.json').version")"
+echo "PANOPTICA $(node -p "require('./package.json').version")"
 for f in Substrate SolutionPrep Spin OrganicEvap MetalEvap Stack Stack3D; do rm -f "apps/web/src/views/$f.tsx"; done  # removed in 0.3.0
 
 # 1) dependencies: first run, or after an update changed a package.json
@@ -33,7 +33,7 @@ if ! node -e "require('net').createServer().once('error',()=>process.exit(1)).li
   fail "Port $PORT is already in use: the app is probably running already (another terminal, or the background service:
   systemctl --user status perovskite-lab). Open http://localhost:$PORT, or start on another port: PORT=3100 ./start.sh"
 fi
-echo; echo "Perovskite Lab is starting at http://localhost:$PORT (press Ctrl+C or close this window to stop it)"
+echo; echo "PANOPTICA is starting at http://localhost:$PORT (press Ctrl+C or close this window to stop it)"
 if [ "$1" = "lan" ]; then
   echo "Other computers and phones on the same network can open:"
   for ip in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do echo "  http://$ip:$PORT"; done

@@ -1,4 +1,4 @@
-# Perovskite Lab: security and data management
+# PANOPTICA: security and data management
 
 For the LNES group and for the university's IT. It describes what the app stores, who can see what, how the data is protected, backed up and recovered, what the app needs from a host, and what is not covered yet. Version 0.26.
 
@@ -85,7 +85,7 @@ The app supports HTTPS in two ways (section 7). **Without HTTPS, passwords and d
 
 ## 6. Updates and the software supply chain
 
-- Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `perovskite-lab.zip` and its SHA-256.
+- Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `panoptica.zip` and its SHA-256 (and `perovskite-lab.zip` for installs from before 0.36).
 - The app downloads a release only when an admin asks, verifies the SHA-256, backs up the database, and replaces only program files; the data, backups and `config/` are never touched.
 - Dependabot opens weekly pull requests for library updates; each runs the same checks.
 - The repository is public, so the app reads the releases without any credential. If it is made private, the app needs a fine-grained token limited to reading this one repository, kept in `config/update.json` on the lab computer; it is never sent to browsers and never stored in the database or backups.
@@ -109,7 +109,7 @@ Example nginx site:
 ```nginx
 server {
   listen 443 ssl;
-  server_name perovskite-lab.example.unicamp.br;
+  server_name panoptica.example.unicamp.br;
   ssl_certificate     /etc/ssl/certs/institution.pem;
   ssl_certificate_key /etc/ssl/private/institution.key;
   client_max_body_size 60m;

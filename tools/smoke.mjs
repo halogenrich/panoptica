@@ -174,39 +174,107 @@ cookie = '';
 ok((await call('GET', '/api/users')).s === 401, 'not signed in: refused');
 cookie = c0;
 
-console.log('Passwords');
+console.log('Accounts and passwords');
+{
+  const pub = (await call('GET', '/api/lab/public')).j;
+  ok(pub.setup === null, 'set up already (an admin exists): no setup screens');
+  ok((await call('POST', '/api/setup', { admin: {}, lab: {} })).s === 409, 'the setup cannot run again');
+}
+const photo = 'data:image/png;base64,iVBORw0KGgo=';
+const askBody = {
+  firstNames: 'Ana',
+  surnames: 'de Souza',
+  surname: 'Souza',
+  email: 'ana@lab.example',
+  birthDate: '1999-04-02',
+  department: 'Applied Physics',
+  supervisor: 'Prof. Lima',
+  photo,
+};
+const asked = await call('POST', '/api/access-requests', askBody);
 ok(
-  (await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'short' })).s === 400,
-  'short password refused',
+  asked.s === 200 && asked.j.username === 'anas',
+  `access request: username ${asked.j.username} (first name + surname letter)`,
 );
+ok((await call('POST', '/api/access-requests', askBody)).s === 409, 'one waiting request per email');
+const asked2 = await call('POST', '/api/access-requests', { ...askBody, firstNames: 'Ána', email: 'ana2@lab.example' });
+ok(asked2.j.username === 'anaso', 'same name: the next letter of the surname, never a number');
+ok((await call('POST', '/api/login/check', { username: 'anas' })).j.next === 'pending', 'waiting for an admin');
+ok((await call('POST', '/api/login/check', { username: 'nobody' })).s === 404, 'unknown username: no such user');
 ok(
-  (await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'perovskite123' })).s ===
-    400,
-  'common password refused',
+  db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='access'").get().n === 2,
+  'admins are told about each request',
 );
-ok(
-  (await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'ana-loves-cells' }))
-    .s === 400,
-  'password with the username refused',
-);
-ok(
-  (await call('POST', '/api/users', { username: 'ana', name: 'Ana', role: 'member', password: 'blue glass at noon' }))
-    .s === 200,
-  'good password accepted',
-);
+const reqs = (await call('GET', '/api/access-requests')).j;
+const r1 = reqs.find((r) => r.username === 'anas'),
+  r2 = reqs.find((r) => r.username === 'anaso');
+ok((await call('POST', `/api/access-requests/${r2.id}/decline`, { reason: 'Not in the lab' })).s === 200, 'declined');
+const dc = (await call('POST', '/api/login/check', { username: 'anaso' })).j;
+ok(dc.next === 'declined' && dc.reason === 'Not in the lab', 'the declined person sees the reason');
+ok((await call('POST', `/api/access-requests/${r1.id}/accept`, { tags: [] })).s === 200, 'accepted');
+ok((await call('POST', '/api/login/check', { username: 'anas' })).j.next === 'set', 'accepted: chooses a password');
+const choose = (password, extra = {}) =>
+  call('POST', '/api/login/set', {
+    username: 'anas',
+    email: 'ana@lab.example',
+    birthDate: '1999-04-02',
+    password,
+    ...extra,
+  });
+ok((await choose('Glass-at-noon7', { birthDate: '1999-04-03' })).s === 401, 'wrong birth date: refused');
+ok((await choose('Ab1!')).s === 400, 'short password refused');
+ok((await choose('Glassatnoon7')).s === 400, 'password without a special character refused');
+ok((await choose('glass-at-noon7')).s === 400, 'password without an upper case letter refused');
+ok((await choose('Anas-glass-7')).s === 400, 'password with the username refused');
+const chosen = await choose('Ação-Solar 7');
+ok(chosen.s === 200 && /sid=/.test(chosen.h.get('set-cookie') ?? ''), 'accented password accepted, signed in');
+ok((await call('POST', '/api/login/check', { username: 'anas' })).j.next === 'password', 'then asks for the password');
 const ana = await fetch(base + '/api/login', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ username: 'ana', password: 'blue glass at noon' }),
+  body: JSON.stringify({ username: 'anas', password: 'Ação-Solar 7' }), // the same, typed decomposed
 });
+ok(ana.status === 200, 'the same password typed with combining accents signs in');
 const anaCookie = (ana.headers.get('set-cookie') ?? '').split(';')[0];
 ok(
   (await fetch(base + '/api/users', { headers: { cookie: anaCookie } })).status === 403,
   'member cannot open admin pages',
 );
-for (let i = 0; i < 5; i++) await call('POST', '/api/login', { username: 'ana', password: 'nope' + i });
+const vis = await call('POST', '/api/users', {
+  firstNames: 'Vic',
+  surnames: 'Tor',
+  surname: 'Tor',
+  email: 'vic@guest.example',
+  birthDate: '1990-01-01',
+  until: '2099-12-31',
+});
+ok(vis.s === 200 && vis.j.username === 'vict', 'admins add visitors, with the same username rule');
 ok(
-  (await call('POST', '/api/login', { username: 'ana', password: 'blue glass at noon' })).s === 429,
+  (
+    await call('POST', '/api/users', {
+      ...{ firstNames: 'Old', surnames: 'Visit', surname: 'Visit', email: 'o@x.example', birthDate: '1990-01-01' },
+      until: '2001-01-01',
+    })
+  ).s === 400,
+  'a visit that already ended is refused',
+);
+const vset = await call('POST', '/api/login/set', {
+  username: 'vict',
+  email: 'vic@guest.example',
+  birthDate: '1990-01-01',
+  password: 'Visit-2099!',
+});
+ok(vset.s === 200, 'visitor chooses a password');
+ok((await call('PATCH', '/api/users/' + vis.j.id, { resetPassword: true })).s === 200, 'admin resets a password');
+ok(
+  (await call('POST', '/api/login/check', { username: 'vict' })).j.next === 'set',
+  'after a reset the person chooses a new one',
+);
+db.prepare("UPDATE users SET visitor_until='2001-01-01' WHERE id=?").run(vis.j.id);
+ok((await call('POST', '/api/login/check', { username: 'vict' })).j.next === 'ended', 'an ended visit is told apart');
+for (let i = 0; i < 5; i++) await call('POST', '/api/login', { username: 'anas', password: 'nope' + i });
+ok(
+  (await call('POST', '/api/login', { username: 'anas', password: 'Ação-Solar 7' })).s === 429,
   'sign-in paused after 5 failures',
 );
 
@@ -252,7 +320,8 @@ const acts = a.j.rows.map((r) => r.action);
 ok(
   acts.includes('Signed in') &&
     acts.includes('Failed sign-in') &&
-    acts.includes('Created a user') &&
+    acts.includes('Chose a password (first sign-in)') &&
+    acts.some((x) => x.startsWith('Accepted the access request')) &&
     acts.includes('Made a backup') &&
     acts.includes('Viewed the backup key'),
   'sign-ins, changes and sensitive reads logged',
@@ -261,7 +330,7 @@ ok(
   acts.some((x) => x.startsWith('Refused')),
   'refused requests logged',
 );
-ok(!JSON.stringify(a.j).includes('blue glass'), 'no passwords in the log');
+ok(!JSON.stringify(a.j).includes('Solar 7'), 'no passwords in the log');
 ok((await call('GET', '/api/audit/verify')).j.ok === true, 'log chain intact');
 db.prepare("UPDATE audit SET username='someone' WHERE id=2").run();
 const v = (await call('GET', '/api/audit/verify')).j;
@@ -451,6 +520,26 @@ console.log('Calendar: shortest booking and cleanup');
   const bl = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id);
   ok(bl.steps === 4 && bl.concluded === 0, 'batch progress counts its booked steps and concluded ones');
   ok((await call('GET', '/api/search?q=Smoke')).j.containers !== undefined, 'search also looks in containers');
+  // working hours (local time of the computer that runs the app): Monday to Friday 08–18 unless set otherwise
+  const at = (d, h) => new Date(2030, 2, d, h).toISOString();
+  const bookAt = (d, h) =>
+    call('POST', '/api/bookings', { equipment_id: plain.j.id, batch_id: b.j.id, start: at(d, h), end: at(d, h + 1) });
+  ok((await bookAt(11, 9)).j.offHours === false, 'a booking in working hours is just booked');
+  const sun = await bookAt(10, 3);
+  ok(sun.s === 200 && sun.j.offHours === true, 'a booking outside working hours is allowed, and flagged');
+  const hours = Array.from({ length: 7 }, (_, i) => ({ on: true, from: i === 6 ? '02:00' : '08:00', to: '18:00' }));
+  ok((await call('PUT', '/api/lab', { hours })).s === 200, 'working days and hours set (Sundays too)');
+  ok((await bookAt(10, 5)).j.offHours === false, 'then a Sunday booking in the hours is not flagged');
+  const memberBook = await fetch(base + '/api/bookings', {
+    method: 'POST',
+    headers: { cookie: anaCookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ equipment_id: plain.j.id, batch_id: b.j.id, start: at(12, 22), end: at(12, 23) }),
+  });
+  ok(memberBook.status !== 500, '(a member books at night)');
+  ok(
+    (await call('GET', '/api/lab/birthdays')).j.some((x) => x.md === '04-02'),
+    'birthdays for the calendar: day and month',
+  );
 }
 
 console.log('Batches: variants, lock, mentions');
@@ -504,15 +593,15 @@ console.log('Batches: variants, lock, mentions');
 
   // @mentions: ana is told; a name that is no user is ignored
   await call('PATCH', '/api/batches/' + b.j.id, { visibility: 'shared' });
-  const ana = db.prepare("SELECT id FROM users WHERE username='ana'").get().id;
-  const c = await call('POST', `/api/comments/batch/${b.j.id}`, { text: 'Look at this @ana, and @nobody.' });
+  const ana = db.prepare("SELECT id FROM users WHERE username='anas'").get().id;
+  const c = await call('POST', `/api/comments/batch/${b.j.id}`, { text: 'Look at this @anas, and @nobody.' });
   ok(c.s === 200, 'comment with mentions saved');
   ok(
     db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='mention' AND user_id=?").get(ana).n === 1,
     'the person mentioned is notified',
   );
   const people = (await call('GET', `/api/comments/batch/${b.j.id}/people`)).j;
-  ok(people.some((p) => p.username === 'ana') && people.some((p) => p.me), 'people who can open it are offered');
+  ok(people.some((p) => p.username === 'anas') && people.some((p) => p.me), 'people who can open it are offered');
 }
 
 console.log('Updates');
@@ -533,6 +622,79 @@ ok(
   db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='update'").get().n === 0,
   'no notification for a version found while saving settings',
 );
+
+console.log('First setup (a fresh install)');
+{
+  const port2 = await freePort(),
+    base2 = `http://127.0.0.1:${port2}`;
+  const env2 = { ...env, PORT: String(port2), DB_PATH: join(tmp, 'fresh.db'), ADMIN_PASSWORD: '' };
+  const s2 = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
+    cwd: join(root, 'apps/server'),
+    env: env2,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log2 = '';
+  s2.stdout.on('data', (x) => (log2 += x));
+  s2.stderr.on('data', (x) => (log2 += x));
+  for (let i = 0; i < 100 && !log2.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+  ok(
+    /not set up yet/.test(log2) && !/password/i.test(log2.split('not set up yet')[1] ?? ''),
+    'no admin password printed: it asks for the setup',
+  );
+  const j = (m, path, body) =>
+    fetch(base2 + path, {
+      method: m,
+      headers: body ? { 'content-type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  ok(
+    (await (await j('GET', '/api/lab/public')).json()).setup === 'here',
+    'setup offered on the computer that runs the app',
+  );
+  ok((await j('POST', '/api/access-requests', askBody)).status === 409, 'no requests before the setup');
+  const setup = {
+    admin: {
+      firstNames: 'Richard',
+      surnames: 'Costa',
+      surname: 'Costa',
+      email: 'r@lab.example',
+      birthDate: '1995-06-01',
+      password: 'Perov-Ç4ke',
+    },
+    lab: {
+      name: 'LNES',
+      institution: 'Unicamp',
+      domains: ['lab.example'],
+      departments: ['Applied Physics'],
+      hours: Array.from({ length: 7 }, (_, i) => ({ on: i < 6, from: '08:00', to: '18:00' })),
+    },
+  };
+  ok(
+    (await j('POST', '/api/setup', { ...setup, admin: { ...setup.admin, password: 'weakpass' } })).status === 400,
+    'setup: weak password refused',
+  );
+  const st = await j('POST', '/api/setup', setup);
+  const sj = await st.json();
+  ok(
+    st.status === 200 && sj.username === 'richardc' && /sid=/.test(st.headers.get('set-cookie') ?? ''),
+    'setup makes the first admin and signs in',
+  );
+  ok((await j('POST', '/api/setup', setup)).status === 409, 'and cannot run again');
+  const pub2 = await (await j('GET', '/api/lab/public')).json();
+  ok(
+    pub2.name === 'LNES' && pub2.setup === null && pub2.domains[0] === 'lab.example',
+    'the lab name and domains are kept',
+  );
+  ok(
+    (await j('POST', '/api/access-requests', { ...askBody, email: 'ana@gmail.com' })).status === 400,
+    'requests only from the lab domains',
+  );
+  ok(
+    (await j('POST', '/api/access-requests', { ...askBody, email: 'ana@sub.lab.example' })).status === 200,
+    'subdomains count',
+  );
+  s2.kill();
+}
 
 db.close();
 console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed');
