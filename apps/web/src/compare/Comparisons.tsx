@@ -809,7 +809,7 @@ function Results({
     [outl, setOutl] = useOutliers(),
     [logo, setLogo] = useLogoChoice(),
     fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group);
+    hasLogo = !!fs.watermark;
   const figs = useRef<Partial<Record<MetricKey, SVGSVGElement | null>>>({}),
     jvRef = useRef<SVGSVGElement>(null),
     jvOne = useRef<Record<string, SVGSVGElement | null>>({}),
@@ -833,7 +833,7 @@ function Results({
   );
   const loading = groups.some((g) => g.members.some((m) => !sets[m.set] && !missing.includes(m.set)));
   const meta = (k: MetricKey) => METRICS.find((m) => m.key === k)!;
-  const unit = (k: MetricKey) => (rel ? '× ref' : meta(k).unit);
+  const unit = (k: MetricKey) => (rel ? '× reference' : meta(k).unit);
   const digits = (k: MetricKey) => (rel ? 3 : meta(k).digits);
   const panel = (k: MetricKey) => ({
     key: k,
@@ -980,7 +980,7 @@ function Results({
         ))}
         {refGroup && (
           <text x={1830} y={tTop} textAnchor="end" fill="#5f6570" fontSize={tfs - 4}>
-            PCE vs ref.
+            PCE relative to the reference
           </text>
         )}
         <line x1={90} x2={1830} y1={tTop + 36} y2={tTop + 36} stroke="#c7cad1" strokeWidth={1.5} />
@@ -1031,9 +1031,9 @@ function Results({
             'Reference',
             'Devices',
             'Pixels',
-            ...ALL_KEYS.flatMap((k) => [`${k} median`, `${k} mean`, `${k} sd`]),
+            ...ALL_KEYS.flatMap((k) => [`${k} median`, `${k} mean`, `${k} standard deviation`]),
             'Best PCE (%)',
-            'PCE median vs reference (%)',
+            'PCE median relative to the reference (%)',
           ],
           ...table.map((t) => [
             t.g.name,
@@ -1237,7 +1237,7 @@ function Results({
                 <OutlierToggle v={outl} on={setOutl} />
                 {hasLogo && (
                   <label className="inline small">
-                    <Check v={logo} on={setLogo} /> Group logo
+                    <Check v={logo} on={setLogo} /> Lab logo
                   </label>
                 )}
               </div>
@@ -1279,7 +1279,7 @@ function Results({
             <p className="mut small cx-caption">
               Dots: pixels (gold ring = best of the group) ·{' '}
               {outl
-                ? 'triangles: outliers (beyond 1.5 × IQR)'
+                ? 'triangles: outliers (beyond 1.5 × the interquartile range)'
                 : 'arrow with a number: outliers beyond the axis (still counted)'}
               {dirs.length > 1 ? ' · forward lighter' : ''}
               {show.includes('rsh') ? ' · Rsh on a log axis' : ''}
@@ -1306,7 +1306,7 @@ function Results({
                         {meta(k).label} <span className="mut">({unit(k)})</span>
                       </th>
                     ))}
-                    {refGroup && <th className="num">PCE vs reference</th>}
+                    {refGroup && <th className="num">PCE relative to the reference</th>}
                   </tr>
                 </thead>
                 <tbody>

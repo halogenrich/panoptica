@@ -11,12 +11,13 @@ import {
   type IvCurve,
   type IvFile,
   type LifetimeRun,
+  shortedPixels,
 } from '@psc/core';
 import { api } from '../api';
 import { Modal } from '../lib/ui';
 import { SYSTEM, type Link } from './model';
 
-const dec = new TextDecoder('windows-1252'); // instrument files are plain ASCII / Latin-1 (e.g. "mA/cm²")
+const dec = new TextDecoder('windows-1252'); // instrument files are plain ASCII / Latin-1 (for example "mA/cm²")
 const fdate = (d: string) =>
   d
     ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -336,33 +337,42 @@ function DraftCard({
   // check sweeps (quick scans before the real measurement) are found the same way the server does, and never give the best
   const chk = useMemo(() => checkSweeps(d.curves), [d.curves]);
   const real = (c: IvCurve) => !chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`);
+  // a pixel that shorts in one direction is shorted (as the server counts it)
+  const shorted = useMemo(
+    () =>
+      shortedPixels(
+        d.curves.map((c) => ({ ...c, kind: real(c) ? null : 'check', status: ivMetrics(c.V, c.J, c.pin).status })),
+      ),
+    [d.curves, chk],
+  );
+  const pxOk = (c: IvCurve) => !shorted.has(`${c.sample}|${c.substrate}|${c.pixel}`);
   const samples = useMemo(
     () =>
       [...new Set(d.curves.map((c) => c.sample))].map((s) => {
         const cs = d.curves.filter((c) => c.sample === s),
-          ms = cs.map((c) => ({ ...ivMetrics(c.V, c.J, c.pin), real: real(c) }));
+          ms = cs.map((c) => ({ ...ivMetrics(c.V, c.J, c.pin), real: real(c), px: pxOk(c) }));
         return {
           s,
           subs: new Set(cs.map((c) => c.substrate)).size,
           px: new Set(cs.map((c) => c.substrate + '|' + c.pixel)).size,
-          ok: ms.filter((m) => m.status === 'ok' && m.real).length,
+          ok: ms.filter((m) => m.status === 'ok' && m.real && m.px).length,
           n: ms.length,
           checks: ms.filter((m) => !m.real).length,
-          best: Math.max(0, ...ms.filter((m) => m.status === 'ok' && m.real).map((m) => m.pce)),
+          best: Math.max(0, ...ms.filter((m) => m.status === 'ok' && m.real && m.px).map((m) => m.pce)),
         };
       }),
-    [d.curves, chk],
+    [d.curves, chk, shorted],
   );
   const devs = useMemo(
     () =>
       [...new Set(d.curves.map((c) => c.sample + '|' + c.substrate))].map((k) => {
         const [sample, substrate] = k.split('|'),
           ms = d.curves
-            .filter((c) => c.sample === sample && c.substrate === substrate && real(c))
+            .filter((c) => c.sample === sample && c.substrate === substrate && real(c) && pxOk(c))
             .map((c) => ivMetrics(c.V, c.J, c.pin));
         return { sample, substrate, best: Math.max(0, ...ms.filter((m) => m.status === 'ok').map((m) => m.pce)) };
       }),
-    [d.curves, chk],
+    [d.curves, chk, shorted],
   );
   return (
     <section className="group">

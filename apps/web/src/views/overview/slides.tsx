@@ -350,7 +350,7 @@ export function PresentationExport({
     ok && top
       ? `${top.owner} · ${top.sample.replace(/_/g, ' ')}, substrate ${top.substrate}, pixel ${ok.best.pixel}`
       : '';
-  const figLogo = logo && (fs.watermark || fs.group) ? fs : undefined;
+  const figLogo = logo && fs.watermark ? fs : undefined;
   // slide layout: efficiency over time and the J–V curve on the left, the batch's box plots and the cell's details on the right
   const JH = 375,
     JW = (700 * JH) / 500,
@@ -441,7 +441,7 @@ export function PresentationExport({
           {row(
             'slide',
             'Full slide (16:9)',
-            'All three figures with the title and the group logo, ready to drop into a deck',
+            'All three figures with the title and the lab logo, ready to drop into a deck',
             `overview-${file}`,
             true,
             2,

@@ -41,6 +41,7 @@ export function artOf(e: { art?: string | null; role?: string; name: string }): 
   if (/uv|ozone|plasma/.test(n)) return 'uvozone';
   if (/ultra|sonic|bath|clean/.test(n)) return 'ultrasonic';
   if (e.role === 'prep') return 'uvozone';
+  if (e.role === 'measure') return 'solarsim';
   if (/hot ?plate|anneal/.test(n)) return 'hotplate';
   if (/glove ?box/.test(n)) return 'glovebox';
   if (/sun|simulat|j-?v|solar/.test(n)) return 'solarsim';

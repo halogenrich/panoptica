@@ -5,6 +5,7 @@ import type { Dir } from './iv';
 import {
   boxStats,
   checkSweeps,
+  shortedPixels,
   despike,
   hysteresisIndex,
   ivDate,
@@ -170,5 +171,24 @@ describe('check sweeps', () => {
     });
     // 0.02 fwd only vs 0.05 with both: the 0.05 one is coarser, so it is the check sweep (clearly finer wins)
     expect([...checkSweeps([fwd('1', 0.02), fwd('2', 0.05), fwd('2', 0.05, 'rev')])]).toEqual(['s|1|1|2']);
+  });
+});
+
+describe('shorted pixels', () => {
+  const c = (pixel: string, status: 'ok' | 'short' | 'dead', kind: string | null = null) => ({
+    sample: 's',
+    substrate: '1',
+    pixel,
+    kind,
+    status,
+  });
+  it('a pixel that shorts in one direction and works in the other is shorted', () => {
+    expect([...shortedPixels([c('1', 'ok'), c('1', 'short'), c('2', 'ok'), c('2', 'ok')])]).toEqual(['s|1|1']);
+  });
+  it('check sweeps and later lifetime readings do not short a pixel', () => {
+    expect(shortedPixels([c('1', 'ok'), c('1', 'short', 'check'), c('2', 'ok'), c('2', 'short', 'life')]).size).toBe(0);
+  });
+  it('a dead scan is not a short', () => {
+    expect(shortedPixels([c('1', 'ok'), c('1', 'dead')]).size).toBe(0);
   });
 });

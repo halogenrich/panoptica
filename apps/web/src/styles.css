@@ -2978,7 +2978,7 @@ tr.dragging,
 .look-swatch {
   width: 18px;
   height: 18px;
-  border-radius: 5px;
+  border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
   flex: none;
 }
@@ -2986,15 +2986,6 @@ tr.dragging,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.look-color input[type='color'] {
-  width: 36px;
-  height: 28px;
-  padding: 0 2px;
-  border: 1px solid var(--sep);
-  border-radius: 6px;
-  background: var(--card);
-  cursor: pointer;
 }
 .look-row {
   display: grid;
@@ -3636,13 +3627,6 @@ button.tag.off {
 }
 .tag-edit:last-child {
   border-bottom: 0;
-}
-.tag-edit input[type='color'] {
-  width: 32px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: none;
 }
 .tag-edit input[type='text'] {
   flex: 1;
@@ -5039,14 +5023,6 @@ body.resizing-block * {
 .eq-row:last-child {
   border-bottom: 0;
 }
-.eq-row input[type='color'] {
-  width: 30px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: none;
-  flex: none;
-}
 .eq-row input:not([type='color']) {
   flex: 1;
   min-width: 0;
@@ -5586,13 +5562,6 @@ body.dragging-block * {
 }
 .eq-r:last-child {
   border-bottom: 0;
-}
-.eq-r input[type='color'] {
-  width: 36px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  background: none;
 }
 .eq-r input:not([type='color']),
 .eq-r select {
@@ -8050,4 +8019,70 @@ label.btn {
 }
 .fld .pos-row input[type='checkbox'] {
   width: 18px;
+}
+
+/* every colour picker is a circle: the browser's swatch fills it, a hairline ring keeps light colours visible */
+input[type='color'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px var(--sep);
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+input[type='color']::-moz-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+input[type='color']:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+
+/* scrolling dialogs keep their rounded corners: a slim scrollbar that stops short of them (the plain Windows one is square) */
+:is(.dialog, .modal-body, .sheet)::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+:is(.dialog, .modal-body, .sheet)::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 16px;
+}
+:is(.dialog, .modal-body, .sheet)::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--fg) 24%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 99px;
+}
+:is(.dialog, .modal-body, .sheet)::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  :is(.dialog, .modal-body, .sheet) {
+    scrollbar-width: thin;
+  }
+}
+
+/* day names in full; a narrow column (a day off) clips rather than wraps */
+.tg-col-h .wd,
+.month-h {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tg-col-h.slim .wd {
+  font-size: 11px;
 }

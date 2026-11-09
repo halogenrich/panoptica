@@ -71,7 +71,7 @@ const NAV: { group: string; items: [Key, string][] }[] = [
   {
     group: 'Recipes',
     items: [
-      ['s0', 'Substrate prep'],
+      ['s0', 'Substrate preparation'],
       ['s1', 'Solutions'],
       ['s2', 'Spin coating'],
       ['s3', 'Organic evaporation'],
@@ -103,12 +103,12 @@ const TABS: { key: string; label: string; items: Key[] }[] = [
   { key: 'recipes', label: 'Recipes', items: ['s0', 's1', 's2', 's3', 's4', 's5'] },
 ];
 const SHORT: Partial<Record<Key, string>> = {
-  s0: 'Substrate prep',
+  s0: 'Substrate preparation',
   s1: 'Solutions',
   s2: 'Spin coating',
-  s3: 'Organic evap.',
-  s4: 'Metal evap.',
-  s5: 'Evap. perovskite',
+  s3: 'Organic evaporation',
+  s4: 'Metal evaporation',
+  s5: 'Evaporated perovskite',
 };
 
 function Seg<T extends string>({ value, opts, on }: { value: T; opts: [T, string][]; on: (v: T) => void }) {

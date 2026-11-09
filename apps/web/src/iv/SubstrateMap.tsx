@@ -156,9 +156,21 @@ export function SubstrateMap({
     minH = Math.min(...pixels.map((p) => box(p).bh));
   const fit = (chars: number, rows: number) => Math.min((minW * 0.9) / (chars * 0.6), minH / (rows * 1.5), k * 0.08);
   const longest = Math.max(...pixels.map((p) => pid(p).length)) + 8;
-  // both directions: "18.9 / 17.2" under the pixel id
+  const v1 = (x: ReturnType<typeof shownCurve>) =>
+    !x ? '—' : x.m.status === 'ok' ? fmt(x.m.pce, 1) : STATUS_FILL[x.m.status as 'dead' | 'short'].text;
+  /** backward / forward PCE of a pixel, or one word when both are dead or both short */
+  const pair = (p: string) => {
+    const pc = curves.filter((c) => c.pixel === p),
+      t = [v1(shownCurve(pc, set.curves, 'rev')), v1(shownCurve(pc, set.curves, 'fwd'))];
+    return t[0] === t[1] && !/\d/.test(t[0]) ? t[0] : t.join(' / ');
+  };
+  // label width in em: digits and letters about 0.6, points, spaces and the slash narrower
+  const emOf = (t: string) => [...t].reduce((a, ch) => a + (/[0-9a-z—]/i.test(ch) ? 0.62 : ch === '/' ? 0.38 : 0.3), 0);
+  const bothFs = () =>
+    Math.min((minW * 0.84) / Math.max(...pixels.map((p) => emOf(pair(p)))), minH / (2.1 * 1.5), k * 0.09);
+  // both directions: "18.9 / 17.2" (backward / forward) on one line under the pixel id
   const inline = dir !== 'both' && fit(longest, 1) >= fit(4.6, 2.2),
-    fs = dir === 'both' ? fit(4.6, 3.4) : Math.max(fit(longest, 1), fit(4.6, 2.2)); // whichever gives the larger text
+    fs = dir === 'both' ? bothFs() : Math.max(fit(longest, 1), fit(4.6, 2.2)); // whichever gives the larger text
   const tile = (p: string) => {
     const pc = curves.filter((c) => c.pixel === p),
       one = (dd: Dir) => shownCurve(pc, set.curves, dd),
@@ -172,11 +184,8 @@ export function SubstrateMap({
     const st = c?.m.status ?? 'dead',
       col = st === 'ok' ? pceFill(c!.m.pce, max) : STATUS_FILL[st],
       counted = c ? inStats(c, set.curves) : false;
-    const v1 = (x: ReturnType<typeof one>) =>
-      !x ? '—' : x.m.status === 'ok' ? fmt(x.m.pce, 1) : STATUS_FILL[x.m.status as 'dead' | 'short'].text;
     // the % sign is in the legend: more room for the number
-    const val = st === 'ok' ? fmt(c!.m.pce, 1) : STATUS_FILL[st].text,
-      both = [v1(one('rev')), v1(one('fwd'))];
+    const val = dir === 'both' ? pair(p) : st === 'ok' ? fmt(c!.m.pce, 1) : STATUS_FILL[st].text;
     const aria = `Pixel ${p}: ${st === 'ok' ? `PCE ${fmt(c!.m.pce, 2)} %` : st === 'dead' ? 'dead' : 'short circuit'}${counted ? '' : st === 'ok' ? ', not in statistics' : ''}`;
     const gp = dev.px.get(p)!,
       [cx, cy] = gp.at;
@@ -232,37 +241,7 @@ export function SubstrateMap({
             vectorEffect="non-scaling-stroke"
           />
         )}
-        {dir === 'both' ? (
-          // both directions: the id, then backward above forward
-          <>
-            <text
-              x={cx}
-              y={cy - fs * 1.15}
-              fill={col.ink}
-              fontSize={fs * 0.72}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="px-id"
-            >
-              {pid(p)}
-            </text>
-            {both.map((t, j) => (
-              <text
-                key={j}
-                x={cx}
-                y={cy + fs * (j === 0 ? 0 : 1.15)}
-                fill={col.ink}
-                fontSize={fs}
-                textAnchor="middle"
-                dominantBaseline="central"
-                className="px-val"
-                opacity={j === 1 ? 0.85 : 1}
-              >
-                {t}
-              </text>
-            ))}
-          </>
-        ) : inline ? (
+        {inline ? (
           <text
             x={cx}
             y={cy}
@@ -412,7 +391,7 @@ export function PixelPanel({
   onClose: () => void;
 }) {
   const fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group),
+    hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   const cs = set.curves
     .filter((c) => c.sample === sample && c.substrate === substrate && c.pixel === pixel)
@@ -477,7 +456,7 @@ export function PixelPanel({
       <div className="inline">
         {hasLogo && (
           <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
+            <Check v={logo} on={setLogo} /> Lab logo
           </label>
         )}
         <button

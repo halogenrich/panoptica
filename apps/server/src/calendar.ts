@@ -19,14 +19,16 @@ const dm = (iso: string) => {
  */
 function offHours(
   by: { id: number; name: string },
-  d: { equipment_id: number; batch_id: number; start: string; end: string },
+  d: { equipment_id: number; batch_id?: number | null; purpose?: string; start: string; end: string },
   was?: { start: string; end: string },
 ) {
   const h = lab().hours,
     out = !withinHours(h, new Date(d.start), new Date(d.end));
   if (!out || (was && !withinHours(h, new Date(was.start), new Date(was.end)))) return out;
   const eq = db.prepare('SELECT name FROM equipment WHERE id=?').get(d.equipment_id) as { name: string } | undefined,
-    b = db.prepare('SELECT code FROM batches WHERE id=?').get(d.batch_id) as { code: string } | undefined;
+    b = d.batch_id
+      ? (db.prepare('SELECT code FROM batches WHERE id=?').get(d.batch_id) as { code: string } | undefined)
+      : undefined;
   const ids = (
     db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0 AND id<>?").all(by.id) as {
       id: number;
@@ -35,7 +37,7 @@ function offHours(
   notify(
     ids,
     'hours',
-    `${by.name} booked ${eq?.name ?? 'equipment'} outside working hours: ${dm(d.start)}–${dm(d.end).slice(6)}${b ? ` (batch ${b.code})` : ''}`,
+    `${by.name} booked ${eq?.name ?? 'equipment'} outside working hours: ${dm(d.start)}–${dm(d.end).slice(6)}${b ? ` (batch ${b.code})` : d.purpose ? ` (${d.purpose})` : ''}`,
     { view: 'calendar', id: 0 },
     by.name,
   );
@@ -43,14 +45,16 @@ function offHours(
 }
 
 /**
- * Equipment calendar. Every booking belongs to one of the user's Planned (or already Running) batches; when the first booked step of a batch starts,
- * the batch switches to Running by itself. Bookings of the same equipment cannot overlap, unless an admin books anyway.
+ * Equipment calendar. A booking belongs to one of the user's Planned (or already Running) batches, or to no batch with a stated
+ * purpose; J–V measurement equipment (the solar simulator, role 'measure') takes a finished (Done) batch or a purpose. When the
+ * first booked step of a batch starts, the batch switches to Running by itself. Bookings of the same equipment cannot overlap,
+ * unless an admin books anyway.
  */
 db.exec(`
 CREATE TABLE IF NOT EXISTS equipment(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, color TEXT NOT NULL DEFAULT '#2563eb',
   place TEXT NOT NULL DEFAULT '', pos INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS bookings(
-  id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE, batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+  id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE, batch_id INTEGER REFERENCES batches(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id), step TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
   start TEXT NOT NULL, end TEXT NOT NULL, forced INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end);
@@ -64,6 +68,35 @@ if (!bcols.includes('outcome')) {
   db.exec("ALTER TABLE bookings ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
   db.exec('ALTER TABLE bookings ADD COLUMN outcome_at TEXT');
   db.exec('ALTER TABLE bookings ADD COLUMN outcome_by INTEGER REFERENCES users(id)');
+}
+// 0.37: bookings outside batches (no batch_id) say what they are for
+if (!bcols.includes('purpose')) db.exec("ALTER TABLE bookings ADD COLUMN purpose TEXT NOT NULL DEFAULT ''");
+if (
+  (db.prepare('PRAGMA table_info(bookings)').all() as { name: string; notnull: number }[]).find(
+    (c) => c.name === 'batch_id',
+  )?.notnull
+) {
+  // SQLite cannot drop NOT NULL from a column: copy the table into one without it
+  const cols = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string }[]).map((c) => c.name).join(',');
+  const sql = (
+    db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bookings'").get() as { sql: string }
+  ).sql;
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    tx(() => {
+      db.exec(
+        sql
+          .replace(/CREATE TABLE (IF NOT EXISTS )?"?bookings"?/i, 'CREATE TABLE bookings_new')
+          .replace(/batch_id INTEGER NOT NULL/i, 'batch_id INTEGER'),
+      );
+      db.exec(`INSERT INTO bookings_new(${cols}) SELECT ${cols} FROM bookings`);
+      db.exec('DROP TABLE bookings');
+      db.exec('ALTER TABLE bookings_new RENAME TO bookings');
+      db.exec('CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end)');
+    });
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
 }
 /** The glovebox equipment the scheduler needs, by role; created, or renamed from the first defaults, once. */
 const GB: [string, string, string, string?][] = [
@@ -97,6 +130,17 @@ if (!db.prepare("SELECT 1 FROM meta WHERE key='prep-equipment'").get()) {
   );
   db.prepare("INSERT INTO meta(key,value) VALUES('prep-equipment',?)").run(new Date().toISOString());
 }
+// 0.37: the solar simulator measures finished devices (role 'measure'), found by its name once; admins can change it under Equipment
+if (!db.prepare("SELECT 1 FROM meta WHERE key='measure-equipment'").get()) {
+  db.exec(
+    "UPDATE equipment SET role='measure' WHERE role='' AND (name LIKE '%solar sim%' OR name LIKE '%simulator%' OR name LIKE '%J-V%' OR name LIKE '%J–V%')",
+  );
+  db.prepare("INSERT INTO meta(key,value) VALUES('measure-equipment',?)").run(new Date().toISOString());
+}
+const roleOf = (eq: number) =>
+  (db.prepare('SELECT role FROM equipment WHERE id=?').get(eq) as { role: string } | undefined)?.role ?? '';
+/** A locked batch's record stays fixed, but measuring it again on the J–V equipment is still allowed. */
+const lockFor = (batch: number | null, eq: number) => (batch && roleOf(eq) !== 'measure' ? lockedById(batch) : null);
 /** Shortest booking, in minutes. */
 export const MIN_BOOKING = 60;
 // times are compared as text, so every stored time must be UTC ISO (…Z)
@@ -123,7 +167,7 @@ const before = (t: string, min: number) => after(t, -min);
 const cleanupOf = (eq: number) =>
   (db.prepare('SELECT cleanup FROM equipment WHERE id=?').get(eq) as { cleanup: number } | undefined)?.cleanup ?? 0;
 const ROW = `SELECT k.*, e.name AS equipment, e.color, b.code AS batch_code, b.name AS batch_name, b.status AS batch_status, u.name AS user_name, u.photo_v AS photoV
-  FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN batches b ON b.id=k.batch_id JOIN users u ON u.id=k.user_id`;
+  FROM bookings k JOIN equipment e ON e.id=k.equipment_id LEFT JOIN batches b ON b.id=k.batch_id JOIN users u ON u.id=k.user_id`;
 const out = (r: any, u: U) => ({
   ...r,
   forced: !!r.forced,
@@ -179,7 +223,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       db
         .prepare(
           ROW +
-            ' WHERE k.outcome IS NULL AND k.end <= ? AND b.deleted_at IS NULL AND (k.user_id=? OR b.owner_id=?) ORDER BY k.start',
+            // batch steps only: bookings outside a batch and measurements of finished batches have no outcome to give
+            " WHERE k.outcome IS NULL AND k.end <= ? AND k.batch_id IS NOT NULL AND e.role<>'measure' AND b.deleted_at IS NULL AND (k.user_id=? OR b.owner_id=?) ORDER BY k.start",
         )
         .all(new Date().toISOString(), req.user.id, req.user.id) as any[]
     ).map((r) => out(r, req.user)),
@@ -237,8 +282,10 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   };
   const clashText = (x: any, start: string, end: string) =>
     x.end > start && x.start < end
-      ? `${x.equipment} is booked by ${x.user_name} for batch ${x.batch_code} at that time`
-      : `${x.equipment} needs ${cleanupOf(x.equipment_id)} min of cleanup between bookings, and this is too close to the booking of ${x.user_name} (batch ${x.batch_code})`;
+      ? `${x.equipment} is booked by ${x.user_name} for ${forWhat(x)} at that time`
+      : `${x.equipment} needs ${cleanupOf(x.equipment_id)} min of cleanup between bookings, and this is too close to the booking of ${x.user_name} (${forWhat(x)})`;
+  /** what a booking is for, in words: its batch, or the purpose given for a booking outside a batch */
+  const forWhat = (x: any) => (x.batch_code ? `batch ${x.batch_code}` : x.purpose || 'another use');
 
   /**
    * Schedule a whole batch: the given steps replace the batch's scheduler bookings (equipment with a role) that have not started. All or
@@ -277,7 +324,7 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       tx(() => {
         // only the scheduler's own steps are replaced: single bookings on other equipment (made in the Calendar) stay
         db.prepare(
-          "DELETE FROM bookings WHERE batch_id=? AND outcome IS NULL AND start > ? AND equipment_id IN (SELECT id FROM equipment WHERE role<>'')",
+          "DELETE FROM bookings WHERE batch_id=? AND outcome IS NULL AND start > ? AND equipment_id IN (SELECT id FROM equipment WHERE role NOT IN ('','measure'))",
         ).run(id, now);
         items.forEach((it, i) => {
           const c = clashes(it.equipment_id, it.start, it.end);
@@ -319,6 +366,12 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
           "SELECT id, code, name, status FROM batches WHERE owner_id=? AND status IN ('planned','running') AND deleted_at IS NULL ORDER BY status DESC, id DESC",
         )
         .all(req.user.id),
+      // finished batches, for the J–V measurement equipment (the latest first)
+      finished: db
+        .prepare(
+          "SELECT id, code, name, status FROM batches WHERE owner_id=? AND status='done' AND deleted_at IS NULL ORDER BY COALESCE(done_at, updated_at) DESC, id DESC LIMIT 40",
+        )
+        .all(req.user.id),
     };
   });
   app.get('/api/batches/:id/bookings', { preHandler: auth() }, async (req: any) =>
@@ -328,16 +381,32 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   );
 
   const check = (req: any, reply: any, d: any, id = 0) => {
-    const b = db
-      .prepare('SELECT owner_id, status FROM batches WHERE id=? AND deleted_at IS NULL')
-      .get(d.batch_id) as any;
-    if (!b) return reply.code(400).send({ error: 'choose one of your batches' });
-    if (b.owner_id !== req.user.id && req.user.role !== 'admin')
-      return reply.code(403).send({ error: 'you can only book for your own batches' });
-    if (!id && b.status === 'done')
-      return reply.code(400).send({ error: 'this batch is done; book for a Planned or Running batch' });
-    const lk = lockedById(d.batch_id);
-    if (lk) return reply.code(423).send({ error: lk });
+    const e = db.prepare('SELECT name, role FROM equipment WHERE id=?').get(d.equipment_id) as any;
+    if (!e) return reply.code(400).send({ error: 'choose the equipment' });
+    const measure = e.role === 'measure';
+    if (!d.batch_id) {
+      if (!d.purpose)
+        return reply.code(400).send({
+          error: measure
+            ? `say why ${e.name} is booked, or choose a finished batch`
+            : 'say what the booking is for, or choose one of your batches',
+        });
+    } else {
+      const b = db
+        .prepare('SELECT owner_id, status FROM batches WHERE id=? AND deleted_at IS NULL')
+        .get(d.batch_id) as any;
+      if (!b) return reply.code(400).send({ error: 'choose one of your batches' });
+      if (b.owner_id !== req.user.id && req.user.role !== 'admin')
+        return reply.code(403).send({ error: 'you can only book for your own batches' });
+      if (measure && b.status !== 'done')
+        return reply.code(400).send({
+          error: `${e.name} measures finished batches: choose a Done batch, or no batch and say why it is booked`,
+        });
+      if (!measure && !id && b.status === 'done')
+        return reply.code(400).send({ error: 'this batch is done; book for a Planned or Running batch' });
+      const lk = lockFor(d.batch_id, d.equipment_id);
+      if (lk) return reply.code(423).send({ error: lk });
+    }
     if (!(new Date(d.end) > new Date(d.start)))
       return reply.code(400).send({ error: 'the end must be after the start' });
     if (minutes(d.start, d.end) < MIN_BOOKING) return reply.code(400).send({ error: 'a booking is at least 1 hour' });
@@ -357,10 +426,19 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const id = Number(
       db
         .prepare(
-          'INSERT INTO bookings(equipment_id,batch_id,user_id,step,note,start,end,forced) VALUES(?,?,?,?,?,?,?,?)',
+          'INSERT INTO bookings(equipment_id,batch_id,purpose,user_id,step,note,start,end,forced) VALUES(?,?,?,?,?,?,?,?,?)',
         )
-        .run(d.equipment_id, d.batch_id, req.user.id, d.step ?? '', d.note ?? '', d.start, d.end, d.force ? 1 : 0)
-        .lastInsertRowid,
+        .run(
+          d.equipment_id,
+          d.batch_id || null,
+          d.batch_id ? '' : (d.purpose ?? ''),
+          req.user.id,
+          d.batch_id ? (d.step ?? '') : '',
+          d.note ?? '',
+          d.start,
+          d.end,
+          d.force ? 1 : 0,
+        ).lastInsertRowid,
     );
     startDueBatches();
     return { id, offHours: offHours(req.user, d) };
@@ -373,14 +451,17 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const p = BookingIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     const d = p.data;
-    const was = lockedById(k.batch_id);
+    const was = lockFor(k.batch_id, k.equipment_id);
     if (was) return reply.code(423).send({ error: was });
     const no = check(req, reply, d, k.id);
     if (no) return no;
-    db.prepare('UPDATE bookings SET equipment_id=?,batch_id=?,step=?,note=?,start=?,end=?,forced=? WHERE id=?').run(
+    db.prepare(
+      'UPDATE bookings SET equipment_id=?,batch_id=?,purpose=?,step=?,note=?,start=?,end=?,forced=? WHERE id=?',
+    ).run(
       d.equipment_id,
-      d.batch_id,
-      d.step ?? '',
+      d.batch_id || null,
+      d.batch_id ? '' : (d.purpose ?? ''),
+      d.batch_id ? (d.step ?? '') : '',
       d.note ?? '',
       d.start,
       d.end,
@@ -391,11 +472,11 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     return { ok: true, offHours: offHours(req.user, d, k) };
   });
   app.delete('/api/bookings/:id', { preHandler: auth() }, async (req: any, reply) => {
-    const k = db.prepare('SELECT user_id,batch_id FROM bookings WHERE id=?').get(+req.params.id) as any;
+    const k = db.prepare('SELECT user_id,batch_id,equipment_id FROM bookings WHERE id=?').get(+req.params.id) as any;
     if (!k) return reply.code(404).send({ error: 'not found' });
     if (k.user_id !== req.user.id && req.user.role !== 'admin')
       return reply.code(403).send({ error: 'not your booking' });
-    const lk = lockedById(k.batch_id);
+    const lk = lockFor(k.batch_id, k.equipment_id);
     if (lk) return reply.code(423).send({ error: lk });
     db.prepare('DELETE FROM bookings WHERE id=?').run(+req.params.id);
     return { ok: true };

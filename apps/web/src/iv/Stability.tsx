@@ -60,7 +60,7 @@ export default function Stability({ setId }: { setId: number }) {
     [all, setAll] = useState(false);
   const fig = useRef<SVGSVGElement>(null),
     fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group),
+    hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   useEffect(() => {
     api<Series>(`/iv/${setId}/stability`)
@@ -153,8 +153,7 @@ export default function Stability({ setId }: { setId: number }) {
     yt = Array.from({ length: Math.round(Y1 / yStep) + 1 }, (_, i) => +(i * yStep).toFixed(6));
   const yd = yStep >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(yStep) + 1e-9)),
     ylab = norm ? `Normalised ${NAME[metric]}` : `${NAME[metric]} (${UNIT[metric]})`;
-  const wm = logo && hasLogo ? fs.watermark : '',
-    grp = logo && hasLogo ? fs.group : '';
+  const wm = logo && hasLogo ? fs.watermark : '';
   const fT = (t: number | null, l: (typeof lines)[number]) =>
     t === null ? `> ${fmt(l.pts.at(-1)!.t, 1)} ${unit}` : `${fmt(t, 1)} ${unit}`;
   const csv = () =>
@@ -253,17 +252,12 @@ export default function Stability({ setId }: { setId: number }) {
             <image
               href={wm}
               x={L + PW * 0.5 - 80}
-              y={T + PH - (grp ? 96 : 78)}
+              y={T + PH - 78}
               width={160}
               height={62}
               opacity={0.3}
               preserveAspectRatio="xMidYMax meet"
             />
-          )}
-          {grp && (
-            <text x={L + PW * 0.5} y={T + PH - 16} fontSize={12.5} textAnchor="middle" fill={INK} opacity={0.5}>
-              {grp}
-            </text>
           )}
           {lines.map((l) => (
             <g key={l.key}>
@@ -321,7 +315,7 @@ export default function Stability({ setId }: { setId: number }) {
       <div className="inline">
         {hasLogo && (
           <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
+            <Check v={logo} on={setLogo} /> Lab logo
           </label>
         )}
         <button
@@ -383,7 +377,7 @@ export default function Stability({ setId }: { setId: number }) {
         {d.sets
           .map(
             (s) =>
-              `${s.name} (${new Date(s.measuredAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`,
+              `${s.name} (${new Date(s.measuredAt).toLocaleString('en-GB', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })})`,
           )
           .join(' · ')}
         . T90 and T80 are interpolated between the readings around the fall; {'“>”'} means it had not fallen that far by
