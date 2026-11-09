@@ -5,7 +5,7 @@ import { snapCtx, type Batch } from '../views/Batches';
 import { KINDS } from '../recipes';
 import { norm } from '../recipes/types';
 import { RunForm } from './Library';
-import { stepPresets, type StepPreset } from './stepRuns';
+import { stepCaptures, type StepPreset } from './stepRuns';
 
 type Pending = Booking & { batch_name: string };
 type Kind = 'done' | 'postponed' | 'canceled';
@@ -97,7 +97,7 @@ export default function Outcomes() {
         window.dispatchEvent(new Event('psc-batches'));
         if (outcome === 'done')
           return api<Batch>('/batches/' + b.batch_id).then((bt) => {
-            const items = stepPresets(bt, b.step);
+            const items = stepCaptures(bt, b.step);
             if (items.length) setCapture({ k: b, b: bt, items, at: 0 });
           });
       })

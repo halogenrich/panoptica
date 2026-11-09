@@ -124,11 +124,12 @@ export const substratePrep: Kind<D> = {
   summary: (d) => `${subLabel(d)} · ${d.steps.length} sonication steps · ${sum(d.steps) + sum(d.sf)} min`,
   describe: (d) => ({
     Substrate: subLabel(d),
-    Sonication: d.steps.map((x) => `${x.s} ${x.m} min`).join(', '),
+    // one step per line, in order, as on the printed sheet
+    Sonication: d.steps.map((x) => `${x.s}, ${x.m} min`).join('\n'),
     'Surface treatment':
       sortSf(d.sf)
-        .map((x) => `${x.s} ${x.m} min`)
-        .join(', ') || 'none',
+        .map((x) => `${x.s}, ${x.m} min`)
+        .join('\n') || 'none',
   }),
   runFields: (d) => [
     ...d.steps.map((x, i) => ({ key: 'son:' + i, label: `${x.s} sonication`, expected: `${x.m} min`, unit: 'min' })),

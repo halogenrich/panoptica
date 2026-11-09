@@ -406,14 +406,55 @@ function Detail({
           ]}
         />
         <CopyLink view="batches" id={b.id} what={`batch ${b.code}`} />
-        <button
-          className="btn"
-          onClick={() =>
-            pr.print(<RunSheet st={st} ctx={ctx} name={b.name || st.arch} batch={b.code} variants={b.variants} />)
-          }
-        >
-          Print sheet
-        </button>
+        <ExportMenu
+          label="Print sheet"
+          primary
+          sections={[
+            [
+              'Run sheet',
+              [
+                [
+                  'With a notes box under each layer',
+                  [
+                    [
+                      'Print',
+                      () =>
+                        pr.print(
+                          <RunSheet
+                            st={st}
+                            ctx={ctx}
+                            name={b.name || st.arch}
+                            batch={b.code}
+                            variants={b.variants}
+                            notes
+                          />,
+                        ),
+                    ],
+                  ],
+                ],
+                [
+                  'Without notes boxes',
+                  [
+                    [
+                      'Print',
+                      () =>
+                        pr.print(
+                          <RunSheet
+                            st={st}
+                            ctx={ctx}
+                            name={b.name || st.arch}
+                            batch={b.code}
+                            variants={b.variants}
+                            notes={false}
+                          />,
+                        ),
+                    ],
+                  ],
+                ],
+              ],
+            ],
+          ]}
+        />
         <ExportMenu
           label={busyRep ? 'Preparing…' : 'Export'}
           disabled={!!busyRep}
@@ -689,7 +730,7 @@ function BatchBookings({ list }: { list: Booking[] }) {
  */
 function ScheduleButton({ b, books, onSchedule }: { b: Batch; books: Booking[]; onSchedule?: (id: number) => void }) {
   // substrate preparation (new in 0.32) only counts for batches still planned, or when it was booked
-  const need = bundlesOf(b.snapshot.stack).filter(
+  const need = bundlesOf(b.snapshot.stack, b.snapshot.resolved).filter(
     (x) => x.role !== 'prep' || b.status === 'planned' || placedOf(x, books),
   );
   if (!need.length) return null;
