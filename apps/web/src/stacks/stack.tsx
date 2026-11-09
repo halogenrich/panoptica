@@ -25,6 +25,7 @@ import {
 } from './model';
 import { defaultLook, isCustom, lookOf, type Appearance } from './appearance';
 import RunSheet from './RunSheet';
+import ExportMenu from '../lib/ExportMenu';
 
 const Viewer3D = lazy(() => import('./Viewer3D'));
 const autoThickness = (s: Slot) => (/perovskite/i.test(s.n) ? 500 : /sam|pacz/i.test(s.n) ? 2 : 50);
@@ -599,9 +600,24 @@ function Actions({ id, name, d, ctx }: { id: number; name: string; d: StackD; ct
   return (
     <>
       {err && <span className="err small">{err}</span>}
-      <button className="link" onClick={() => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} />)}>
-        Print run sheet
-      </button>
+      <ExportMenu
+        label="Print run sheet"
+        sections={[
+          [
+            'Run sheet',
+            [
+              [
+                'With a notes box under each layer',
+                [['Print', () => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} notes />)]],
+              ],
+              [
+                'Without notes boxes',
+                [['Print', () => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} notes={false} />)]],
+              ],
+            ],
+          ],
+        ]}
+      />
       <input className="batch-code" placeholder="Batch code" value={code} onChange={(e) => setCode(e.target.value)} />
       <button className="link" onClick={start}>
         Start batch

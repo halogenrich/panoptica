@@ -771,7 +771,9 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
             The stocks add up to {st.stockUl.toFixed(0)} µL, more than {d.V} mL: use more concentrated stocks.
           </p>
         )}
-        <p className="mut">Preparation: {prep(d)} (the mixed solution)</p>
+        <p>
+          Preparation: <b>{prep(d)}</b> <span className="mut">(the mixed solution)</span>
+        </p>
       </>
     );
   }
@@ -803,7 +805,9 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
           {r.density.solventUl.toFixed(0)} µL of solvent for {d.V} mL of solution.
         </p>
       )}
-      <p className="mut">Preparation: {prep(d)}</p>
+      <p>
+        Preparation: <b>{prep(d)}</b>
+      </p>
     </>
   );
 }

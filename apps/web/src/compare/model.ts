@@ -1,6 +1,6 @@
 import { boxStats, type SlotExtras } from '@psc/core';
 import { KINDS } from '../recipes';
-import { norm } from '../recipes/types';
+import { norm, oneLine } from '../recipes/types';
 import { snapCtx, type Batch } from '../views/Batches';
 import { slotPresets } from '../views/BatchReport';
 import { inStats, type Dir, type IvSetFull, type Link, type MetricKey, type StatRow } from '../iv/model';
@@ -198,7 +198,7 @@ export function batchFacts(b: Batch): Record<string, string> {
       if (!r) continue;
       out[`${layer} › Recipe`] = (out[`${layer} › Recipe`] ? out[`${layer} › Recipe`] + ' + ' : '') + r.name;
       if (!k) continue;
-      for (const [a, v] of Object.entries(k.describe(norm(k, r.data), ctx))) out[`${layer} › ${a}`] = v;
+      for (const [a, v] of Object.entries(k.describe(norm(k, r.data), ctx))) out[`${layer} › ${a}`] = oneLine(v);
     }
   });
   const notes = (b.snapshot as { notes?: string[] }).notes;

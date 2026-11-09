@@ -38,12 +38,13 @@ export function artOf(e: { art?: string | null; role?: string; name: string }): 
   if (e.role === 'spinner' || /spin/.test(n)) return 'spincoater';
   if (e.role === 'metal' || /metal|thermal evap/.test(n)) return 'metal';
   if (e.role === 'organic' || /minivap|organic|evap/.test(n)) return 'organic';
-  if (e.role === 'prep' || /uv|ozone|plasma/.test(n)) return 'uvozone';
+  if (/uv|ozone|plasma/.test(n)) return 'uvozone';
+  if (/ultra|sonic|bath|clean/.test(n)) return 'ultrasonic';
+  if (e.role === 'prep') return 'uvozone';
   if (/hot ?plate|anneal/.test(n)) return 'hotplate';
   if (/glove ?box/.test(n)) return 'glovebox';
   if (/sun|simulat|j-?v|solar/.test(n)) return 'solarsim';
   if (/profil|dektak/.test(n)) return 'profilometer';
-  if (/ultra|sonic|bath/.test(n)) return 'ultrasonic';
   return 'generic';
 }
 
