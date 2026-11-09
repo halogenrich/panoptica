@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 set "ROOTDIR=%PSC_ROOT%"
 if not defined ROOTDIR set "ROOTDIR=%~dp0"
 cd /d "%ROOTDIR%"
-title Perovskite Lab - update
+title PANOPTICA - update
 
 rem update.bat [zip] [restart] [lan]   restart: started by the app (Admin settings > Updates); waits for it to stop, then starts it again
 set ZIP=%~1
@@ -14,7 +14,7 @@ if not exist updates mkdir updates
 >>updates\update.log echo.
 call :log Update started (mode: %MODE%)
 if "%ZIP%"=="" (
-  for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-ChildItem @('updates\perovskite-lab*.zip', ($env:USERPROFILE + '\Downloads\perovskite-lab*.zip')) -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"`) do set ZIP=%%f
+  for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-ChildItem @('updates\panoptica*.zip', 'updates\perovskite-lab*.zip', ($env:USERPROFILE + '\Downloads\panoptica*.zip'), ($env:USERPROFILE + '\Downloads\perovskite-lab*.zip')) -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"`) do set ZIP=%%f
 )
 if /i "%MODE%"=="restart" (
   call :log Waiting for the app to stop...
@@ -22,8 +22,8 @@ if /i "%MODE%"=="restart" (
   if errorlevel 1 call :log The app did not stop within 90 s.
 )
 if "%ZIP%"=="" (
-  call :log No perovskite-lab*.zip found in the updates folder or in Downloads.
-  echo Usage: update.bat [path\to\perovskite-lab.zip]
+  call :log No panoptica*.zip found in the updates folder or in Downloads.
+  echo Usage: update.bat [path\to\panoptica.zip]
   pause & exit /b 1
 )
 
@@ -52,12 +52,16 @@ set TMPD=%TEMP%\psc-update
 if exist "%TMPD%" rmdir /s /q "%TMPD%"
 powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIP%' -DestinationPath '%TMPD%' -Force"
 if errorlevel 1 ( call :log Could not read the zip. & pause & exit /b 1 )
-if not exist "%TMPD%\perovskite-lab" ( call :log This zip is not a Perovskite Lab update. & pause & exit /b 1 )
+rem releases before 0.36 were called Perovskite Lab: their zips hold a perovskite-lab folder
+set SRC=
+if exist "%TMPD%\panoptica" set "SRC=%TMPD%\panoptica"
+if not defined SRC if exist "%TMPD%\perovskite-lab" set "SRC=%TMPD%\perovskite-lab"
+if not defined SRC ( call :log This zip is not a PANOPTICA update. & pause & exit /b 1 )
 
-robocopy "%TMPD%\perovskite-lab" "%CD%" /E /XD node_modules backups config updates /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
+robocopy "%SRC%" "%CD%" /E /XD node_modules backups config updates /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 ( call :log Copy failed. & pause & exit /b 1 )
 rem source folders are mirrored so files removed in a release are removed here too
-for %%d in (apps\web\src apps\server\src packages\core\src packages\schema\src) do robocopy "%TMPD%\perovskite-lab\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
+for %%d in (apps\web\src apps\server\src packages\core\src packages\schema\src) do robocopy "%SRC%\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
 rmdir /s /q "%TMPD%"
 
 for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v

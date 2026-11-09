@@ -1,6 +1,8 @@
 import { Suspense, lazy, useContext, useEffect, useState } from 'react';
 import { api } from './api';
-import { PrefCtx, type Me, type Prefs } from './ctx';
+import { LabCtx, PrefCtx, type Me, type Prefs } from './ctx';
+import { Wordmark } from './start/parts';
+import CompleteProfile from './views/CompleteProfile';
 import Avatar from './lib/Avatar';
 import PresenceEye, { usePresence } from './lib/Presence';
 import NewsTicker from './lib/NewsTicker';
@@ -133,7 +135,8 @@ const Soon = ({ title, text }: { title: string; text: string }) => (
 const KEYS = new Set<string>([...Object.keys(LABEL), 'dash', 'users']);
 
 export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
-  const { prefs, set } = useContext(PrefCtx);
+  const { prefs, set } = useContext(PrefCtx),
+    { lab } = useContext(LabCtx);
   // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
   const start = (() => {
     const r = parseRoute();
@@ -203,9 +206,9 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   }, []);
   const openLink = (l: { view: string; id: number }) => {
     setPop('');
-    if (l.view === 'users') {
+    if (l.view === 'users' || l.view === 'requests') {
       try {
-        localStorage.setItem('psc-admin-tab', 'updates');
+        localStorage.setItem('psc-admin-tab', l.view === 'requests' ? 'requests' : 'updates');
       } catch {
         /* ignore */
       }
@@ -383,7 +386,9 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   return (
     <div className="app">
       <header className="top">
-        <div className="brand">Perovskite Lab</div>
+        <div className="brand">
+          <Wordmark lab={lab?.name} size="s" />
+        </div>
         <h1>{LABEL[view]}</h1>
         {prefs.news ? (
           <NewsTicker
@@ -536,6 +541,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       )}
       <Toaster />
       <Outcomes />
+      <CompleteProfile />
       {pack && (
         <Suspense fallback={null}>
           <DataPackage initial={pack} onClose={() => setPack(null)} />

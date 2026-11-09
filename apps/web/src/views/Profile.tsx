@@ -4,86 +4,15 @@ import { MeCtx, PrefCtx, type Prefs } from '../ctx';
 import Avatar from '../lib/Avatar';
 import { Seg } from '../lib/ui';
 import { shiftHeld } from '../lib/shift';
-
-const OUT = 256; // stored photo size (px, square)
-
-/** Square crop of a chosen picture: drag to move, slider to zoom, saved as a 256 px JPEG. */
-function Cropper({ src, onSave, onCancel }: { src: string; onSave: (dataUrl: string) => void; onCancel: () => void }) {
-  const cv = useRef<HTMLCanvasElement>(null),
-    img = useRef<HTMLImageElement | null>(null);
-  const [z, setZ] = useState(1),
-    [off, setOff] = useState<[number, number]>([0, 0]),
-    [ready, setReady] = useState(false),
-    drag = useRef<[number, number] | null>(null);
-  useEffect(() => {
-    const i = new Image();
-    i.onload = () => {
-      img.current = i;
-      setReady(true);
-    };
-    i.src = src;
-  }, [src]);
-  // the picture covers the square at zoom 1; offsets are kept inside so no empty edge shows
-  const geom = () => {
-    const i = img.current!,
-      base = OUT / Math.min(i.width, i.height),
-      s = base * z,
-      w = i.width * s,
-      h = i.height * s;
-    const cx = Math.max(-(w - OUT) / 2, Math.min((w - OUT) / 2, off[0])),
-      cy = Math.max(-(h - OUT) / 2, Math.min((h - OUT) / 2, off[1]));
-    return { w, h, x: (OUT - w) / 2 + cx, y: (OUT - h) / 2 + cy, cx, cy };
-  };
-  useEffect(() => {
-    if (!ready || !cv.current) return;
-    const g = cv.current.getContext('2d')!,
-      { w, h, x, y } = geom();
-    g.fillStyle = '#fff';
-    g.fillRect(0, 0, OUT, OUT);
-    g.drawImage(img.current!, x, y, w, h);
-  });
-  const k = () => OUT / (cv.current?.getBoundingClientRect().width || OUT);
-  return (
-    <div className="cropper">
-      <canvas
-        ref={cv}
-        width={OUT}
-        height={OUT}
-        className="crop-canvas"
-        aria-label="Photo crop: drag to move"
-        onPointerDown={(e) => {
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          drag.current = [e.clientX, e.clientY];
-        }}
-        onPointerMove={(e) => {
-          if (!drag.current) return;
-          const [x0, y0] = drag.current,
-            { cx, cy } = geom();
-          drag.current = [e.clientX, e.clientY];
-          setOff([cx + (e.clientX - x0) * k(), cy + (e.clientY - y0) * k()]);
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-      />
-      <label className="inline small">
-        Zoom <input type="range" min={1} max={4} step={0.01} value={z} onChange={(e) => setZ(+e.target.value)} />
-      </label>
-      <div className="inline">
-        <button className="btn" disabled={!ready} onClick={() => onSave(cv.current!.toDataURL('image/jpeg', 0.86))}>
-          Use this photo
-        </button>
-        <button className="link" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
+import Cropper from '../lib/Cropper';
+import { PasswordRules, passwordOk, todayIso } from '../start/parts';
+import { ageOn } from '@psc/core';
+import { LabCtx } from '../ctx';
 
 function PwForm() {
   const [cur, setCur] = useState(''),
     [nw, setNw] = useState(''),
+    [again, setAgain] = useState(''),
     [msg, setMsg] = useState('');
   const save = () =>
     api('/me/password', 'POST', { current: cur, next: nw })
@@ -91,6 +20,7 @@ function PwForm() {
         setMsg('Password changed');
         setCur('');
         setNw('');
+        setAgain('');
       })
       .catch((e) => setMsg(e.message));
   return (
@@ -104,13 +34,21 @@ function PwForm() {
       />
       <input
         type="password"
-        placeholder="New password (at least 10 characters)"
+        placeholder="New password"
         autoComplete="new-password"
         value={nw}
         onChange={(e) => setNw(e.target.value)}
       />
+      <input
+        type="password"
+        placeholder="New password again"
+        autoComplete="new-password"
+        value={again}
+        onChange={(e) => setAgain(e.target.value)}
+      />
+      {nw && <PasswordRules pw={nw} again={again} />}
       <div className="inline">
-        <button className="btn secondary" disabled={!cur || nw.length < 10} onClick={save}>
+        <button className="btn secondary" disabled={!cur || !passwordOk(nw, again)} onClick={save}>
           Change password
         </button>
         {msg && <span className="mut small">{msg}</span>}
@@ -239,6 +177,9 @@ export default function Profile({ onInvite }: { onInvite: () => void }) {
         </p>
       </section>
 
+      <h3 className="sub">About you</h3>
+      <AboutYou />
+
       <h3 className="sub">Settings</h3>
       <section className="group settings">
         <div className="row">
@@ -339,5 +280,92 @@ function NewsGap() {
         <span className="mut small">s</span>
       </span>
     </div>
+  );
+}
+
+/** Email, birth date, department and supervisors: for the lab's records; the email and birth date also prove who you are when you
+ * choose a new password after a reset. */
+function AboutYou() {
+  const { me, reload } = useContext(MeCtx),
+    { lab } = useContext(LabCtx);
+  const init = () => ({
+    email: me.email ?? '',
+    birthDate: me.birthDate ?? '',
+    department: me.department ?? '',
+    supervisor: me.supervisor ?? '',
+    cosupervisor: me.cosupervisor ?? '',
+  });
+  const [v, setV] = useState(init),
+    [msg, setMsg] = useState('');
+  useEffect(() => setV(init()), [me.email, me.birthDate, me.department, me.supervisor, me.cosupervisor]);
+  const changed = (Object.keys(v) as (keyof typeof v)[]).some((k) => v[k] !== (init()[k] ?? ''));
+  const save = () =>
+    api('/me', 'PATCH', { ...v, birthDate: v.birthDate || undefined })
+      .then(() => {
+        setMsg('Saved');
+        reload();
+      })
+      .catch((e) => setMsg(e.message));
+  const depts = lab?.departments ?? [];
+  const age = me.birthDate ? ageOn(me.birthDate) : null;
+  return (
+    <section className="group about-you">
+      <div className="grid2">
+        <label className="fld">
+          <span>Institutional email</span>
+          <input type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} />
+        </label>
+        <label className="fld">
+          <span>Birth date{age !== null ? ` (${age} years)` : ''}</span>
+          <input
+            type="date"
+            max={todayIso()}
+            value={v.birthDate}
+            onChange={(e) => setV({ ...v, birthDate: e.target.value })}
+          />
+        </label>
+        <label className="fld">
+          <span>Department</span>
+          {depts.length ? (
+            <select value={v.department} onChange={(e) => setV({ ...v, department: e.target.value })}>
+              <option value="">Choose…</option>
+              {[...new Set([...depts, ...(v.department ? [v.department] : [])])].map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+          ) : (
+            <input value={v.department} onChange={(e) => setV({ ...v, department: e.target.value })} />
+          )}
+        </label>
+        <span />
+        <label className="fld">
+          <span>Supervisor</span>
+          <input value={v.supervisor} onChange={(e) => setV({ ...v, supervisor: e.target.value })} />
+        </label>
+        <label className="fld">
+          <span>Co-supervisor</span>
+          <input value={v.cosupervisor} onChange={(e) => setV({ ...v, cosupervisor: e.target.value })} />
+        </label>
+      </div>
+      <div className="inline">
+        <button className="btn" disabled={!changed || !v.email} onClick={save}>
+          Save
+        </button>
+        {msg && <span className="mut small">{msg}</span>}
+      </div>
+      <label className="inline small">
+        <input
+          type="checkbox"
+          checked={me.showBirthday !== false}
+          onChange={(e) =>
+            api('/me', 'PATCH', { showBirthday: e.target.checked })
+              .then(reload)
+              .catch((x) => setMsg(x.message))
+          }
+        />
+        Show my birthday (day and month) in the calendar
+      </label>
+      {me.visitorUntil && <p className="mut small">Visitor until {me.visitorUntil.split('-').reverse().join('/')}.</p>}
+    </section>
   );
 }

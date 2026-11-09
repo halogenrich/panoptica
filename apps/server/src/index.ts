@@ -8,7 +8,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   Login,
-  NewUser,
   UserPatch,
   ChemicalIn,
   BatchIn,
@@ -23,9 +22,9 @@ import {
   TagIn,
   UserTagsIn,
 } from '@psc/schema';
-import { ADDED_CHEMS, DEFAULT_CHEMS, CORE_VERSION } from '@psc/core';
+import { ADDED_CHEMS, DEFAULT_CHEMS, CORE_VERSION, passwordProblem, ageOn } from '@psc/core';
 import { db, tx, perms, tagsOf } from './db.js';
-import { hash, verify } from './auth.js';
+import { hash, verify as verifyRaw } from './auth.js';
 import { registerPresets } from './presets.js';
 import { registerIv } from './iv.js';
 import { registerComparisons } from './comparisons.js';
@@ -38,6 +37,7 @@ import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.j
 import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
 import { registerUpdates } from './updates.js';
 import { registerEvents } from './events.js';
+import { registerLab, setupNeeded } from './lab.js';
 import {
   BACKUP_DIR,
   backupKey,
@@ -77,19 +77,23 @@ if (!db.prepare("SELECT 1 FROM meta WHERE key='sessions_hashed'").get()) {
 }
 setInterval(() => db.prepare('DELETE FROM sessions WHERE expires<?').run(new Date().toISOString()), 3600e3).unref();
 
-// First run: create the admin user and print its password once.
-if (!db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
-  const name = process.env.ADMIN_USER || 'admin',
-    pw = process.env.ADMIN_PASSWORD || randomBytes(9).toString('base64url');
-  // a generated password must be changed at the first sign-in; one given in ADMIN_PASSWORD was chosen by whoever installs the app
-  db.prepare('INSERT INTO users(username,name,role,hash,must_change) VALUES(?,?,?,?,?)').run(
-    name,
+/**
+ * A password as typed, in either Unicode form: "ã" typed as one character or as "a" plus a tilde is the same password. Passwords
+ * are stored from the composed (NFC) form since 0.36; older ones may have been stored as typed. An empty hash means no password
+ * yet (the person chooses one at the first sign-in), "!" a deleted account.
+ */
+const verify = (pw: string, stored: string) =>
+  !!stored && stored.includes(':') && (verifyRaw(pw.normalize('NFC'), stored) || verifyRaw(pw, stored));
+
+// First run: the first admin is made in the setup screens, on the computer that runs the app (0.36). Automated installs (tests)
+// can still give ADMIN_PASSWORD to start with an admin.
+if (!db.prepare('SELECT 1 FROM users LIMIT 1').get() && process.env.ADMIN_PASSWORD) {
+  db.prepare('INSERT INTO users(username,name,role,hash,must_change) VALUES(?,?,?,?,0)').run(
+    process.env.ADMIN_USER || 'admin',
     'Administrator',
     'admin',
-    hash(pw),
-    process.env.ADMIN_PASSWORD ? 0 : 1,
+    hash(process.env.ADMIN_PASSWORD.normalize('NFC')),
   );
-  console.log(`\n[first run] admin user created -> username: ${name}  password: ${pw}\n`);
 }
 
 const seen = new Map<number, number>(),
@@ -105,9 +109,9 @@ const userOf = (req: any): User | undefined => {
   const u = db
     .prepare(
       `SELECT u.id,u.username,u.name,u.role,u.must_change AS mustChange,u.photo_v AS photoV FROM sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires>? AND u.active=1 AND u.deleted=0`,
+    WHERE s.token=? AND s.expires>? AND u.active=1 AND u.deleted=0 AND (u.visitor_until IS NULL OR u.visitor_until>=?)`,
     )
-    .get(tokenHash(t), new Date().toISOString()) as User | undefined;
+    .get(tokenHash(t), new Date().toISOString(), new Date().toISOString().slice(0, 10)) as User | undefined;
   if (!u) return;
   const p = perms(u.id);
   // presence: the last request time, written at most every 10 s; online_since restarts after being away
@@ -148,23 +152,8 @@ const bad = (reply: any, p: { error: { issues: { message: string }[] } }) =>
   reply.code(400).send({ error: p.error.issues[0].message });
 registerAudit(app, auth);
 
-app.post('/api/login', async (req, reply) => {
-  const p = Login.safeParse(req.body);
-  if (!p.success) return reply.code(400).send({ error: 'invalid request' });
-  const key = p.data.username.toLowerCase(),
-    ip = ipOf(req);
-  if (byName.blocked(key) || byAddress.blocked(ip)) {
-    audit({ username: p.data.username, ip, action: 'Sign-in blocked (too many attempts)', status: 429 });
-    return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' });
-  }
-  const u = db.prepare('SELECT * FROM users WHERE username=? AND active=1 AND deleted=0').get(p.data.username) as any;
-  if (!verify(p.data.password, u?.hash ?? DUMMY) || !u) {
-    byName.hit(key);
-    byAddress.hit(ip);
-    audit({ user_id: u?.id, username: p.data.username, ip, action: 'Failed sign-in', status: 401 });
-    return reply.code(401).send({ error: 'wrong username or password' });
-  }
-  byName.clear(key);
+/** A new session cookie for a user who just proved who they are (password, first password, setup). */
+function startSession(req: any, reply: any, u: { id: number; username: string }) {
   const token = randomBytes(32).toString('hex');
   db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(
     tokenHash(token),
@@ -178,7 +167,32 @@ app.post('/api/login', async (req, reply) => {
     secure: HTTPS || req.protocol === 'https',
     maxAge: WEEK / 1000,
   });
-  audit({ user_id: u.id, username: u.username, ip, action: 'Signed in' });
+  audit({ user_id: u.id, username: u.username, ip: ipOf(req), action: 'Signed in' });
+}
+registerLab(app, auth, bad, startSession, { byName, byAddress });
+
+app.post('/api/login', async (req, reply) => {
+  const p = Login.safeParse(req.body);
+  if (!p.success) return reply.code(400).send({ error: 'invalid request' });
+  const key = p.data.username.toLowerCase(),
+    ip = ipOf(req);
+  if (byName.blocked(key) || byAddress.blocked(ip)) {
+    audit({ username: p.data.username, ip, action: 'Sign-in blocked (too many attempts)', status: 429 });
+    return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' });
+  }
+  const u = db
+    .prepare('SELECT * FROM users WHERE username=? COLLATE NOCASE AND active=1 AND deleted=0')
+    .get(p.data.username.replace(/^@/, '')) as any;
+  if (!verify(p.data.password, u?.hash || DUMMY) || !u) {
+    byName.hit(key);
+    byAddress.hit(ip);
+    audit({ user_id: u?.id, username: p.data.username, ip, action: 'Failed sign-in', status: 401 });
+    return reply.code(401).send({ error: 'wrong username or password' });
+  }
+  if (u.visitor_until && u.visitor_until < new Date().toISOString().slice(0, 10))
+    return reply.code(403).send({ error: 'your visitor access has ended' });
+  byName.clear(key);
+  startSession(req, reply, u);
   return { id: u.id, username: u.username, name: u.name, role: u.role, mustChange: u.must_change };
 });
 app.post('/api/logout', async (req, reply) => {
@@ -192,12 +206,31 @@ app.post('/api/logout', async (req, reply) => {
   reply.clearCookie('sid', { path: '/' });
   return { ok: true };
 });
-app.get('/api/me', { preHandler: auth() }, async (req: any) => ({ ...req.user, tags: tagsOf(req.user.id) }));
+app.get('/api/me', { preHandler: auth() }, async (req: any) => {
+  const x = db
+    .prepare(
+      `SELECT email,birth_date AS birthDate,department,supervisor,cosupervisor,show_birthday AS showBirthday,
+       visitor_until AS visitorUntil,first_names AS firstNames,surnames FROM users WHERE id=?`,
+    )
+    .get(req.user.id) as any;
+  return { ...req.user, ...x, showBirthday: !!x.showBirthday, tags: tagsOf(req.user.id) };
+});
 /** Own profile: display name and photo. */
 app.patch('/api/me', { preHandler: auth() }, async (req: any, reply) => {
   const p = ProfileIn.safeParse(req.body);
   if (!p.success) return bad(reply, p);
   if (p.data.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(p.data.name, req.user.id);
+  const cols: [keyof typeof p.data, string][] = [
+    ['email', 'email'],
+    ['birthDate', 'birth_date'],
+    ['department', 'department'],
+    ['supervisor', 'supervisor'],
+    ['cosupervisor', 'cosupervisor'],
+  ];
+  for (const [k, c] of cols)
+    if (p.data[k] !== undefined) db.prepare(`UPDATE users SET ${c}=? WHERE id=?`).run(p.data[k] as string, req.user.id);
+  if (p.data.showBirthday !== undefined)
+    db.prepare('UPDATE users SET show_birthday=? WHERE id=?').run(p.data.showBirthday ? 1 : 0, req.user.id);
   if (p.data.photo !== undefined)
     db.prepare('UPDATE users SET photo=?, photo_v=? WHERE id=?').run(
       p.data.photo || null,
@@ -309,10 +342,11 @@ app.get('/api/users', { preHandler: auth(true) }, async () =>
   (
     db
       .prepare(
-        'SELECT id,username,name,role,active,must_change,created_at,photo_v AS photoV,last_seen FROM users WHERE deleted=0 ORDER BY id',
+        `SELECT id,username,name,role,active,must_change,created_at,photo_v AS photoV,last_seen,email,birth_date AS birthDate,
+         department,supervisor,cosupervisor,visitor_until AS visitorUntil,(hash='') AS noPassword FROM users WHERE deleted=0 ORDER BY id`,
       )
       .all() as any[]
-  ).map((u) => ({ ...u, tags: tagsOf(u.id) })),
+  ).map((u) => ({ ...u, age: u.birthDate ? ageOn(u.birthDate) : null, tags: tagsOf(u.id) })),
 );
 /**
  * Delete a profile. Everything the user made (presets, batches, run data, measurements) stays, owned by a row that can no longer
@@ -339,43 +373,36 @@ app.delete('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply)
   });
   return { ok: true };
 });
-app.post('/api/users', { preHandler: auth(true) }, async (req: any, reply) => {
-  const p = NewUser.safeParse(req.body);
-  if (!p.success) return bad(reply, p);
-  const weak = weakPassword(p.data.password, p.data.username);
-  if (weak) return reply.code(400).send({ error: weak });
-  try {
-    // the temporary password the admin chose must be replaced at the first sign-in
-    const r = db
-      .prepare('INSERT INTO users(username,name,role,hash,must_change) VALUES(?,?,?,?,1)')
-      .run(p.data.username, p.data.name, p.data.role, hash(p.data.password));
-    return { id: r.lastInsertRowid };
-  } catch {
-    return reply.code(409).send({ error: 'username already exists' });
-  }
-});
 app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) => {
   const id = +req.params.id,
     p = UserPatch.safeParse(req.body);
   if (!p.success) return bad(reply, p);
   const d = p.data;
-  if (d.password) {
-    const un = (db.prepare('SELECT username FROM users WHERE id=?').get(id) as any)?.username;
-    const weak = weakPassword(d.password, un);
-    if (weak) return reply.code(400).send({ error: weak });
-  }
   if (id === req.user.id && (d.active === false || d.role === 'member'))
     return reply.code(400).send({ error: 'you cannot disable or demote yourself' });
   if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, id);
   if (d.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(d.role, id);
   if (d.active !== undefined) db.prepare('UPDATE users SET active=? WHERE id=?').run(d.active ? 1 : 0, id);
-  if (d.password)
-    db.prepare('UPDATE users SET hash=?,must_change=? WHERE id=?').run(
-      hash(d.password),
-      id === req.user.id ? 0 : 1,
-      id,
-    );
-  if (d.password || d.active === false) db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
+  const cols: [keyof typeof d, string][] = [
+    ['department', 'department'],
+    ['supervisor', 'supervisor'],
+    ['cosupervisor', 'cosupervisor'],
+    ['email', 'email'],
+    ['birthDate', 'birth_date'],
+  ];
+  for (const [k, c] of cols)
+    if (d[k] !== undefined) db.prepare(`UPDATE users SET ${c}=? WHERE id=?`).run(d[k] as string, id);
+  if (d.until !== undefined) db.prepare('UPDATE users SET visitor_until=? WHERE id=?').run(d.until || null, id);
+  if (d.resetPassword) {
+    if (id === req.user.id) return reply.code(400).send({ error: 'change your own password in your profile' });
+    const x = db.prepare('SELECT email FROM users WHERE id=?').get(id) as { email: string } | undefined;
+    if (!x?.email)
+      return reply.code(400).send({
+        error: 'add their institutional email first: they confirm it (and their birth date) to choose the new password',
+      });
+    db.prepare("UPDATE users SET hash='', must_change=0 WHERE id=?").run(id);
+  }
+  if (d.resetPassword || d.active === false) db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
   return { ok: true };
 });
 
@@ -707,9 +734,9 @@ app.post('/api/me/password', { preHandler: auth() }, async (req: any, reply) => 
   if (!verify(p.data.current, u.hash)) return reply.code(400).send({ error: 'current password is wrong' });
   if (p.data.next === p.data.current)
     return reply.code(400).send({ error: 'choose a new password, different from the current one' });
-  const weak = weakPassword(p.data.next, req.user.username);
+  const weak = passwordProblem(p.data.next) || weakPassword(p.data.next, req.user.username);
   if (weak) return reply.code(400).send({ error: weak });
-  db.prepare('UPDATE users SET hash=?,must_change=0 WHERE id=?').run(hash(p.data.next), req.user.id);
+  db.prepare('UPDATE users SET hash=?,must_change=0 WHERE id=?').run(hash(p.data.next.normalize('NFC')), req.user.id);
   db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(req.user.id, tokenHash(req.cookies.sid));
   return { ok: true };
 });
@@ -861,3 +888,7 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
 });
 scheduleBackups((m) => app.log.info(m));
 await app.listen({ port: +(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });
+if (setupNeeded())
+  console.log(
+    `\n  PANOPTICA is not set up yet. Open http://localhost:${process.env.PORT || 3000} on this computer to create the first admin and set up the lab.\n`,
+  );
