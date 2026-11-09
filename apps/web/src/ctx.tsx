@@ -18,6 +18,15 @@ export type Me = {
   professor?: boolean;
   manager?: boolean;
   inventory?: boolean;
+  email?: string;
+  birthDate?: string;
+  department?: string;
+  supervisor?: string;
+  cosupervisor?: string;
+  showBirthday?: boolean;
+  visitorUntil?: string | null;
+  firstNames?: string;
+  surnames?: string;
 };
 export type Prefs = {
   theme: 'system' | 'light' | 'dark';
@@ -35,3 +44,20 @@ export const MeCtx = createContext<{ me: Me; reload: () => void }>({
   me: { id: 0, username: '', name: '', role: 'member' },
   reload: () => {},
 });
+
+/** What the sign-in screen knows about the lab, before anyone signs in. */
+export type LabPublic = {
+  name: string;
+  institution: string;
+  departments: string[];
+  domains: string[];
+  hasLogo: boolean;
+  hasBackground: boolean;
+  bgV: number;
+  /** while there is no admin: 'here' on the computer that runs the app, 'elsewhere' on others */
+  setup: 'here' | 'elsewhere' | null;
+  professors: string[];
+};
+export const LabCtx = createContext<{ lab: LabPublic | null; reload: () => void }>({ lab: null, reload: () => {} });
+/** "PANOPTICA · lab name" as text (titles, exports). */
+export const brandText = (lab?: { name?: string } | null) => (lab?.name ? `PANOPTICA · ${lab.name}` : 'PANOPTICA');

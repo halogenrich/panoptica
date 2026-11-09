@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Linux desktop integration for Perovskite Lab.
-#   ./install-shortcut.sh             app-menu entries "Perovskite Lab" and "Perovskite Lab (network)"
+# Linux desktop integration for PANOPTICA.
+#   ./install-shortcut.sh             app-menu entries "PANOPTICA" and "PANOPTICA (network)"
 #   ./install-shortcut.sh --service   run in the background as a user service, started at boot (no window to keep open)
 #   ./install-shortcut.sh --remove    remove the menu entries and the service
 DIR="$(dirname "$(readlink -f "$0")")"; cd "$DIR" || exit 1
@@ -30,7 +30,7 @@ case "$1" in
     mkdir -p "$(dirname "$UNIT")"
     cat > "$UNIT" <<SVC
 [Unit]
-Description=Perovskite Lab
+Description=PANOPTICA
 After=network-online.target
 
 [Service]
@@ -51,10 +51,10 @@ SVC
     echo "  stop:   systemctl --user stop perovskite-lab      (stop it before ./restore.sh; ./update.sh restarts it)" ;;
   *)
     mkdir -p "$APPS"
-    entry perovskite-lab "Perovskite Lab" ""
-    entry perovskite-lab-lan "Perovskite Lab (network)" "lan"
+    entry perovskite-lab "PANOPTICA" ""
+    entry perovskite-lab-lan "PANOPTICA (network)" "lan"
     chmod +x "$APPS"/perovskite-lab*.desktop
     update-desktop-database "$APPS" >/dev/null 2>&1
-    echo "Added \"Perovskite Lab\" and \"Perovskite Lab (network)\" to the app menu (press Super and type Perovskite)."
+    echo "Added \"PANOPTICA\" and \"PANOPTICA (network)\" to the app menu (press Super and type PANOPTICA)."
     echo "For a lab server that runs without a window: ./install-shortcut.sh --service   (or --service lan)" ;;
 esac

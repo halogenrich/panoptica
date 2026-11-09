@@ -5,7 +5,7 @@ Five minutes to your first batch. The full user guide (the other tab) explains e
 ## 1. Sign in
 
 - Open the address the lab gave you (on a phone: scan the QR code from someone's profile menu, **Invite a phone**).
-- Sign in with the username and temporary password from the admin. The first time, the app asks you to choose your own password.
+- No account yet: **Request access** on the sign-in screen. Once an admin accepts it, type your username, leave the password empty and choose your password (after confirming your email and birth date).
 - Your initial (top right) opens your profile: theme, default visibility (private or shared) and password.
 
 ## 2. Find or make the recipes

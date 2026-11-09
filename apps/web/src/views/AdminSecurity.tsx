@@ -541,7 +541,7 @@ export function Updates() {
               On GitHub, signed in as the repository owner: Settings › Developer settings › Personal access tokens ›{' '}
               <b>Fine-grained tokens</b> › Generate new token.
             </li>
-            <li>Name it “Perovskite Lab updates”, expiration one year.</li>
+            <li>Name it “PANOPTICA updates”, expiration one year.</li>
             <li>
               Repository access: <b>Only select repositories</b> › <code>{u.repo}</code>.
             </li>

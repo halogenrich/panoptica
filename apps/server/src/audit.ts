@@ -115,6 +115,7 @@ const LABEL: Record<string, string> = {
   'GET /api/backups/:name': 'Downloaded a backup',
   'GET /api/backups/key': 'Viewed the backup key',
   'PUT /api/settings/figure': 'Changed the figure logo',
+  'PUT /api/lab': 'Changed the lab setup',
   'PUT /api/fun': 'Changed the funny settings',
   'POST /api/updates/check': 'Checked for updates',
   'PUT /api/updates/settings': 'Changed the update settings',
@@ -128,6 +129,11 @@ const SKIP = [
   /^PUT \/api\/prefs/,
   /^POST \/api\/login$/,
   /^POST \/api\/logout$/,
+  // logged by the handlers themselves, with who and what
+  /^POST \/api\/login\//,
+  /^POST \/api\/setup$/,
+  /^POST \/api\/access-requests/,
+  /^POST \/api\/users$/,
   /\/read$/,
   /^POST \/api\/notifications/,
 ];

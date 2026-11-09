@@ -85,8 +85,7 @@ const COMMON = new Set(
     .filter(Boolean),
 );
 export function weakPassword(pw: string, username = ''): string {
-  if (pw.length < 10) return 'password needs at least 10 characters (a short sentence is easy to remember)';
-  if (pw.length > 128) return 'password is too long (at most 128 characters)';
+  // length and the kinds of characters are checked by passwordProblem (@psc/core); this adds the common and guessable ones
   const low = pw.toLowerCase(),
     u = username.toLowerCase();
   if (COMMON.has(low) || /^(.)\1+$/.test(pw)) return 'this password is too common: choose another one';

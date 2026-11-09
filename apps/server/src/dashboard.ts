@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db, tagsOf } from './db.js';
+import { minutesOf, workDayOf } from '@psc/core';
+import { lab } from './lab.js';
 
 /**
  * Overview for the Professor and Managers (and admins): what the lab did in a week or a month. Everything is computed here
@@ -37,10 +39,14 @@ function devicesOf(curves: Curve[]) {
   }
   return by;
 }
-/** Working hours in a period: weekdays 08:00–18:00, the base for how busy each equipment was. */
+/** Working hours in a period (the lab's working days and hours, Lab setup): the base for how busy each equipment was. */
 function workHours(from: Date, to: Date) {
+  const hours = lab().hours;
   let h = 0;
-  for (let d = new Date(from); d < to; d.setDate(d.getDate() + 1)) if (d.getDay() !== 0 && d.getDay() !== 6) h += 10;
+  for (let d = new Date(from); d < to; d.setDate(d.getDate() + 1)) {
+    const w = workDayOf(hours, d);
+    if (w.on) h += Math.max(0, minutesOf(w.to) - minutesOf(w.from)) / 60;
+  }
   return h;
 }
 

@@ -4,7 +4,7 @@ const v = process.argv[2],
   lines = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').split(/\r?\n/);
 const i = lines.findIndex((l) => l.startsWith(`## ${v}`));
 if (i < 0) {
-  console.log(`Perovskite Lab ${v}.`);
+  console.log(`PANOPTICA ${v}.`);
   process.exit(0);
 }
 const j = lines.findIndex((l, k) => k > i && l.startsWith('## '));

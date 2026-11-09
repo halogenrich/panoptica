@@ -105,7 +105,7 @@ async function restore(arg) {
   const src = path.join(DIR, pick),
     info = check(src);
   if (!info) {
-    console.log(`${pick} is damaged or not a Perovskite Lab database. Nothing changed.`);
+    console.log(`${pick} is damaged or not a PANOPTICA database. Nothing changed.`);
     return 1;
   }
   console.log(`\n${pick}: ${info.users} users, ${info.presets} presets.`);
@@ -142,7 +142,7 @@ async function decrypt(file, keyArg) {
   }
   const box = fs.readFileSync(file);
   if (box.subarray(0, 4).toString() !== 'PLB1') {
-    console.log('Not an encrypted Perovskite Lab backup.');
+    console.log('Not an encrypted PANOPTICA backup.');
     return 1;
   }
   let plain;
