@@ -1,7 +1,7 @@
 import { api } from '../api';
 import { KINDS } from '../recipes';
 import { norm, oneLine, type Ctx } from '../recipes/types';
-import { SEG, type Slot } from '../stacks/model';
+import { SEG, type Slot, methodName } from '../stacks/model';
 import { describeChanges } from '@psc/core';
 import { fmtDate } from '../lib/ui';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
@@ -91,7 +91,7 @@ export function BatchReport({
             <tr key={i}>
               <td>{i + 1}</td>
               <td>{s.n}</td>
-              <td>{s.m}</td>
+              <td>{methodName(s.m)}</td>
               <td>
                 {s.m === 'Manual'
                   ? s.t
@@ -263,7 +263,7 @@ export function BatchReport({
                 <th>n</th>
                 {METRICS.map((m) => (
                   <th key={m.key}>
-                    {m.label} ({m.unit}) mean ± sd · best
+                    {m.label} ({m.unit}) mean ± standard deviation · best
                   </th>
                 ))}
               </tr>
@@ -297,7 +297,7 @@ export function BatchReport({
                 const m = METRICS.find((x) => x.key === k)!;
                 return { key: k, title: TITLES[k], groups: boxes(rows, dirs, k), unit: m.unit, digits: m.digits };
               })}
-              logo={logo && (fs.watermark || fs.group) ? fs : undefined}
+              logo={logo && fs.watermark ? fs : undefined}
               outliers={outl}
             />
           </div>
@@ -486,7 +486,20 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
   sheets.push({
     name: 'Statistics',
     rows: [
-      ['Group', 'Direction', 'Quantity', 'Unit', 'n', 'Mean', 'SD', 'Median', 'Q1', 'Q3', 'Min', 'Max'],
+      [
+        'Group',
+        'Direction',
+        'Quantity',
+        'Unit',
+        'n',
+        'Mean',
+        'Standard deviation',
+        'Median',
+        'First quartile',
+        'Third quartile',
+        'Minimum',
+        'Maximum',
+      ],
       ...groupsOf(rows).flatMap((g) =>
         (['rev', 'fwd'] as Dir[]).flatMap((d) => {
           const rs = g.rows.filter((r) => r.dir === d);

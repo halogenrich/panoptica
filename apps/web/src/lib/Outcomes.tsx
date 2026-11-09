@@ -13,7 +13,7 @@ const when = (b: Pending) => {
   const s = new Date(b.start),
     e = new Date(b.end),
     t = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `${s.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${t(s)}–${t(e)}`;
+  return `${s.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}, ${t(s)}–${t(e)}`;
 };
 
 /**
@@ -157,7 +157,9 @@ export default function Outcomes() {
                     autoFocus
                     value={why[b.id] ?? ''}
                     placeholder={
-                      k === 'postponed' ? 'e.g. glovebox O₂ too high, finish on Thursday' : 'e.g. the films dewetted'
+                      k === 'postponed'
+                        ? 'For example, glovebox O₂ too high, finish on Thursday'
+                        : 'For example, the films dewetted'
                     }
                     onChange={(e) => setWhy({ ...why, [b.id]: e.target.value })}
                   />

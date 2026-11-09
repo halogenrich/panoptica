@@ -533,8 +533,8 @@ app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
       `SELECT b.id,b.code,b.name,b.status,b.visibility,(b.owner_id=@uid) AS mine,u.name AS owner,b.created_at,b.updated_at,b.record,
     json_extract(b.snapshot,'$.stack.arch') AS arch, b.variants, b.done_at, b.unlocked_until, json_array_length(b.snapshot,'$.stack.sl') AS total, json_extract(b.snapshot,'$.stack.thumb') AS thumb,
     (SELECT COUNT(*) FROM run_data r WHERE r.batch=b.code) AS runs,
-    (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND COALESCE(k.outcome,'')<>'canceled') AS steps,
-    (SELECT COUNT(*) FROM bookings k WHERE k.batch_id=b.id AND k.outcome='done') AS concluded
+    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.batch_id=b.id AND e.role<>'measure' AND COALESCE(k.outcome,'')<>'canceled') AS steps,
+    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.batch_id=b.id AND e.role<>'measure' AND k.outcome='done') AS concluded
     FROM batches b JOIN users u ON u.id=b.owner_id
     WHERE b.deleted_at IS NULL AND (b.owner_id=@uid OR b.visibility='shared' OR @all=1) ORDER BY b.id DESC`,
     )

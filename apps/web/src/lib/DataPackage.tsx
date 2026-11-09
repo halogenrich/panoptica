@@ -259,7 +259,7 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
             <span>Affiliation</span>
             <input
               value={meta.affiliation}
-              placeholder="e.g. LNES, Unicamp"
+              placeholder="For example, LNES, Unicamp"
               onChange={(e) => set({ affiliation: e.target.value })}
             />
           </label>
@@ -268,7 +268,7 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
               <span>FAPESP process</span>
               <input
                 value={meta.grant}
-                placeholder="e.g. 2024/01234-5"
+                placeholder="For example, 2024/01234-5"
                 onChange={(e) => set({ grant: e.target.value })}
               />
             </label>

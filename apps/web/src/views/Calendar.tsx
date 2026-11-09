@@ -32,11 +32,14 @@ const USED_FOR: [string, string][] = [
   ['spinner', 'Spin coating'],
   ['organic', 'Organic evaporation'],
   ['metal', 'Metal evaporation'],
+  ['measure', 'J–V measurement'],
 ];
 export type Booking = {
   id: number;
   equipment_id: number;
-  batch_id: number;
+  /** null: a booking outside any batch, for `purpose` */
+  batch_id: number | null;
+  purpose: string;
   user_id: number;
   step: string;
   note: string;
@@ -58,6 +61,8 @@ type Data = {
   equipment: Eq[];
   bookings: Booking[];
   batches: { id: number; code: string; name: string; status?: string }[];
+  /** the user's finished batches, for the J–V measurement equipment */
+  finished: { id: number; code: string; name: string; status?: string }[];
 };
 type View = 'day' | 'week' | 'month';
 type Draft = Partial<Booking> & { start: string; end: string };
@@ -98,10 +103,10 @@ function range(v: View, d: Date): [Date, Date] {
   return [first, addDays(first, 42)];
 }
 function title(v: View, d: Date, short = false) {
-  if (short && v === 'day') return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  if (short && v === 'day') return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   if (short && v === 'week') {
     const [a, b] = range('week', d);
-    return `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${addDays(b, -1).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    return `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} – ${addDays(b, -1).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`;
   }
   if (v === 'day')
     return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -110,7 +115,7 @@ function title(v: View, d: Date, short = false) {
     e = addDays(b, -1);
   return a.getMonth() === e.getMonth()
     ? `${a.getDate()}–${e.getDate()} ${e.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
-    : `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    : `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 }
 /** First name, or first and second name when two people in view share the first one. */
 function namer(list: Booking[]) {
@@ -121,7 +126,7 @@ function namer(list: Booking[]) {
     return full.some((o) => o !== n && first(o)[0] === p[0]) ? p.slice(0, 2).join(' ') : p[0];
   };
 }
-const what = (b: Booking) => `${b.batch_code}${b.step ? ` (${b.step})` : ''}`;
+const what = (b: Booking) => (b.batch_id ? `${b.batch_code}${b.step ? ` (${b.step})` : ''}` : b.purpose);
 /** Equipment names as said in the lab: "GB: Minivap (Organic Evaporator)" → "Minivap". The full name is in headers and the hover card. */
 const shortEq = (n: string) =>
   n
@@ -358,6 +363,7 @@ export default function Calendar({
           : api('/bookings/' + drag.booking.id, 'PUT', {
               equipment_id: drag.booking.equipment_id,
               batch_id: drag.booking.batch_id,
+              purpose: drag.booking.purpose || undefined,
               step: drag.booking.step,
               note: drag.booking.note,
               ...body,
@@ -438,6 +444,7 @@ export default function Calendar({
       api('/bookings/' + b.id, 'PUT', {
         equipment_id: b.equipment_id,
         batch_id: b.batch_id,
+        purpose: b.purpose || undefined,
         step: b.step,
         note: b.note,
         start: new Date(s).toISOString(),
@@ -647,8 +654,8 @@ export default function Calendar({
       )}
       {data && !data.batches.length && (
         <p className="mut small cal-hint">
-          To book equipment, plan a batch first: start one from a stack in Planned status. Its bookings then appear
-          here, and the batch switches to Running when its first booking starts.
+          Bookings for a batch need a Planned batch: start one from a stack. Equipment can also be booked outside a
+          batch, saying what for.
         </p>
       )}
       {draft && data && (
@@ -690,13 +697,13 @@ function HoverCard({ b, r, cleanup = 0, eq }: { b: Booking; r: DOMRect; cleanup?
         </span>
       </div>
       <dl>
-        <dt>Experiment</dt>
+        <dt>{b.batch_id ? 'Experiment' : 'Purpose'}</dt>
         <dd>{what(b)}</dd>
         <dt>Booked by</dt>
         <dd>{b.user_name}</dd>
         <dt>When</dt>
         <dd>
-          {s.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, {hm(s)}–{hm(e)}{' '}
+          {s.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}, {hm(s)}–{hm(e)}{' '}
           <span className="mut">
             ({mins >= 60 ? `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`})
           </span>
@@ -861,7 +868,7 @@ function TimeGrid({
                   'tg-col-h day' + (sameDay(c.day, today) ? ' today' : '') + (busyCol[cols.indexOf(c)] ? '' : ' slim')
                 }
               >
-                <span className="mut small">{c.day.toLocaleDateString('en-GB', { weekday: 'short' })}</span>
+                <span className="mut small wd">{c.day.toLocaleDateString('en-GB', { weekday: 'long' })}</span>
                 <b>{c.day.getDate()}</b>
                 {bdays.get(mdOf(c.day)) && (
                   <span
@@ -1152,7 +1159,7 @@ function Month({
     <div className="month">
       {days.slice(0, 7).map((d) => (
         <div key={'h' + d.getDay()} className="month-h">
-          {d.toLocaleDateString('en-GB', { weekday: 'short' })}
+          {d.toLocaleDateString('en-GB', { weekday: 'long' })}
         </div>
       ))}
       {days.map((d) => {
@@ -1233,25 +1240,41 @@ function BookingForm({
     ro = existing && (!draft.editable || !!draft.outcome); // answered steps are history
   const s0 = new Date(draft.start),
     e0 = new Date(draft.end);
-  const batches =
-    existing && !data.batches.some((b) => b.id === draft.batch_id)
-      ? [{ id: draft.batch_id!, code: draft.batch_code!, name: draft.batch_name ?? '' }, ...data.batches]
-      : data.batches;
   const eqs = data.equipment.filter((e) => e.active || e.id === draft.equipment_id);
-  const [f, setF] = useState({
-    eq: draft.equipment_id ?? 0,
-    batch: draft.batch_id ?? batches[0]?.id ?? 0,
-    step: draft.step ?? '',
-    note: draft.note ?? '',
-    day: ymd(s0),
-    from: hhmm(s0),
-    to: hhmm(e0),
-    force: false,
+  /** the batches this equipment can be booked for: finished ones for J–V measurement, Planned and Running ones otherwise */
+  const batchesFor = (eqId: number) => {
+    const list = eqs.find((e) => e.id === eqId)?.role === 'measure' ? (data.finished ?? []) : data.batches;
+    return existing && draft.batch_id && !list.some((b) => b.id === draft.batch_id)
+      ? [{ id: draft.batch_id, code: draft.batch_code!, name: draft.batch_name ?? '' }, ...list]
+      : list;
+  };
+  const [f, setF] = useState(() => {
+    const eq0 = draft.equipment_id ?? 0;
+    return {
+      eq: eq0,
+      // 0 = no batch
+      batch: existing ? (draft.batch_id ?? 0) : (batchesFor(eq0)[0]?.id ?? 0),
+      purpose: draft.purpose ?? '',
+      step: draft.step ?? '',
+      note: draft.note ?? '',
+      day: ymd(s0),
+      from: hhmm(s0),
+      to: hhmm(e0),
+      force: false,
+    };
   });
+  const batches = batchesFor(f.eq),
+    measure = eqs.find((e) => e.id === f.eq)?.role === 'measure';
+  // another equipment may take other batches (J–V measurement: finished ones); keep the choice only if it still fits
+  const pickEq = (id: number) => {
+    const list = batchesFor(id);
+    setF({ ...f, eq: id, batch: list.some((b) => b.id === f.batch) ? f.batch : (list[0]?.id ?? 0), step: '' });
+  };
   const [steps, setSteps] = useState<string[]>([]),
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (!f.batch) return setSteps([]);
     if (f.batch)
       api<any>('/batches/' + f.batch)
         .then((b) => setSteps((b.snapshot?.stack?.sl ?? []).map((x: any) => x.n).filter(Boolean)))
@@ -1271,11 +1294,12 @@ function BookingForm({
   const eq = eqs.find((e) => e.id === f.eq),
     hours = (end.getTime() - start.getTime()) / 3.6e6,
     work = useHours();
-  const ok = !!f.eq && !!f.batch && hours >= MIN_BOOK / 60 && (!clash || (isAdmin && f.force));
+  const ok = !!f.eq && (!!f.batch || !!f.purpose.trim()) && hours >= MIN_BOOK / 60 && (!clash || (isAdmin && f.force));
   const body = () => ({
     equipment_id: f.eq,
-    batch_id: f.batch,
-    step: f.step,
+    batch_id: f.batch || null,
+    purpose: f.batch ? undefined : f.purpose.trim(),
+    step: f.batch ? f.step : '',
     note: f.note,
     start: start.toISOString(),
     end: end.toISOString(),
@@ -1319,19 +1343,7 @@ function BookingForm({
             ×
           </button>
         </div>
-        {!existing && !batches.length ? (
-          <div className="stack-form-sm">
-            <p>
-              Bookings belong to a batch, and you have no Planned or Running batch. Open a stack and start a batch, then
-              book the equipment for it.
-            </p>
-            <div className="dialog-actions">
-              <button className="link" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </div>
-        ) : ro ? (
+        {ro ? (
           <div className="stack-form-sm">
             <p>
               <b>
@@ -1340,8 +1352,8 @@ function BookingForm({
               , {s0.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
             <p>
-              Batch {draft.batch_code}
-              {draft.step ? `, ${draft.step}` : ''}. Booked by {draft.user_name}.
+              {draft.batch_id ? `Batch ${draft.batch_code}${draft.step ? `, ${draft.step}` : ''}` : draft.purpose}.
+              Booked by {draft.user_name}.
             </p>
             {draft.outcome && (
               <p>
@@ -1366,7 +1378,7 @@ function BookingForm({
                     aria-checked={f.eq === e.id}
                     className={f.eq === e.id ? 'on' : ''}
                     style={{ '--eq': e.color } as React.CSSProperties}
-                    onClick={() => setF({ ...f, eq: e.id })}
+                    onClick={() => pickEq(e.id)}
                   >
                     <EquipmentArt kind={artOf(e)} size={52} />
                     <span>{e.name}</span>
@@ -1377,7 +1389,7 @@ function BookingForm({
             </div>
             <div className="grid2">
               <label className="fld">
-                <span>Batch</span>
+                <span>{measure ? 'Finished batch' : 'Batch'}</span>
                 <select value={f.batch} onChange={(e) => setF({ ...f, batch: +e.target.value, step: '' })}>
                   {batches.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -1386,21 +1398,38 @@ function BookingForm({
                       {b.status === 'running' ? ', running' : ''}
                     </option>
                   ))}
+                  <option value={0}>No batch</option>
                 </select>
               </label>
-              <label className="fld">
-                <span>Step</span>
-                <select value={f.step} onChange={(e) => setF({ ...f, step: e.target.value })}>
-                  <option value="">Whole batch</option>
-                  {steps.map((x, i) => (
-                    <option key={i} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                  {f.step && !steps.includes(f.step) && <option value={f.step}>{f.step}</option>}
-                </select>
-              </label>
+              {measure && f.batch ? null : f.batch ? (
+                <label className="fld">
+                  <span>Step</span>
+                  <select value={f.step} onChange={(e) => setF({ ...f, step: e.target.value })}>
+                    <option value="">Whole batch</option>
+                    {steps.map((x, i) => (
+                      <option key={i} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                    {f.step && !steps.includes(f.step) && <option value={f.step}>{f.step}</option>}
+                  </select>
+                </label>
+              ) : (
+                <label className="fld">
+                  <span>{measure ? 'Why it is booked' : 'What it is for'}</span>
+                  <input
+                    value={f.purpose}
+                    required
+                    maxLength={200}
+                    placeholder={measure ? 'For example, lamp calibration' : 'For example, a test run'}
+                    onChange={(e) => setF({ ...f, purpose: e.target.value })}
+                  />
+                </label>
+              )}
             </div>
+            {measure && !batches.some((b) => b.id === f.batch) && !f.batch && (
+              <p className="mut small">{eq?.name} measures finished batches. Without one, say why it is booked.</p>
+            )}
             <div className="grid3 when">
               <label className="fld">
                 <span>Day</span>
@@ -1420,13 +1449,17 @@ function BookingForm({
                 ? `${hours % 1 ? hours.toFixed(2).replace(/0$/, '') : hours} h${!sameDay(start, end) ? ', ending the next day' : ''}${eq?.cleanup ? `, then ${eq.cleanup} min of cleanup` : ''}`
                 : 'A booking is at least 1 hour.'}
             </p>
-            {start < new Date() && batches.find((b) => b.id === f.batch)?.status !== 'running' && (
-              <p className="mut small">This starts in the past, so the batch switches to Running when you book.</p>
-            )}
+            {!measure &&
+              !!f.batch &&
+              start < new Date() &&
+              batches.find((b) => b.id === f.batch)?.status !== 'running' && (
+                <p className="mut small">This starts in the past, so the batch switches to Running when you book.</p>
+              )}
             {clash && (
               <div className="clash" role="alert">
-                <b>{clash.equipment}</b> is booked by {clash.user_name} for batch {clash.batch_code},{' '}
-                {hm(new Date(clash.start))}–{hm(new Date(clash.end))}
+                <b>{clash.equipment}</b> is booked by {clash.user_name} for{' '}
+                {clash.batch_id ? `batch ${clash.batch_code}` : clash.purpose}, {hm(new Date(clash.start))}–
+                {hm(new Date(clash.end))}
                 {eq?.cleanup ? `, and needs ${eq.cleanup} min of cleanup between bookings` : ''}.
                 {isAdmin ? (
                   <label className="inline small">
@@ -1449,7 +1482,7 @@ function BookingForm({
               <span>Note</span>
               <input
                 value={f.note}
-                placeholder="Optional, e.g. needs the N₂ line"
+                placeholder="Optional, for example needs the N₂ line"
                 onChange={(e) => setF({ ...f, note: e.target.value })}
               />
             </label>
@@ -1460,7 +1493,7 @@ function BookingForm({
                   Remove booking
                 </button>
               )}
-              {existing && onOpenBatch && (
+              {existing && onOpenBatch && !!draft.batch_id && (
                 <button type="button" className="link" onClick={() => onOpenBatch(draft.batch_id!)}>
                   Open batch
                 </button>
@@ -1545,7 +1578,7 @@ function Tray({
                 !eq
                   ? `No equipment is set up for ${ROLE_NAME[b.role].toLowerCase()} (an admin sets the procedure under Equipment)`
                   : placed
-                    ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                    ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
                     : 'Drag onto the calendar'
               }
               onPointerDown={(e) => {
@@ -1566,7 +1599,7 @@ function Tray({
               <span>{b.what ?? b.layers.join(', ')}</span>
               <span className="tray-t">
                 {placed
-                  ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })} ${hm(new Date(placed.start))}`
+                  ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric' })} ${hm(new Date(placed.start))}`
                   : `${dur >= 60 ? `${Math.floor(dur / 60)} h${dur % 60 ? ` ${dur % 60}` : ''}` : `${dur} min`}`}
               </span>
             </button>
@@ -1715,7 +1748,7 @@ function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => v
             <input
               aria-label="Name"
               value={name}
-              placeholder="New equipment, e.g. Profilometer"
+              placeholder="Name of the new equipment"
               onChange={(e) => setName(e.target.value)}
             />
             <select aria-label="Procedure" value={role} onChange={(e) => setRole(e.target.value)}>

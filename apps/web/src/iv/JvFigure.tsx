@@ -59,7 +59,6 @@ export function JvFigure({
 }) {
   const fs = useFigureSettings(),
     wm = logo ? fs.watermark : '',
-    grp = logo ? fs.group : '',
     [info, setInfo] = useState<{ arch: string; layers: string[] } | null>(null);
   useEffect(() => {
     let on = true;
@@ -145,17 +144,12 @@ export function JvFigure({
         <image
           href={wm}
           x={L + PW * 0.5 - 80}
-          y={T + PH - (grp ? 96 : 78)}
+          y={T + PH - 78}
           width={160}
           height={62}
           opacity={0.3}
           preserveAspectRatio="xMidYMax meet"
         />
-      )}
-      {grp && (
-        <text x={L + PW * 0.5} y={T + PH - 16} fontSize={12.5} textAnchor="middle" fill={INK} opacity={0.5}>
-          {grp}
-        </text>
       )}
       <g clipPath={`url(#${clip})`}>
         {curves.map((c) => (

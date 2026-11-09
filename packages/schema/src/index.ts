@@ -480,14 +480,17 @@ const iso = z
   .transform((v) => new Date(v).toISOString());
 export const BookingIn = z.object({
   equipment_id: z.number().int(),
-  batch_id: z.number().int(),
+  /** null: a booking outside any batch, which then needs `purpose` */
+  batch_id: z.number().int().nullable().optional(),
+  /** what a booking outside a batch is for (for the J–V measurement equipment: why it is booked without a finished batch) */
+  purpose: z.string().trim().max(200).optional(),
   step: z.string().max(120).optional(),
   note: z.string().max(500).optional(),
   start: iso,
   end: iso,
   /** Admin only: book even if it overlaps another booking. */ force: z.boolean().optional(),
 });
-export const EquipmentRole = z.enum(['', 'prep', 'scale', 'spinner', 'organic', 'metal']);
+export const EquipmentRole = z.enum(['', 'prep', 'scale', 'spinner', 'organic', 'metal', 'measure']);
 export const EquipmentIn = z.object({
   name: z.string().trim().min(1, 'name the equipment').max(80),
   role: EquipmentRole.optional(),

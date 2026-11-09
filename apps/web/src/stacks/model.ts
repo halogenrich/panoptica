@@ -13,6 +13,15 @@ import type { Appearance } from './appearance';
 
 export type Method = 'Substrate' | 'Spin' | 'Organic evap' | 'Metal evap' | 'Manual';
 export const METHODS: Method[] = ['Substrate', 'Spin', 'Organic evap', 'Metal evap', 'Manual'];
+/** How a method is written on screen and on paper (the keys above are stored in stacks and batches, so they stay as they are). */
+export const METHOD_NAME: Record<Method, string> = {
+  Substrate: 'Substrate preparation',
+  Spin: 'Spin coating',
+  'Organic evap': 'Organic evaporation',
+  'Metal evap': 'Metal evaporation',
+  Manual: 'Manual',
+};
+export const methodName = (m: string) => METHOD_NAME[m as Method] ?? m;
 /** One layer of a stack: method + preset ids (`a`; for spin coating `a` = solution, `b` = spin program), thickness for films. */
 /** `ap`: look of the layer in the 3D view (for the substrate slot: the ITO; `apGlass`: the glass). */
 export interface Slot {

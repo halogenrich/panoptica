@@ -83,7 +83,7 @@ export function Modal({
   );
 }
 
-/** Prints one piece of content on its own (e.g. a run sheet from inside a sheet), instead of the whole screen. */
+/** Prints one piece of content on its own (for example a run sheet from inside a sheet), instead of the whole screen. */
 export function usePrint() {
   const [node, setNode] = useState<ReactNode>(null);
   useEffect(() => {

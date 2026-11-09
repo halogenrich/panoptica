@@ -907,7 +907,7 @@ function Types({ inv, reload }: { inv: Inv; reload: () => void }) {
           <IconMenu v={icon} on={setIcon} />
           <input
             value={name}
-            placeholder="New type, e.g. Flammables cabinet"
+            placeholder="New type, for example Flammables cabinet"
             onChange={(e) => setName(e.target.value)}
           />
           <button className="btn" disabled={!name.trim()}>
@@ -1679,8 +1679,8 @@ function UseDetail({ r, p }: { r: Row; p: Period }) {
   const ticks = [0, 0.5, 1].map((k) => k * max);
   const lab = (s: string) =>
     p === 'month'
-      ? new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' })
-      : new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      ? new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { month: '2-digit', year: 'numeric', timeZone: 'UTC' })
+      : new Date(s + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
   const step = Math.ceil(n / 9);
   return (
     <section className="group use-detail">

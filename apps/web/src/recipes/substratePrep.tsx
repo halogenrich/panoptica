@@ -115,8 +115,8 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
 
 export const substratePrep: Kind<D> = {
   segment: 's0',
-  title: 'Substrate prep',
-  noun: 'substrate prep',
+  title: 'Substrate preparation',
+  noun: 'substrate preparation',
   defaults,
   Editor,
   Output,

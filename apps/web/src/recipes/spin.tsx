@@ -285,7 +285,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
         </label>
         <label className="inline">
           <Check v={d.ox} on={(ox) => set({ ox })} /> Needs post-coating oxidation / activation?{' '}
-          <span className="mut small">(e.g. doped spiro-OMeTAD)</span>
+          <span className="mut small">(for example doped spiro-OMeTAD)</span>
         </label>
         {d.ox && (
           <div className="inline">

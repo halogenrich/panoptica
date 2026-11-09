@@ -300,7 +300,7 @@ const KIND: Record<B['kind'], string> = {
   update: 'Before update',
   'before-restore': 'Before restore',
 };
-const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
 const ago = (iso: string) => {
   const h = (Date.now() - new Date(iso).getTime()) / 3.6e6;
   return h < 1 ? 'less than an hour ago' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;
@@ -576,7 +576,7 @@ function Tags({ tags, reload }: { tags: Tag[]; reload: () => void }) {
           <input type="color" aria-label="New tag colour" value={color} onChange={(e) => setColor(e.target.value)} />
           <input
             type="text"
-            placeholder="New tag (e.g. 2D perovskites)"
+            placeholder="New tag (for example 2D perovskites)"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />

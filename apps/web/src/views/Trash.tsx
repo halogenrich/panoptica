@@ -19,7 +19,7 @@ const KIND: Record<string, string> = {
   cmp: 'Comparison',
   sub: 'Substrate',
   mask: 'Metal mask',
-  s0: 'Substrate prep',
+  s0: 'Substrate preparation',
   s1: 'Solution',
   s2: 'Spin program',
   s3: 'Organic evaporation',

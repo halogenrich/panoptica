@@ -12,7 +12,7 @@ import { RunEntry, RunForm, type Run } from '../lib/Library';
 import { Badge, Empty, LayoutToggle, Seg, fmtDate, fmtDateTime, useLayout, usePrint } from '../lib/ui';
 import { KINDS } from '../recipes';
 import { norm, type Ctx, type Rec } from '../recipes/types';
-import { SEG, type Slot, type StackD } from '../stacks/model';
+import { SEG, type Slot, type StackD, methodName } from '../stacks/model';
 import RunSheet from '../stacks/RunSheet';
 import { bundlesOf, placedOf } from '../lib/bundles';
 import { layerState, stepPresets } from '../lib/stepRuns';
@@ -585,7 +585,7 @@ function Detail({
                     <b>
                       {i + 1}. {s.n}
                     </b>
-                    <span className="mut small">{s.m}</span>
+                    <span className="mut small">{methodName(s.m)}</span>
                     <div className="grow" />
                     <span className={'small layer-state' + (state.done ? ' ok' : '')}>{state.text}</span>
                   </div>
@@ -682,9 +682,9 @@ function BatchBookings({ list }: { list: Booking[] }) {
   if (!list.length) return null;
   const t = (x: string) =>
     new Date(x).toLocaleString('en-GB', {
-      weekday: 'short',
+      weekday: 'long',
       day: 'numeric',
-      month: 'short',
+      month: 'long',
       hour: '2-digit',
       minute: '2-digit',
     });

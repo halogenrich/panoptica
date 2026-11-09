@@ -22,6 +22,7 @@ import {
   type Method,
   type Slot,
   type StackD,
+  methodName,
 } from './model';
 import { defaultLook, isCustom, lookOf, type Appearance } from './appearance';
 import RunSheet from './RunSheet';
@@ -303,7 +304,9 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                   <span>Method</span>
                   <select value={slot.m} onChange={(e) => up({ m: e.target.value as Method, a: '', b: '' })}>
                     {METHODS.map((m) => (
-                      <option key={m}>{m}</option>
+                      <option key={m} value={m}>
+                        {methodName(m)}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -321,7 +324,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                 )}
               </Section>
               {slot.m === 'Substrate' && (
-                <Section title="Substrate prep">
+                <Section title="Substrate preparation">
                   <Picker
                     seg="s0"
                     value={slot.a}
@@ -386,7 +389,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                   <textarea
                     value={slot.t}
                     onChange={(e) => up({ t: e.target.value })}
-                    placeholder="What to do for this layer (e.g. CBD SnO2, ALD, blade coating…)"
+                    placeholder="What to do for this layer (for example CBD SnO2, ALD, blade coating…)"
                   />
                 </Section>
               )}
@@ -477,7 +480,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                       <DragHandle h={reorder.handle(n - 1 - j)} show={j > 0 && n > 2} />
                       <span className="num">{j + 1}</span>
                       <span>
-                        <b>{s.n}</b> <span className="mut small">· {s.m}</span>
+                        <b>{s.n}</b> <span className="mut small">· {methodName(s.m)}</span>
                         <br />
                         <span className="small">
                           {s.m === 'Manual'
@@ -507,7 +510,7 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
               </div>
               {viewSlabs(st, ctx).mismatch && (
                 <p className="err small">
-                  The metal recipe’s mask was drawn for a different substrate than the substrate prep uses.
+                  The metal recipe’s mask was drawn for a different substrate than the substrate preparation uses.
                 </p>
               )}
               <p className="small mut">
@@ -557,7 +560,7 @@ function Output({ d: raw, ctx }: { d: StackD; ctx: Ctx; blanks?: boolean }) {
               <span>
                 <b>{s.n}</b>{' '}
                 <span className="mut small">
-                  · {s.m}
+                  · {methodName(s.m)}
                   {s.th ? ` · ${s.th} nm` : ''}
                 </span>
                 <br />

@@ -70,8 +70,7 @@ export function CompareFigure({
   logo: boolean;
 }) {
   const fs = useFigureSettings(),
-    wm = logo ? fs.watermark : '',
-    grp = logo ? fs.group : '';
+    wm = logo ? fs.watermark : '';
   const shown = items
     .map((it, i) => ({ it, color: it.color ?? CMP[i % CMP.length], ...bestScan(it.curves) }))
     .map((x) => ({ ...x, curves: x.curves.filter((c) => dir === 'both' || c.dir === dir) }));
@@ -138,17 +137,12 @@ export function CompareFigure({
         <image
           href={wm}
           x={L + PW * 0.5 - 80}
-          y={T + PH - (grp ? 96 : 78)}
+          y={T + PH - 78}
           width={160}
           height={62}
           opacity={0.3}
           preserveAspectRatio="xMidYMax meet"
         />
-      )}
-      {grp && (
-        <text x={L + PW * 0.5} y={T + PH - 16} fontSize={12.5} textAnchor="middle" fill={INK} opacity={0.5}>
-          {grp}
-        </text>
       )}
       <g clipPath={`url(#${clip})`}>
         {shown.flatMap((x) =>
@@ -274,7 +268,7 @@ export function ComparePanel({
         ? combine(figs.current.filter((x): x is SVGSVGElement => !!x))
         : null;
   const fs = useFigureSettings(),
-    hasLogo = !!(fs.watermark || fs.group),
+    hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   const name = `JV-compare-${items.length}px`;
   return (
@@ -339,7 +333,7 @@ export function ComparePanel({
       <div className="inline">
         {hasLogo && (
           <label className="inline small">
-            <Check v={logo} on={setLogo} /> Group logo
+            <Check v={logo} on={setLogo} /> Lab logo
           </label>
         )}
         <button
