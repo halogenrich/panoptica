@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.35.1 (2026-11-09)
+
+- **Scheduling substrate preparation**: a recipe with a surface treatment gives two blocks, cleaning (sonication, N<sub>2</sub> dry) on the substrate cleaner and UV-ozone or plasma on the equipment named for it, both set for Substrate preparation. Its run data is asked once, after the surface treatment.
+- **Block lengths follow the recipe**: substrate cleaning takes its sonication and drying times, surface treatment its own (rounded up to 5 min, at least 1 hour), instead of a fixed hour. Tray blocks grow to show their text and length.
+- **Run sheet**: print with or without a notes box under each layer; the notes box is taller (about five lines); text a size larger; solution preparation in plain text with its values in bold; a long layer continues on the next page instead of leaving half a page blank, without splitting a table, list or notes box.
+- Substrate prep: sonication and surface treatment steps one per line, numbered, in the key facts (as on the printed sheet).
+- Equipment named "… cleaner", "ultrasonic" or "bath" gets the ultrasonic bath drawing unless one is chosen.
+
 ## 0.35.0 (2026-11-07)
 
 - **Lifetime runs** of the 8-pixel system (Ossila lifetime test): import the run's folder or .zip like any measurement. The app picks the copy of the run whose files match (an aborted attempt leaves header-only files), shows the run before saving and asks for the sample and substrate, which the files do not name. The first reading counts in the statistics; the later ones are the ageing and stay out of them. The **Lifetime** tab plots PCE, Voc, Jsc, FF, Rs or Rsh of every pixel against time (backward, forward or both), normalised or absolute, with T90 and T80; a table with first and latest values, ratio, T90 and T80; one pixel's J–V curves over the run from light to dark; PNG, SVG and a CSV of every reading with the instrument software's PCE alongside. Light and temperature readings are kept when those sensors were connected. A run that stopped before its planned length says so.

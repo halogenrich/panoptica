@@ -5,7 +5,7 @@ import type { Chem } from '@psc/core';
 import { api } from '../api';
 import { PrefCtx } from '../ctx';
 import { useChems } from '../views/common';
-import { norm, type Ctx, type Design, type Kind, type Rec, type RunField } from '../recipes/types';
+import { norm, oneLine, type Ctx, type Design, type Kind, type Rec, type RunField } from '../recipes/types';
 import { RunInput, fmtRun, runError } from './RunInputs';
 import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout, useToast } from './ui';
 import { trashed, useRefresh } from './trash';
@@ -573,7 +573,17 @@ export function PresetSheet({
                 {Object.entries(facts).map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>
-                    <dd>{v}</dd>
+                    <dd>
+                      {v.includes('\n') ? (
+                        <ol className="facts-steps">
+                          {v.split('\n').map((l, i) => (
+                            <li key={i}>{l}</li>
+                          ))}
+                        </ol>
+                      ) : (
+                        v
+                      )}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -942,7 +952,7 @@ function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail
       b = kind.describe(norm(kind, f.data), ctx);
     return Object.keys({ ...a, ...b })
       .filter((k) => a[k] !== b[k])
-      .map((k) => `${k}: ${a[k] ?? '—'} → ${b[k] ?? '—'}`);
+      .map((k) => `${k}: ${oneLine(a[k] ?? '—')} → ${oneLine(b[k] ?? '—')}`);
   };
   const node = (f: FamNode, depth: number): React.ReactNode => {
     const kids = fam.filter((c) => c.parent_id === f.id).sort((x, y) => x.id - y.id),

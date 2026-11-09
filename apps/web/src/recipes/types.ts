@@ -77,7 +77,10 @@ export interface Kind<T = any> {
   /** Last step before saving (e.g. render a thumbnail). */
   prepareSave?: (d: T, ctx: Ctx) => Promise<T>;
   summary: (d: T, ctx: Ctx) => string;
-  /** Labelled values, used for the key facts panel and the History diff. */
+  /**
+   * Labelled values, used for the key facts panel and the History diff. A value with several lines (steps in order) is shown
+   * as a numbered list; where one line is needed (tables, spreadsheets, comparisons) use `oneLine`.
+   */
   describe: (d: T, ctx: Ctx) => Record<string, string>;
   runFields: (d: T, ctx: Ctx) => RunField[];
   /** Row labels for staged run fields (e.g. each deposition rate). */
@@ -85,5 +88,8 @@ export interface Kind<T = any> {
   /** Optional extra result computed from a run entry (e.g. actual formula from weighed masses). */
   runResult?: (d: T, values: Record<string, string>, ctx: Ctx) => ReactNode;
 }
+
+/** A described value on one line: its lines (steps) joined with semicolons. */
+export const oneLine = (v: string) => v.split('\n').join('; ');
 
 export const norm = <T>(k: Kind<T>, d: unknown): T => ({ ...k.defaults(), ...(d as object) });
