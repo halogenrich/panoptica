@@ -23,6 +23,7 @@ export function SlideFrame({
   children,
   svgRef,
   compact,
+  logoTop,
 }: {
   title: string;
   sub: string;
@@ -30,6 +31,8 @@ export function SlideFrame({
   svgRef: React.Ref<SVGSVGElement>;
   /** smaller title, for slides with several figures */
   compact?: boolean;
+  /** the logo and group name in the top right corner, next to the title, leaving the bottom to the content */
+  logoTop?: boolean;
 }) {
   const fs = useFigureSettings();
   return (
@@ -53,15 +56,21 @@ export function SlideFrame({
         <image
           href={fs.watermark}
           x={SW - 330}
-          y={SH - 130}
+          y={logoTop ? 60 : SH - 130}
           width={220}
-          height={80}
-          preserveAspectRatio="xMaxYMax meet"
+          height={logoTop ? 72 : 80}
+          preserveAspectRatio={logoTop ? 'xMaxYMid meet' : 'xMaxYMax meet'}
           opacity={0.85}
         />
       )}
       {fs.group && (
-        <text x={fs.watermark ? SW - 350 : SW - 110} y={SH - 70} fontSize={24} fill={MUT} textAnchor="end">
+        <text
+          x={fs.watermark ? SW - 350 : SW - 110}
+          y={logoTop ? 105 : SH - 70}
+          fontSize={24}
+          fill={MUT}
+          textAnchor="end"
+        >
           {fs.group}
         </text>
       )}

@@ -49,8 +49,16 @@ export type Lab = {
   departments: string[];
   hours: WorkDay[];
   background: string;
-  /** changes when the background changes, so browsers fetch it again */
+  /** changes when the background or a logo changes, so browsers fetch them again */
   bgV: number;
+  /** where the lab logo sits on the picture: t/m/b (top, middle, bottom) + l/c/r; 'mc' is the centre */
+  logoPos: string;
+  /** a white rounded plate behind the logo */
+  logoPlate: boolean;
+  /** the institution's logo, for the foot of the sign-in panel */
+  instLogo: string;
+  /** what the foot of the sign-in panel shows */
+  foot: 'name' | 'logo' | 'both';
 };
 export function lab(): Lab {
   const d = JSON.parse(getMeta('lab') ?? '{}');
@@ -62,26 +70,30 @@ export function lab(): Lab {
     hours: d.hours?.length === 7 ? d.hours : DEFAULT_HOURS,
     background: d.background ?? '',
     bgV: d.bgV ?? 0,
+    logoPos: d.logoPos ?? 'br',
+    logoPlate: d.logoPlate ?? true,
+    instLogo: d.instLogo ?? '',
+    foot: d.foot ?? 'name',
   };
 }
 const figure = () => JSON.parse(getMeta('figure') ?? '{}') as { watermark?: string; group?: string };
 
-/** Saves lab settings; the logo is the figure logo (one logo for the app), and the lab's name fills an empty figure group name. */
+/** Saves lab settings; the logo is the figure logo (one logo for the app), and the lab's name is the name on figures. */
 function saveLab(p: ReturnType<typeof LabIn.parse>) {
-  const { logo, background, ...rest } = p;
+  const { logo, background, instLogo, ...rest } = p;
   const cur = lab();
   const next = { ...cur, ...rest };
-  if (background !== undefined) {
-    next.background = background;
-    next.bgV = Date.now() % 1e9;
-  }
+  if (background !== undefined) next.background = background;
+  if (instLogo !== undefined) next.instLogo = instLogo;
+  if (background !== undefined || instLogo !== undefined || logo !== undefined) next.bgV = Date.now() % 1e9;
   setMeta('lab', next);
   const f = figure();
-  if (logo !== undefined || (rest.name && !f.group))
+  // the lab's name is also the name next to the logo on exported figures
+  if (logo !== undefined || rest.name)
     setMeta('figure', {
       ...f,
       ...(logo !== undefined ? { watermark: logo } : {}),
-      ...(rest.name && !f.group ? { group: rest.name } : {}),
+      ...(rest.name ? { group: rest.name } : {}),
     });
 }
 
@@ -127,6 +139,10 @@ export function registerLab(
       hasLogo: !!f.watermark,
       hasBackground: !!l.background,
       bgV: l.bgV,
+      logoPos: l.logoPos,
+      logoPlate: l.logoPlate,
+      hasInstLogo: !!l.instLogo,
+      foot: l.foot,
       setup: setupNeeded() ? (isLocal(req) ? 'here' : 'elsewhere') : null,
       // professors, offered as supervisors on the request form
       professors: db
@@ -145,6 +161,7 @@ export function registerLab(
   };
   app.get('/api/lab/logo', async (_req, reply) => sendImg(reply, figure().watermark));
   app.get('/api/lab/background', async (_req, reply) => sendImg(reply, lab().background));
+  app.get('/api/lab/institution-logo', async (_req, reply) => sendImg(reply, lab().instLogo));
 
   /** Birthdays for the calendar: day and month only, of people who did not hide theirs. */
   app.get('/api/lab/birthdays', { preHandler: auth() }, async () =>
@@ -158,18 +175,19 @@ export function registerLab(
   );
 
   // ---- lab settings (admins) ----
-  app.get('/api/lab', { preHandler: auth() }, async () => {
-    const { background, ...l } = lab();
-    return { ...l, hasBackground: !!background, hasLogo: !!figure().watermark };
-  });
+  const labOut = () => {
+    const { background, instLogo, ...l } = lab();
+    return { ...l, hasBackground: !!background, hasInstLogo: !!instLogo, hasLogo: !!figure().watermark };
+  };
+  app.get('/api/lab', { preHandler: auth() }, async () => labOut());
   app.put('/api/lab', { preHandler: auth(true), bodyLimit: 12 * 1024 * 1024 }, async (req: any, reply) => {
     const p = LabIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
-    if (p.data.logo && !/^data:image\/(png|jpeg|svg\+xml);base64,/.test(p.data.logo))
-      return reply.code(400).send({ error: 'the logo must be a PNG, JPEG or SVG image' });
+    for (const v of [p.data.logo, p.data.instLogo])
+      if (v && !/^data:image\/(png|jpeg|svg\+xml);base64,/.test(v))
+        return reply.code(400).send({ error: 'a logo must be a PNG, JPEG or SVG image' });
     saveLab(p.data);
-    const { background, ...l } = lab();
-    return { ...l, hasBackground: !!background, hasLogo: !!figure().watermark };
+    return labOut();
   });
 
   // ---- first setup: only while there is no admin, and only on the computer that runs the app ----

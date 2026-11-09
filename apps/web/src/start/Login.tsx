@@ -14,7 +14,7 @@ import {
   type NameParts,
 } from './parts';
 
-/** The lab's picture on the left (or the panopticon drawing), its logo in the corner; the panel on the right. */
+/** The lab's picture on the left (or the panopticon drawing) with its logo where the lab placed it; the panel on the right. */
 export function SignInFrame({
   lab,
   wide,
@@ -25,17 +25,21 @@ export function SignInFrame({
   wide?: boolean;
   children: ReactNode;
   /** images not saved yet (the setup's preview): data URLs, '' for none */
-  preview?: { bg: string; logo: string };
+  preview?: { bg: string; logo: string; inst: string };
 }) {
   const bg = preview ? preview.bg : lab.hasBackground ? `/api/lab/background?v=${lab.bgV}` : '',
-    logo = preview ? preview.logo : lab.hasLogo ? `/api/lab/logo?v=${lab.bgV}` : '';
+    logo = preview ? preview.logo : lab.hasLogo ? `/api/lab/logo?v=${lab.bgV}` : '',
+    inst = preview ? preview.inst : lab.hasInstLogo ? `/api/lab/institution-logo?v=${lab.bgV}` : '';
+  const foot = lab.foot ?? 'name',
+    showName = !!lab.institution && (foot !== 'logo' || !inst),
+    showInst = !!inst && foot !== 'name';
   const Tag = preview ? 'div' : 'main';
   return (
     <Tag className={'signin' + (wide ? ' wide' : '') + (preview ? ' mini' : '')}>
       <div className={'signin-art' + (bg ? ' photo' : '')}>
         {bg ? <img src={bg} alt="" /> : <Panopticon />}
         {logo && (
-          <div className="signin-logo">
+          <div className={`signin-logo at-${lab.logoPos ?? 'br'}` + (lab.logoPlate === false ? ' bare' : '')}>
             <img src={logo} alt={lab.name ? `${lab.name} logo` : 'Lab logo'} />
           </div>
         )}
@@ -43,7 +47,12 @@ export function SignInFrame({
       <section className="signin-panel">
         <Wordmark lab={lab.name} />
         <div className="signin-body">{children}</div>
-        {lab.institution && <p className="signin-foot mut small">{lab.institution}</p>}
+        {(showName || showInst) && (
+          <div className="signin-foot">
+            {showInst && <img src={inst} alt={lab.institution || 'Institution logo'} />}
+            {showName && <span className="mut small">{lab.institution}</span>}
+          </div>
+        )}
       </section>
     </Tag>
   );

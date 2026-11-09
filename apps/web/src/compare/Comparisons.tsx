@@ -9,7 +9,16 @@ import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout } from '../l
 import { Check, Grip, useReorder } from '../views/common';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import { xlsx, downloadBytes, type Sheet } from '../lib/xlsx';
-import { BFH, BFW, BoxFigure, BoxPanel, OutlierToggle, TITLES, combinePanels, useOutliers } from '../iv/BoxFigure';
+import {
+  BFW,
+  BoxFigure,
+  BoxPanel,
+  OutlierToggle,
+  TITLES,
+  combinePanels,
+  commonLogoSpot,
+  useOutliers,
+} from '../iv/BoxFigure';
 import { CompareFigure, bestScan, type CmpItem } from '../iv/Compare';
 import { exportSvg } from '../iv/JvFigure';
 import ExportMenu, { pngSvg } from '../lib/ExportMenu';
@@ -919,10 +928,21 @@ function Results({
 
   const sub = `${new Set(rows.map((r) => r.gid)).size} groups · ${new Set(rows.map((r) => r.dev)).size} devices · ${DIR_NAME[d].toLowerCase()} scans${rel ? ` · relative to ${refGroup!.name}` : ''}`;
   const fileBase = safe(c.name);
+  // the logo in the same place on every box plot, when one place is free on all of them
+  const boxSpot = commonLogoSpot(panels, hasLogo && logo ? fs : undefined, { showDensity: dens, outliers: outl });
   // slide: box plots and J–V side by side, the table of parameters across the bottom
   const tRows = table.filter((t) => t.s.pce).slice(0, 6),
     rh = tRows.length <= 4 ? 46 : 34,
     tfs = tRows.length <= 4 ? 26 : 22,
+    // the table sits at the bottom of the slide; the figures take the height above it, as large as the width allows
+    tTop = 1040 - 36 - rh * tRows.length,
+    hasJv = jvItems.length > 0,
+    // the J–V figure keeps its shape at the full height; the box plots take the rest of the width and the same height
+    fh = tTop - 40 - 190,
+    jw = hasJv ? Math.min((760 / 520) * fh, 900) : 0,
+    jh = hasJv ? (520 / 760) * jw : 0,
+    bw = 1830 - 90 - (hasJv ? jw + 60 : 0),
+    bh = Math.min(fh, bw * 0.75),
     mEnd = refGroup ? 1690 : 1830,
     mw = (mEnd - 700) / Math.max(show.length, 1),
     // [label, unit, x of the right edge]; the first column (group) starts at the left margin
@@ -932,45 +952,54 @@ function Results({
       ...show.map((k, i): [string, string, number] => [meta(k).label, unit(k), 700 + (i + 1) * mw]),
     ];
   const slideEl = (
-    <SlideFrame svgRef={slide.ref} title={c.name} sub={sub} compact>
-      <svg x={90} y={190} width={820} height={492} viewBox={`0 0 ${BFW} ${BFH}`}>
-        <BoxFigure panels={panels} outliers={outl} />
+    <SlideFrame svgRef={slide.ref} title={c.name} sub={sub} compact logoTop>
+      <svg x={90} y={190} width={bw} height={bh} viewBox={`0 0 ${BFW} ${(BFW * bh) / bw}`}>
+        <BoxFigure panels={panels} outliers={outl} height={(BFW * bh) / bw} />
       </svg>
-      {jvItems.length > 0 && (
-        <svg x={1060} y={190} width={719} height={492} viewBox="0 0 760 520">
+      {hasJv && (
+        <svg x={1830 - jw} y={190 + (fh - jh) / 2} width={jw} height={jh} viewBox="0 0 760 520">
           <CompareFigure items={jvItems} dir={d} logo={false} />
         </svg>
       )}
       {/* the table of parameters, one row per group */}
       <g fontSize={tfs} fill="#15171a">
-        <text x={90} y={742} fill="#5f6570" fontSize={tfs - 4}>
+        <text x={90} y={tTop} fill="#5f6570" fontSize={tfs - 4}>
           Group
         </text>
         {cols.map(([h, u, x]) => (
           <g key={h} textAnchor="end">
-            <text x={x} y={742} fill="#5f6570" fontSize={tfs - 4}>
+            <text x={x} y={tTop} fill="#5f6570" fontSize={tfs - 4}>
               {h}
             </text>
             {u && (
-              <text x={x} y={766} fill="#8a8f98" fontSize={tfs - 8}>
+              <text x={x} y={tTop + 24} fill="#8a8f98" fontSize={tfs - 8}>
                 {u}
               </text>
             )}
           </g>
         ))}
         {refGroup && (
-          <text x={1830} y={742} textAnchor="end" fill="#5f6570" fontSize={tfs - 4}>
+          <text x={1830} y={tTop} textAnchor="end" fill="#5f6570" fontSize={tfs - 4}>
             PCE vs ref.
           </text>
         )}
-        <line x1={90} x2={1830} y1={778} y2={778} stroke="#c7cad1" strokeWidth={1.5} />
+        <line x1={90} x2={1830} y1={tTop + 36} y2={tTop + 36} stroke="#c7cad1" strokeWidth={1.5} />
         {tRows.map((t, i) => {
-          const y = 778 + rh * (i + 0.8),
+          const y = tTop + 36 + rh * (i + 0.8),
             dl = delta(t);
           const cells = [t.devices, t.pixels, ...show.map((k) => (t.s[k] ? fmt(t.s[k]!.median, digits(k)) : '—'))];
           return (
             <g key={t.g.id}>
-              {i > 0 && <line x1={90} x2={1830} y1={778 + rh * i} y2={778 + rh * i} stroke="#eceef1" strokeWidth={1} />}
+              {i > 0 && (
+                <line
+                  x1={90}
+                  x2={1830}
+                  y1={tTop + 36 + rh * i}
+                  y2={tTop + 36 + rh * i}
+                  stroke="#eceef1"
+                  strokeWidth={1}
+                />
+              )}
               <rect x={90} y={y - tfs * 0.78} width={12} height={tfs * 0.95} rx={3} fill={gColor(t.gi)} />
               <text x={114} y={y} fontWeight={t.g.ref ? 600 : 400}>
                 {(t.g.name || 'Unnamed group').slice(0, 26)}
@@ -989,9 +1018,6 @@ function Results({
             </g>
           );
         })}
-        <text x={90} y={1050} fontSize={18} fill="#8a8f98">
-          Medians of the counted pixels; each pixel once per direction with its best scan, never a check sweep.
-        </text>
       </g>
     </SlideFrame>
   );
@@ -1229,6 +1255,7 @@ function Results({
                       log={p.key === 'rsh'}
                       logo={hasLogo && logo ? fs : undefined}
                       panel={p}
+                      spot={boxSpot}
                     />
                   </div>
                   <figcaption className="inline">
