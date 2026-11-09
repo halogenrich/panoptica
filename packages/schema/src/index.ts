@@ -73,6 +73,10 @@ export const LabIn = z.object({
   hours: z.array(WorkDayIn).length(7).optional(),
   background: Background.optional(),
   logo: z.string().max(1_400_000).optional(),
+  logoPos: z.enum(['tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br']).optional(),
+  logoPlate: z.boolean().optional(),
+  instLogo: z.string().max(1_400_000).optional(),
+  foot: z.enum(['name', 'logo', 'both']).optional(),
 });
 /** The first setup, on the computer that runs the app: the first admin and the lab. */
 export const SetupIn = z.object({

@@ -7,7 +7,7 @@ import { api } from '../api';
 import { trashed, useRefresh } from '../lib/trash';
 import { Badge, Empty, LayoutToggle, Seg, fmtDate, useLayout } from '../lib/ui';
 import { type BoxGroup } from './charts';
-import { BoxPanel, OutlierToggle, TITLES, combinePanels, lighter, useOutliers } from './BoxFigure';
+import { BoxPanel, OutlierToggle, TITLES, combinePanels, commonLogoSpot, lighter, useOutliers } from './BoxFigure';
 import { useFigureSettings, useLogoChoice } from '../lib/figure';
 import ExportMenu, { pngSvg } from '../lib/ExportMenu';
 import { exportSvg } from './JvFigure';
@@ -693,8 +693,14 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
       )}
       {rows.length > 0 && (
         <div className="plot-grid">
-          {show.map((k) => {
+          {show.map((k, _i, all) => {
             const m = METRICS.find((x) => x.key === k)!;
+            // the logo in the same place on every plot, when one place is free on all of them
+            const spot = commonLogoSpot(
+              all.map((kk) => ({ key: kk, title: TITLES[kk], groups: box(kk) })),
+              hasLogo && logo ? fs : undefined,
+              { showDensity: dens, outliers: outl },
+            );
             const name = `jv-${k}-${new Date().toISOString().slice(0, 10)}`;
             return (
               <figure key={k} className="plot-card">
@@ -708,6 +714,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
                     log={k === 'rsh'}
                     logo={hasLogo && logo ? fs : undefined}
                     panel={{ key: k, title: TITLES[k], groups: box(k), unit: m.unit, digits: m.digits }}
+                    spot={spot}
                   />
                 </div>
                 <figcaption className="inline">

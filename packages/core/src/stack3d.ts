@@ -1,5 +1,7 @@
 // Device stack geometry for the 3D view. Each layer is made of parts: regions (mm, polygons with holes) with their own bottom
-// height and a common flat top, so a layer fills down onto whatever is beneath it (glass where there is no ITO, ITO in the scrape zone).
+// height and a common flat top, so a layer fills down onto whatever is beneath it (the metal onto the ITO in the scrape zone).
+// The ITO is drawn as a coloured film on the glass, only a few micrometres thick in the view, so the first layer on it is a plain
+// flat slab instead of one with a step cut out where the ITO is.
 import pc from 'polygon-clipping';
 import { SUBSTRATES, pattern, type SubKey } from './index';
 import { allPolys, regionArea, union, type Poly, type Shape } from './geom';
@@ -31,8 +33,13 @@ export interface Slab3 {
   parts: Part[];
 }
 
-/** Visual thickness: glass 1 mm; films 100 nm = 0.1 mm, with a minimum so nm-thin layers stay visible. Schematic, not to scale. */
-export const VIS = { glass: 1, perNm: 0.001, min: 0.03 };
+/**
+ * Visual thickness: glass 1 mm; films 100 nm = 0.1 mm, with a minimum so nm-thin layers stay visible; the ITO a thin coloured
+ * film whatever its thickness (its nm show in the label). Schematic, not to scale.
+ */
+export const VIS = { glass: 1, perNm: 0.001, min: 0.03, ito: 0.004 };
+/** Steps smaller than this (the ITO edge) are not drawn: a layer over them is one flat slab. */
+const STEP = 0.01;
 export const visMm = (nm: number) => Math.max(nm * VIS.perNm, VIS.min);
 
 type MP = pc.MultiPolygon;
@@ -96,12 +103,19 @@ export function buildStack(
     for (const c of cols) {
       const hit = pc.intersection(c.region, region);
       if (regionArea(hit) > EPS) {
-        parts.push({ region: toRegion(hit), y0: c.top, ...(conformal ? { h } : {}) });
         hits.push({ region: hit, top: c.top });
         base = Math.max(base, c.top);
       }
     }
-    if (!parts.length) return null;
+    if (!hits.length) return null;
+    // parts by bottom height; heights within STEP of each other are one part (one flat bottom at the lowest of them)
+    const levels: { y0: number; region: MP }[] = [];
+    for (const x of [...hits].sort((a, b) => a.top - b.top)) {
+      const l = levels.find((v) => x.top - v.y0 < STEP);
+      if (l) l.region = pc.union(l.region, x.region);
+      else levels.push({ y0: x.top, region: x.region });
+    }
+    for (const l of levels) parts.push({ region: toRegion(l.region), y0: l.y0, ...(conformal ? { h } : {}) });
     const top = base + h;
     cols = cols.flatMap((c) => {
       const rest = pc.difference(c.region, region);
@@ -120,7 +134,7 @@ export function buildStack(
   add(
     { key: 'ito', kind: 'ito', name: 'ITO', mat: 'ITO', label: `ITO${sub.t ? ' · ' + sub.t + ' nm' : ''}` },
     union(allPolys(sub.ito)),
-    visMm(sub.t ?? 150),
+    VIS.ito,
   );
   const scrape = mask ? union(allPolys(mask.scrape)) : [];
   const film = scrape.length ? pc.difference(glass, scrape) : glass;

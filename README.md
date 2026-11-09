@@ -71,7 +71,7 @@ Admin settings › Security shows whether the connection is encrypted. Details f
 
 ## Update
 
-**From the app** (0.26 and later): releases are published on GitHub ([halogenrich/panoptica](https://github.com/halogenrich/panoptica/releases)). The app checks once a day and notifies admins. In **Admin settings › Updates**: **Download** (the file is checked against its SHA-256), then **Install now**: the app backs up the database, stops, the update script replaces the program files (never the data) and starts the app again; the page reloads by itself. Each step is written to `updates/update.log` and shown under Updates. The repository is public, so no token is needed. (If it is made private, the app needs a read-only token once: the Updates tab explains how to make it; it is kept in `config/update.json` on this computer only.)
+**From the app** (0.26 and later): releases are published on GitHub ([halogenrich/panoptica](https://github.com/halogenrich/panoptica/releases)). The app checks once a day and notifies admins. In **Admin settings › Updates**: **Download** (the file is checked against its SHA-256), then **Install now**: the app backs up the database, stops, the update script replaces the program files (never the data) and starts the app again; the page reloads by itself. Each step is written to `updates/update.log` and shown under Updates. The repository is private: the app needs a read-only token once (the Updates tab explains how to make it; it is kept in `config/update.json` on this computer only).
 
 **By hand**: download `panoptica.zip` from the release (or use the one the app downloaded into `updates/`), close the app window and run the update script (Linux: `./update.sh`). It takes the newest `panoptica*.zip` (or `perovskite-lab*.zip`) in `updates/` or Downloads (or a path given as argument), backs up the database, copies the new files over the old ones (your data stays), reinstalls and rebuilds only if the files actually changed (compared by content), and starts the app. The version shows in the profile menu and with the version script.
 
@@ -124,6 +124,6 @@ npm run lint     # ESLint
 npm run check    # format check + lint + typecheck + unit tests + server security checks + production build
 ```
 
-GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `panoptica.zip` and its SHA-256 (plus `perovskite-lab.zip` for installs from before 0.36) and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.
+GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `panoptica.zip` and its SHA-256 and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.
 
 Environment variables: `PORT` (3000), `HOST` (127.0.0.1), `DB_PATH` (apps/server/data.db), `BACKUP_DIR` (backups), `CONFIG_DIR` (config), `ADMIN_USER` / `ADMIN_PASSWORD` (first start only), `SECURE_COOKIES=1` and `TRUST_PROXY=1` behind an HTTPS proxy, `TLS_CERT` / `TLS_KEY` for HTTPS in the app, `UPDATE_REPO` (halogenrich/panoptica).
