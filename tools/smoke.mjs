@@ -636,7 +636,9 @@ console.log('First setup (a fresh install)');
   let log2 = '';
   s2.stdout.on('data', (x) => (log2 += x));
   s2.stderr.on('data', (x) => (log2 += x));
-  for (let i = 0; i < 100 && !log2.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+  // the setup message is printed just after "Server listening", so wait for it rather than for the listen line
+  for (let i = 0; i < 100 && !log2.includes('not set up yet'); i++) await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
   ok(
     /not set up yet/.test(log2) && !/password/i.test(log2.split('not set up yet')[1] ?? ''),
     'no admin password printed: it asks for the setup',
