@@ -69,6 +69,9 @@ if (!bcols.includes('outcome')) {
   db.exec('ALTER TABLE bookings ADD COLUMN outcome_at TEXT');
   db.exec('ALTER TABLE bookings ADD COLUMN outcome_by INTEGER REFERENCES users(id)');
 }
+// 0.37.1: the scheduler's blocks of a batch (step names), so a batch is not Done while some blocks are not placed yet
+if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'plan_steps'))
+  db.exec("ALTER TABLE batches ADD COLUMN plan_steps TEXT NOT NULL DEFAULT '[]'");
 // 0.37: bookings outside batches (no batch_id) say what they are for
 if (!bcols.includes('purpose')) db.exec("ALTER TABLE bookings ADD COLUMN purpose TEXT NOT NULL DEFAULT ''");
 if (
@@ -141,6 +144,8 @@ const roleOf = (eq: number) =>
   (db.prepare('SELECT role FROM equipment WHERE id=?').get(eq) as { role: string } | undefined)?.role ?? '';
 /** A locked batch's record stays fixed, but measuring it again on the J–V equipment is still allowed. */
 const lockFor = (batch: number | null, eq: number) => (batch && roleOf(eq) !== 'measure' ? lockedById(batch) : null);
+/** Bookings start from now on: a minute of grace for the time a drop takes. */
+const PAST_GRACE = 60_000;
 /** Shortest booking, in minutes. */
 export const MIN_BOOKING = 60;
 // times are compared as text, so every stored time must be UTC ISO (…Z)
@@ -180,9 +185,16 @@ const out = (r: any, u: U) => ({
  * an outcome and none of them is waiting to be rebooked: a postponed step keeps the batch Running until it is scheduled again.
  */
 export function settleBatch(id: number) {
-  const b = db.prepare('SELECT status, code, owner_id FROM batches WHERE id=?').get(id) as any;
-  const ks = db.prepare('SELECT outcome FROM bookings WHERE batch_id=?').all(id) as { outcome: string | null }[];
+  const b = db.prepare('SELECT status, code, owner_id, plan_steps FROM batches WHERE id=?').get(id) as any;
+  const ks = db
+    .prepare(
+      "SELECT k.outcome, k.step FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.batch_id=? AND e.role<>'measure'",
+    )
+    .all(id) as { outcome: string | null; step: string }[];
   if (!b || b.status === 'done' || !ks.length || ks.some((k) => !k.outcome || k.outcome === 'postponed')) return;
+  // every block of the scheduler's plan must have been booked and answered (one placed in the past used to close the batch)
+  const plan: string[] = JSON.parse(b.plan_steps || '[]');
+  if (plan.some((st) => !ks.some((k) => k.step === st && (k.outcome === 'done' || k.outcome === 'canceled')))) return;
   db.prepare("UPDATE batches SET status='done', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
   markDone(id);
   notify(
@@ -287,6 +299,23 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   /** what a booking is for, in words: its batch, or the purpose given for a booking outside a batch */
   const forWhat = (x: any) => (x.batch_code ? `batch ${x.batch_code}` : x.purpose || 'another use');
 
+  /** The scheduler's blocks for a batch (sent when its tray opens), so the batch is Done only when each of them is answered. */
+  app.put('/api/batches/:id/plan', { preHandler: auth() }, async (req: any, reply) => {
+    const id = +req.params.id,
+      b = db.prepare('SELECT owner_id, status FROM batches WHERE id=? AND deleted_at IS NULL').get(id) as any;
+    if (!b) return reply.code(404).send({ error: 'not found' });
+    if (b.owner_id !== req.user.id && req.user.role !== 'admin')
+      return reply.code(403).send({ error: 'not your batch' });
+    const steps = Array.isArray(req.body?.steps)
+      ? (req.body.steps as unknown[])
+          .filter((x): x is string => typeof x === 'string')
+          .map((x) => x.slice(0, 120))
+          .slice(0, 60)
+      : null;
+    if (!steps) return reply.code(400).send({ error: 'steps: a list of step names' });
+    if (b.status !== 'done') db.prepare('UPDATE batches SET plan_steps=? WHERE id=?').run(JSON.stringify(steps), id);
+    return { ok: true };
+  });
   /**
    * Schedule a whole batch: the given steps replace the batch's scheduler bookings (equipment with a role) that have not started. All or
    * nothing: if one step overlaps another booking, nothing changes and the step is named.
@@ -305,6 +334,8 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const now = new Date().toISOString(),
       items = p.data.items;
     for (const [i, it] of items.entries()) {
+      if (new Date(it.start).getTime() < Date.now() - PAST_GRACE)
+        return reply.code(400).send({ error: `${it.step}: that time has passed`, index: i });
       if (!(it.end > it.start))
         return reply.code(400).send({ error: `${it.step}: the end must be after the start`, index: i });
       if (minutes(it.start, it.end) < MIN_BOOKING)
@@ -383,6 +414,11 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   const check = (req: any, reply: any, d: any, id = 0) => {
     const e = db.prepare('SELECT name, role FROM equipment WHERE id=?').get(d.equipment_id) as any;
     if (!e) return reply.code(400).send({ error: 'choose the equipment' });
+    // bookings start from now on; a booking that has begun keeps its start (its end can still move, but not into the past)
+    const was = id ? (db.prepare('SELECT start, end FROM bookings WHERE id=?').get(id) as any) : null;
+    const gone = (t: string) => new Date(t).getTime() < Date.now() - PAST_GRACE;
+    if ((gone(d.start) && (!was || was.start !== d.start)) || (gone(d.end) && (!was || was.end !== d.end)))
+      return reply.code(400).send({ error: 'that time has passed: bookings start from now on' });
     const measure = e.role === 'measure';
     if (!d.batch_id) {
       if (!d.purpose)

@@ -126,6 +126,9 @@ function namer(list: Booking[]) {
     return full.some((o) => o !== n && first(o)[0] === p[0]) ? p.slice(0, 2).join(' ') : p[0];
   };
 }
+/** Bookings start from now on: a minute of grace for the time it takes to drop a block. */
+const PAST_GRACE = 60_000;
+const PAST = 'That time has passed: bookings start from now on';
 const what = (b: Booking) => (b.batch_id ? `${b.batch_code}${b.step ? ` (${b.step})` : ''}` : b.purpose);
 /** Equipment names as said in the lab: "GB: Minivap (Organic Evaporator)" → "Minivap". The full name is in headers and the hover card. */
 const shortEq = (n: string) =>
@@ -211,6 +214,8 @@ export type Preview = {
   color: string;
   label: string;
   ok: boolean;
+  /** the slot starts before now */
+  past?: boolean;
 };
 
 /**
@@ -256,7 +261,14 @@ export default function Calendar({
   const loadSb = () => {
     if (scheduling) {
       api<any>('/batches/' + scheduling)
-        .then(setSb)
+        .then((b) => {
+          setSb(b);
+          // tell the server the plan's blocks: the batch is not Done until each of them is booked and answered
+          if (b?.status !== 'done')
+            api(`/batches/${b.id}/plan`, 'PUT', {
+              steps: bundlesOf(b.snapshot.stack, b.snapshot.resolved).map((x) => x.step),
+            }).catch(() => {});
+        })
         .catch(() => setSb(null));
       api<Booking[]>(`/batches/${scheduling}/bookings`)
         .then(setSbBooks)
@@ -337,7 +349,8 @@ export default function Calendar({
       dur: d.dur,
       color: d.color,
       label: d.label,
-      ok: (!colEq || colEq === d.eq) && !clash,
+      ok: (!colEq || colEq === d.eq) && !clash && start >= Date.now() - PAST_GRACE,
+      past: start < Date.now() - PAST_GRACE,
     };
   };
   useEffect(() => {
@@ -352,7 +365,8 @@ export default function Calendar({
         justDragged.current = false;
       }, 0);
       if (!p?.ok) {
-        if (p) showToast(`${data?.equipment.find((q) => q.id === drag.eq)?.name} is not free there`);
+        if (p?.past) showToast(PAST);
+        else if (p) showToast(`${data?.equipment.find((q) => q.id === drag.eq)?.name} is not free there`);
         return;
       }
       const start = at(p.day, '00:00').getTime() + p.start * 6e4,
@@ -412,12 +426,14 @@ export default function Calendar({
     if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - MIN_BOOK * 6e4);
     else e = Math.max(d0 + m * 6e4, s + MIN_BOOK * 6e4);
     const clash = !!clashOf(data?.bookings ?? [], eqs, r.b.equipment_id, s, e, r.b.id);
-    return { s, e, clash };
+    // an edge can only move to a time still to come (the start of a booking that has begun stays where it is)
+    const past = (s !== new Date(r.b.start).getTime() && s < Date.now() - PAST_GRACE) || e < Date.now() - PAST_GRACE;
+    return { s, e, clash, past };
   };
   useEffect(() => {
     if (!resize) return;
     const show = (y: number) => {
-      const { s, e, clash } = resized(resize, y),
+      const { s, e, clash, past } = resized(resize, y),
         d0 = at(resize.day, '00:00').getTime();
       setPreview({
         day: resize.day,
@@ -426,12 +442,12 @@ export default function Calendar({
         dur: Math.round((e - s) / 6e4),
         color: resize.b.color,
         label: resize.b.equipment,
-        ok: !clash,
+        ok: !clash && !past,
       });
     };
     const mv = (ev: PointerEvent) => show(ev.clientY);
     const up = (ev: PointerEvent) => {
-      const { s, e, clash } = resized(resize, ev.clientY),
+      const { s, e, clash, past } = resized(resize, ev.clientY),
         b = resize.b;
       setResize(null);
       setPreview(null);
@@ -440,6 +456,7 @@ export default function Calendar({
         justDragged.current = false;
       }, 0);
       if (s === new Date(b.start).getTime() && e === new Date(b.end).getTime()) return;
+      if (past) return showToast(PAST);
       if (clash) return showToast(`${b.equipment} is not free then`);
       api('/bookings/' + b.id, 'PUT', {
         equipment_id: b.equipment_id,
@@ -1294,7 +1311,13 @@ function BookingForm({
   const eq = eqs.find((e) => e.id === f.eq),
     hours = (end.getTime() - start.getTime()) / 3.6e6,
     work = useHours();
-  const ok = !!f.eq && (!!f.batch || !!f.purpose.trim()) && hours >= MIN_BOOK / 60 && (!clash || (isAdmin && f.force));
+  // a new booking, or a changed start, cannot be in the past (an ongoing booking keeps its start)
+  const past =
+    (start.getTime() < Date.now() - PAST_GRACE &&
+      (!existing || start.getTime() !== new Date(draft.start!).getTime())) ||
+    end.getTime() < Date.now() - PAST_GRACE;
+  const ok =
+    !!f.eq && (!!f.batch || !!f.purpose.trim()) && hours >= MIN_BOOK / 60 && !past && (!clash || (isAdmin && f.force));
   const body = () => ({
     equipment_id: f.eq,
     batch_id: f.batch || null,
@@ -1449,12 +1472,11 @@ function BookingForm({
                 ? `${hours % 1 ? hours.toFixed(2).replace(/0$/, '') : hours} h${!sameDay(start, end) ? ', ending the next day' : ''}${eq?.cleanup ? `, then ${eq.cleanup} min of cleanup` : ''}`
                 : 'A booking is at least 1 hour.'}
             </p>
-            {!measure &&
-              !!f.batch &&
-              start < new Date() &&
-              batches.find((b) => b.id === f.batch)?.status !== 'running' && (
-                <p className="mut small">This starts in the past, so the batch switches to Running when you book.</p>
-              )}
+            {past && (
+              <p className="err small" role="alert">
+                {PAST}.
+              </p>
+            )}
             {clash && (
               <div className="clash" role="alert">
                 <b>{clash.equipment}</b> is booked by {clash.user_name} for{' '}

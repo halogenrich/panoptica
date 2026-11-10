@@ -728,6 +728,7 @@ type Req = {
   status: 'pending' | 'declined';
   reason: string;
   createdAt: string;
+  hasPhoto?: number;
   decidedAt?: string;
   decidedBy?: string;
 };
@@ -787,7 +788,15 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
         return (
           <section className="group req" key={r.id}>
             <div className="req-head">
-              <img className="req-photo" src={`/api/access-requests/${r.id}/photo`} alt={`Photo of ${r.firstNames}`} />
+              {r.hasPhoto ? (
+                <img
+                  className="req-photo"
+                  src={`/api/access-requests/${r.id}/photo`}
+                  alt={`Photo of ${r.firstNames}`}
+                />
+              ) : (
+                <Avatar id={0} name={`${r.firstNames} ${r.surnames}`} size={72} className="req-photo" />
+              )}
               <div>
                 <b className="req-name">
                   {r.firstNames} {r.surnames}

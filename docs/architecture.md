@@ -43,7 +43,7 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | `audit.ts` | Activity log: the `audit` table, the hooks that record changes, the hash chain and its check, the admin endpoints. |
 | `auth.ts` | Password hashing (scrypt) and verification. |
 | `presets.ts` | Recipes, designs and stacks ("presets"): versions, sharing, run data, trash. |
-| `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs, stability series. |
+| `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs; `stability_of` (stability series) is kept in the data but no longer in the interface since 0.37.1. |
 | `comparisons.ts` | Comparisons: saved groups of devices (references to measurement, sample and substrate), private by default; the device list for picking. |
 | `calendar.ts` | Equipment, bookings, outcomes, batch scheduling; moves batches to Running and Done. |
 | `batchlock.ts` | Finished batches lock 14 days after Done (423 on changes); admins unlock for 7 days. |
@@ -113,7 +113,7 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | `recipes/` | Each recipe kind (substrate prep, solution, spin, evaporation) as a `Kind`: defaults, editor, output, summary, run-data fields. `types.ts` defines the contract; `lib/Library.tsx` is the generic list/edit/view screen that hosts every kind. |
 | `designs/` | Substrate and mask designers (shape editor, canvas, SVG). |
 | `stacks/` | Stack model, the stack editor, the Three.js 3D viewer, the run sheet. |
-| `iv/` | J–V import, measurement page, figures (J–V, box plots, stability), pixel comparison; `model.ts` holds the counting rule (`inStats`: best scan per pixel and direction, never a check sweep). |
+| `iv/` | J–V import, measurement page, figures (J–V, box plots, lifetime), pixel comparison; `model.ts` holds the counting rule (`inStats`: best scan per pixel and direction, never a check sweep). |
 | `compare/` | Comparisons across measurements: groups, device picker, naming rules and "what changed" (`model.ts`), results and exports (`Comparisons.tsx`). |
 | `lib/` | Shared pieces: UI primitives (`ui.tsx`), comments, notifications, figures export, spreadsheet export (`xlsx.ts`), presence, the funny settings. |
 | `styles.css` | All styles; design tokens (colours, radius, control height) at the top, light and dark themes. |

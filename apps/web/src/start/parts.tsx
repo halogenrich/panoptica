@@ -151,18 +151,29 @@ export function NameFields({
   );
 }
 
-/** A square photo: choose a picture, crop it. */
-export function PhotoField({
+/**
+ * The photo as a circle, as on the profile page: click it to add or change the photo (then crop it), Remove under it. Without a
+ * photo it shows the initials of `name`, or a camera before a name is typed. `shown` is a photo already on file (a URL), used
+ * until a new one is chosen.
+ */
+export function PhotoCircle({
   value,
   set,
-  label = 'Photo',
+  name = '',
+  shown = '',
+  required = false,
+  note,
 }: {
   value: string;
   set: (v: string) => void;
-  label?: string;
+  name?: string;
+  shown?: string;
+  required?: boolean;
+  note?: string;
 }) {
   const [crop, setCrop] = useState<string | null>(null),
     [err, setErr] = useState(''),
+    [kept, setKept] = useState(!!shown),
     file = useRef<HTMLInputElement>(null);
   const pick = (f?: File) => {
     if (!f) return;
@@ -172,9 +183,17 @@ export function PhotoField({
     r.onload = () => setCrop(r.result as string);
     r.readAsDataURL(f);
   };
+  const src = value || (kept ? shown : '');
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  const hue = [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   return (
-    <div className="fld">
-      <span>{label}</span>
+    <div className="photo-circle">
       {crop ? (
         <Cropper
           src={crop}
@@ -185,16 +204,56 @@ export function PhotoField({
           }}
         />
       ) : (
-        <div className="photo-pick">
-          {value ? (
-            <img src={value} alt="" className="photo-thumb" />
-          ) : (
-            <span className="photo-thumb blank" aria-hidden />
-          )}
-          <button type="button" className="btn secondary" onClick={() => file.current?.click()}>
-            {value ? 'Choose another photo' : 'Choose a photo'}
+        <>
+          <button
+            type="button"
+            className="photo-frame"
+            aria-label={src ? 'Change photo' : 'Add a photo'}
+            title={src ? 'Change photo' : 'Add a photo'}
+            onClick={() => file.current?.click()}
+          >
+            {src ? (
+              <img src={src} alt="" className="av" onError={() => setKept(false)} />
+            ) : initials ? (
+              <span className="av" style={{ background: `hsl(${hue} 45% 45%)` }}>
+                {initials}
+              </span>
+            ) : (
+              <span className="av av-empty" />
+            )}
+            <span className="photo-hover" aria-hidden>
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+            </span>
           </button>
-        </div>
+          <span className="mut small">
+            {src ? 'Click the photo to change it' : required ? 'Add your photo (required)' : 'Add a photo (optional)'}
+          </span>
+          {note && <span className="mut small">{note}</span>}
+          {src && (
+            <button
+              type="button"
+              className="link danger-link"
+              onClick={() => {
+                set('');
+                setKept(false);
+              }}
+            >
+              Remove photo
+            </button>
+          )}
+        </>
       )}
       <input
         ref={file}

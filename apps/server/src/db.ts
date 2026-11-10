@@ -77,6 +77,8 @@ CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, read);
 // 0.20: profile photo, presence, user tags (custom labels plus the built-in Professor, Manager and Inventory tags that grant access)
 if (!cols('users').includes('photo')) db.exec('ALTER TABLE users ADD COLUMN photo TEXT');
 if (!cols('users').includes('photo_v')) db.exec('ALTER TABLE users ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
+// 0.37.1: a removed photo kept its version number, so the app kept asking for an image that was gone (blank avatar)
+db.exec('UPDATE users SET photo_v=0 WHERE photo IS NULL AND photo_v<>0');
 if (!cols('users').includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen TEXT');
 if (!cols('users').includes('online_since')) db.exec('ALTER TABLE users ADD COLUMN online_since TEXT');
 if (!cols('comments').includes('private'))

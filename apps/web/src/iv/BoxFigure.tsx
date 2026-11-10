@@ -374,7 +374,7 @@ function PanelSvg({
           const dpath = dens
             .map(([v, d], i) => `${i ? 'L' : 'M'}${(dx + side * d * dw).toFixed(1)},${Yf(v).toFixed(1)}`)
             .join('');
-          const label = `${g.label}${se.label ? ` · ${se.label}` : ''}: median ${s.median.toFixed(digits)} ${unit}, interquartile range ${s.q1.toFixed(digits)}–${s.q3.toFixed(digits)}, n = ${s.n}`;
+          const label = `${g.label}${se.label ? ` · ${se.label}` : ''}: median ${s.median.toFixed(digits)} ${unit}, IQR ${s.q1.toFixed(digits)}–${s.q3.toFixed(digits)}, n = ${s.n}`;
           return (
             <g key={`${gi}-${si}`}>
               {dpath && (
@@ -443,7 +443,7 @@ function PanelSvg({
               })}
               {n > 1 && (
                 <text x={cx} y={oy + ph + 16} textAnchor="middle" fontSize={10} fill="#555">
-                  {se.light ? 'forward' : 'backward'}
+                  {se.light ? 'fwd' : 'bwd'}
                 </text>
               )}
             </g>

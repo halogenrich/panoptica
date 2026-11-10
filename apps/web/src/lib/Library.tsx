@@ -560,7 +560,7 @@ export function PresetSheet({
       </div>
       {err && <p className="err pad-x">{err}</p>}
       <div className="modal-body">
-        {tab === 'recipe' && kind.wideView && <kind.Output d={d} ctx={ctx} />}
+        {tab === 'recipe' && kind.wideView && <kind.Output d={d} ctx={ctx} item={{ id: p.id, name: p.name }} />}
         {tab === 'recipe' && !kind.wideView && (
           <div className="view-grid">
             <aside className="facts">

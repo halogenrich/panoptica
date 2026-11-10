@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 /** A user's photo, or their initials on a colour picked from the name. */
 export default function Avatar({
   id,
@@ -21,8 +23,11 @@ export default function Avatar({
     .join('')
     .toUpperCase();
   const hue = [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
-  return photoV ? (
+  // a photo that cannot be loaded (removed elsewhere, say) falls back to the initials instead of an empty frame
+  const [broken, setBroken] = useState(0);
+  return photoV && broken !== photoV ? (
     <img
+      onError={() => setBroken(photoV)}
       className={'av ' + className}
       src={`/api/users/${id}/photo?v=${photoV}`}
       alt=""
