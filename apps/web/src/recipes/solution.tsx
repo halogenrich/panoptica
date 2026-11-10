@@ -311,17 +311,6 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
           )}
         </p>
       )}
-      {two && n >= 5 && (
-        <p className="small warn-text">
-          Quasi-2D films with larger n can split into lower-n phases (for example n = 5 into n = 2 and 3) in humid air.
-        </p>
-      )}
-      {two && x.length > 1 && (
-        <p className="small warn-text">
-          Mixed-halide 2D perovskites can undergo halide degradation; 2D bromides are reported to be less stable than
-          MAPbBr₃, 2D iodides more stable than MAPbI₃.
-        </p>
-      )}
       {((showA && a.length > 1) || x.length > 1) && (
         <div className="fx-sums">
           {showA && a.length > 1 && (
@@ -444,7 +433,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
     });
   const rSv = useReorder(d.sv, (sv) => set({ sv }), 'solvent'),
     rAd = useReorder(d.ad, (ad) => set({ ad }), 'additive');
-  // perovskite: the additives right after how the precursor solution is prepared; other solutions: after the solvents
+  // perovskite: the additives right after the composition, before how the precursor solution is prepared; others: after the solvents
   const additives = (
     <>
       <Section title="Additives">
@@ -502,6 +491,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           <Section title="Composition">
             <Composition d={d} set={set} />
           </Section>
+          {additives}
           <Section title="Preparation of the precursor solution">
             <Seg
               small
@@ -518,7 +508,6 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
                 : 'All salts weighed into one vial and dissolved together.'}
             </p>
           </Section>
-          {additives}
           <Section title="Concentration">
             {d.prep === 'one' && (
               <Seg

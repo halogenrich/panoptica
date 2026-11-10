@@ -26,7 +26,7 @@ describe('stack geometry', () => {
   });
   it('the first film is one flat slab over the glass and the thin ITO, with no step cut out', () => {
     expect(htl.parts).toHaveLength(1);
-    expect(htl.parts[0].y0).toBe(VIS.glass);
+    expect(htl.parts[0].y0).toBeCloseTo(VIS.glass + VIS.ito, 9); // on the ITO, not level with its bottom
     expect(area(htl.parts[0].region)).toBeCloseTo(144 - 18, 6); // everything but the scrape strip
     expect(htl.parts.every((p) => p.y0 >= VIS.glass)).toBe(true); // never inside the glass
   });

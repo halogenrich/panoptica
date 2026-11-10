@@ -212,11 +212,16 @@ ok((await call('POST', `/api/access-requests/${r2.id}/decline`, { reason: 'Not i
 const dc = (await call('POST', '/api/login/check', { username: 'anaso' })).j;
 ok(dc.next === 'declined' && dc.reason === 'Not in the lab', 'the declined person sees the reason');
 ok((await call('POST', `/api/access-requests/${r1.id}/accept`, { tags: [] })).s === 200, 'accepted');
-ok((await call('POST', '/api/login/check', { username: 'anas' })).j.next === 'set', 'accepted: chooses a password');
+const setNext = (await call('POST', '/api/login/check', { username: 'anas' })).j;
+ok(setNext.next === 'set' && setNext.hasPhoto === true, 'accepted: chooses a password (the photo sent is on file)');
+ok(
+  (await fetch(base + '/api/login/photo/anas')).status === 200,
+  'the photo sent with the request shows on the set-password screen',
+);
+// the birth date alone confirms the account (no email)
 const choose = (password, extra = {}) =>
   call('POST', '/api/login/set', {
     username: 'anas',
-    email: 'ana@lab.example',
     birthDate: '1999-04-02',
     password,
     ...extra,
@@ -229,6 +234,14 @@ ok((await choose('Anas-glass-7')).s === 400, 'password with the username refused
 const chosen = await choose('Ação-Solar 7');
 ok(chosen.s === 200 && /sid=/.test(chosen.h.get('set-cookie') ?? ''), 'accented password accepted, signed in');
 ok((await call('POST', '/api/login/check', { username: 'anas' })).j.next === 'password', 'then asks for the password');
+ok((await fetch(base + '/api/login/photo/anas')).status === 404, 'and the photo is no longer public');
+const noPhoto = await call('POST', '/api/access-requests', {
+  ...askBody,
+  firstNames: 'Bea',
+  email: 'bea@lab.example',
+  photo: '',
+});
+ok(noPhoto.s === 200, 'a request without a photo is accepted (the photo is optional when asking)');
 const ana = await fetch(base + '/api/login', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -258,13 +271,19 @@ ok(
   ).s === 400,
   'a visit that already ended is refused',
 );
-const vset = await call('POST', '/api/login/set', {
+const vNo = await call('POST', '/api/login/set', {
   username: 'vict',
-  email: 'vic@guest.example',
   birthDate: '1990-01-01',
   password: 'Visit-2099!',
 });
-ok(vset.s === 200, 'visitor chooses a password');
+ok(vNo.s === 400 && /photo/.test(vNo.j.error), 'without a photo on file, the first password asks for one');
+const vset = await call('POST', '/api/login/set', {
+  username: 'vict',
+  birthDate: '1990-01-01',
+  photo,
+  password: 'Visit-2099!',
+});
+ok(vset.s === 200, 'visitor chooses a password, with a photo');
 ok((await call('PATCH', '/api/users/' + vis.j.id, { resetPassword: true })).s === 200, 'admin resets a password');
 ok(
   (await call('POST', '/api/login/check', { username: 'vict' })).j.next === 'set',
@@ -567,6 +586,34 @@ console.log('Calendar: shortest booking and cleanup');
     'birthdays for the calendar: day and month',
   );
 
+  // a batch is not Done while a block of its plan is not booked and answered
+  {
+    const pb = await call('POST', '/api/batches', {
+      code: 'SMOKE-PLAN',
+      visibility: 'shared',
+      stack: { arch: 'n-i-p', sl: [] },
+    });
+    ok((await call('PUT', `/api/batches/${pb.j.id}/plan`, { steps: ['Spin', 'Metal'] })).s === 200, 'the plan is kept');
+    const me0 = (await call('GET', '/api/me')).j.id;
+    const kid = db
+      .prepare(
+        "INSERT INTO bookings(equipment_id,batch_id,user_id,step,start,end) VALUES(?,?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
+      )
+      .run(plain.j.id, pb.j.id, me0).lastInsertRowid;
+    ok((await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done' })).s === 200, 'one step concluded');
+    const st = db.prepare('SELECT status FROM batches WHERE id=?').get(pb.j.id).status;
+    ok(st !== 'done', `with a block still unplaced the batch stays ${st}, not Done`);
+  }
+  // bookings start from now on
+  const ago = new Date(Date.now() - 2 * 3.6e6).toISOString(),
+    soon = new Date(Date.now() + 3.6e6).toISOString();
+  const pastB = await call('POST', '/api/bookings', {
+    equipment_id: plain.j.id,
+    purpose: 'Late',
+    start: ago,
+    end: soon,
+  });
+  ok(pastB.s === 400 && /passed/.test(pastB.j.error), 'a booking cannot start in the past');
   // outside a batch: allowed with a purpose
   const free = (body) =>
     call('POST', '/api/bookings', { equipment_id: plain.j.id, start: at(13, 9), end: at(13, 10), ...body });

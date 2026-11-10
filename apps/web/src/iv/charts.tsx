@@ -300,8 +300,8 @@ export function BoxPlot({
                               {se.label ? ` · ${se.label}` : ''}
                             </b>
                             <span>
-                              median {s.median.toFixed(digits)} · interquartile range {s.q1.toFixed(digits)}–
-                              {s.q3.toFixed(digits)} · n = {s.n}
+                              median {s.median.toFixed(digits)} · IQR {s.q1.toFixed(digits)}–{s.q3.toFixed(digits)} · n
+                              = {s.n}
                             </span>
                           </>,
                         )

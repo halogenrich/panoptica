@@ -29,7 +29,8 @@ export const AccessRequestIn = z.object({
   department: z.string().trim().min(1, 'choose your department').max(80),
   supervisor: z.string().trim().min(1, 'give your supervisor').max(80),
   cosupervisor: z.string().trim().max(80).optional(),
-  photo: Photo.refine((v) => v !== '', 'add a photo of you'),
+  /** optional when asking; required by the first sign-in instead */
+  photo: Photo.default(''),
 });
 /** Admins create accounts only for visitors, with the day their access ends. */
 export const VisitorIn = z.object({
@@ -40,11 +41,15 @@ export const VisitorIn = z.object({
   until: Day,
 });
 export const LoginCheck = z.object({ username: z.string().trim().min(1).max(60) });
-/** First sign-in (or after a reset): the person proves who they are with the email and birth date on the account. */
+/**
+ * First sign-in (or after a reset): the person confirms the birth date on the account (the email instead, for an account without
+ * one, such as some visitors) and, if the account has no photo yet, adds one.
+ */
 export const LoginSet = z.object({
   username: z.string().trim().min(1).max(60),
-  email: z.string().trim().max(120),
-  birthDate: z.string().max(10),
+  email: z.string().trim().max(120).default(''),
+  birthDate: z.string().max(10).default(''),
+  photo: Photo.optional(),
   password: Password,
 });
 export const AcceptIn = z.object({ tags: z.array(z.number().int()).max(50).default([]) });

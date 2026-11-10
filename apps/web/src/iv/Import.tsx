@@ -212,8 +212,6 @@ export default function ImportIv({
           visibility: vis,
           links: d.links,
           devices: d.devices,
-          stability_of: d.follow,
-          measured_at: d.follow ? new Date(d.at).toISOString() : null,
           curves: d.curves.map(({ settings: _s, system: _y, date: _d, inst, ...c }) => ({ ...c, inst: clean(inst) })),
         });
         ids.push(r.id);
@@ -438,47 +436,6 @@ function DraftCard({
       <p className="mut small">
         Linked samples are grouped by their batch or stack in the statistics, and drawn with the batch's mask.
       </p>
-      <div className="stab-row">
-        <label className="inline small">
-          <input
-            type="checkbox"
-            checked={d.follow !== null}
-            disabled={!targets.sets.length}
-            onChange={(e) =>
-              up({
-                follow: e.target.checked
-                  ? (targets.sets.find((x) => !x.stabilityOf)?.id ?? targets.sets[0]?.id ?? null)
-                  : null,
-              })
-            }
-          />{' '}
-          Stability test: a later reading of devices measured before
-        </label>
-        {d.follow !== null && (
-          <>
-            <select
-              aria-label="First measurement of the series"
-              value={d.follow}
-              onChange={(e) => up({ follow: +e.target.value })}
-            >
-              {targets.sets
-                .filter((x) => !x.stabilityOf)
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
-            <label className="inline small">
-              measured at <input type="datetime-local" value={d.at} onChange={(e) => up({ at: e.target.value })} />
-            </label>
-            <span className="mut small">
-              Pixels are matched to the first measurement by sample, substrate and pixel. Follow-ups stay out of the
-              statistics.
-            </span>
-          </>
-        )}
-      </div>
       <details className="devices-box" open>
         <summary>Devices for the plots and device groups</summary>
         <DeviceTable

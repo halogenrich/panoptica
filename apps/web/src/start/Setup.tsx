@@ -6,7 +6,7 @@ import { SignInFrame } from './Login';
 import {
   NameFields,
   PasswordRules,
-  PhotoField,
+  PhotoCircle,
   Wordmark,
   passwordOk,
   readImage,
@@ -389,6 +389,7 @@ export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
             <>
               <h1>Your account</h1>
               <p className="mut">You will be the lab's first admin.</p>
+              <PhotoCircle value={photo} set={setPhoto} name={`${n.firstNames} ${n.surnames}`.trim()} />
               <NameFields v={n} set={setN} />
               <div className="grid2">
                 <label className="fld">
@@ -404,7 +405,6 @@ export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
                 <span>Department</span>
                 <input value={dept} onChange={(e) => setDept(e.target.value)} />
               </label>
-              <PhotoField value={photo} set={setPhoto} label="Photo (optional)" />
               <div className="grid2">
                 <label className="fld">
                   <span>Password</span>

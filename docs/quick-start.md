@@ -27,7 +27,7 @@ Five minutes to your first batch. The full user guide (the other tab) explains e
 
 ## 5. Import the J–V measurements
 
-- **Electric measurements › Import measurements**: drop the folder the J–V system saved (or a .zip of it).
+- **J–V curves › Import measurements** (lifetime runs land under **Lifetime**): drop the folder the J–V system saved (or a .zip of it).
 - Link each sample to your batch, and under **Devices for the plots** untick bad devices or give device groups (for example "control" and "+ PEAI") to compare.
 - Click a pixel for its J–V curve and **Export PNG**; **Statistics** has the box plots and **Export CSV**.
 
