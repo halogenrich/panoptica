@@ -234,7 +234,7 @@ app.patch('/api/me', { preHandler: auth() }, async (req: any, reply) => {
   if (p.data.photo !== undefined)
     db.prepare('UPDATE users SET photo=?, photo_v=? WHERE id=?').run(
       p.data.photo || null,
-      Date.now() % 1e9,
+      p.data.photo ? Date.now() % 1e9 : 0, // no photo: version 0, so everyone falls back to the initials
       req.user.id,
     );
   return { ok: true };

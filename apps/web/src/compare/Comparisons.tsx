@@ -1031,7 +1031,7 @@ function Results({
             'Reference',
             'Devices',
             'Pixels',
-            ...ALL_KEYS.flatMap((k) => [`${k} median`, `${k} mean`, `${k} standard deviation`]),
+            ...ALL_KEYS.flatMap((k) => [`${k} median`, `${k} mean`, `${k} SD`]),
             'Best PCE (%)',
             'PCE median relative to the reference (%)',
           ],
@@ -1279,7 +1279,7 @@ function Results({
             <p className="mut small cx-caption">
               Dots: pixels (gold ring = best of the group) ·{' '}
               {outl
-                ? 'triangles: outliers (beyond 1.5 × the interquartile range)'
+                ? 'triangles: outliers (beyond 1.5 × IQR)'
                 : 'arrow with a number: outliers beyond the axis (still counted)'}
               {dirs.length > 1 ? ' · forward lighter' : ''}
               {show.includes('rsh') ? ' · Rsh on a log axis' : ''}

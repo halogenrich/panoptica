@@ -129,8 +129,8 @@ export function shownCurve(curves: Curve[], all: Curve[], dir: Dir): Curve | und
 
 export const groupKey = (l: Link, sample: string) =>
   l ? `${l.kind}:${l.id}${l.variant ? ':' + l.variant : ''}` : `sample:${sample}`;
-export const groupLabel = (l: Link, sample: string) =>
-  l?.label ? l.label : `${sample.replace(/_/g, ' ')} (not linked)`;
+/** A device group's name in plots: its batch or stack, or just the sample name when it is not linked to one. */
+export const groupLabel = (l: Link, sample: string) => (l?.label ? l.label : sample.replace(/_/g, ' '));
 
 /** Categorical palette (fixed order, validated for colour-blind separation on adjacent slots). */
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];

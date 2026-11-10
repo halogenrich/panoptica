@@ -34,6 +34,7 @@ type Key =
   | 'batches'
   | 'cal'
   | 'iv'
+  | 'life'
   | 'cmp'
   | 'sub'
   | 'mask'
@@ -64,7 +65,8 @@ const NAV: { group: string; items: [Key, string][] }[] = [
   {
     group: 'Measurements',
     items: [
-      ['iv', 'Electric measurements'],
+      ['iv', 'J–V curves'],
+      ['life', 'Lifetime'],
       ['cmp', 'Comparisons'],
     ],
   },
@@ -99,7 +101,7 @@ const LABEL: Record<string, string> = {
 /** Phone tab bar, the same groups as the side menu: Fabrication, Measurements, Recipes, then Menu for the rest. */
 const TABS: { key: string; label: string; items: Key[] }[] = [
   { key: 'stacks', label: 'Fabrication', items: ['stk', 'batches', 'cal'] },
-  { key: 'iv', label: 'Measurements', items: ['iv', 'cmp'] },
+  { key: 'iv', label: 'Measurements', items: ['iv', 'life', 'cmp'] },
   { key: 'recipes', label: 'Recipes', items: ['s0', 's1', 's2', 's3', 's4', 's5'] },
 ];
 const SHORT: Partial<Record<Key, string>> = {
@@ -232,7 +234,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
     setView(k);
     setFocus(id);
     if (k === 'batches') setBid(null);
-    if (k === 'iv') setIvId(null);
+    if (k === 'iv' || k === 'life') setIvId(null);
     setPop('');
     setMenu(false);
   };
@@ -264,7 +266,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       ...r.measurements.map((m) => ({
         id: 'm' + m.id,
         label: m.name,
-        hint: 'Electric measurement',
+        hint: 'Measurement',
         run: () => {
           setView('iv');
           setIvId(m.id);
@@ -352,6 +354,8 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
         );
       case 'iv':
         return <IvPage openId={ivId} onOpen={setIvId} />;
+      case 'life':
+        return <IvPage mode="life" openId={ivId} onOpen={setIvId} />;
       case 'cmp':
         return <Comparisons openId={focus} onOpen={setFocus} />;
       case 'sub':

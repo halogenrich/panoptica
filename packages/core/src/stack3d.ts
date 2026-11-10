@@ -1,7 +1,7 @@
 // Device stack geometry for the 3D view. Each layer is made of parts: regions (mm, polygons with holes) with their own bottom
 // height and a common flat top, so a layer fills down onto whatever is beneath it (the metal onto the ITO in the scrape zone).
-// The ITO is drawn as a coloured film on the glass, only a few micrometres thick in the view, so the first layer on it is a plain
-// flat slab instead of one with a step cut out where the ITO is.
+// The ITO is drawn as a coloured film on the glass, a few micrometres thick in the view; the first layer rests on it as one plain
+// flat slab (no step cut out where the ITO is).
 import pc from 'polygon-clipping';
 import { SUBSTRATES, pattern, type SubKey } from './index';
 import { allPolys, regionArea, union, type Poly, type Shape } from './geom';
@@ -37,7 +37,7 @@ export interface Slab3 {
  * Visual thickness: glass 1 mm; films 100 nm = 0.1 mm, with a minimum so nm-thin layers stay visible; the ITO a thin coloured
  * film whatever its thickness (its nm show in the label). Schematic, not to scale.
  */
-export const VIS = { glass: 1, perNm: 0.001, min: 0.03, ito: 0.004 };
+export const VIS = { glass: 1, perNm: 0.001, min: 0.03, ito: 0.008 };
 /** Steps smaller than this (the ITO edge) are not drawn: a layer over them is one flat slab. */
 const STEP = 0.01;
 export const visMm = (nm: number) => Math.max(nm * VIS.perNm, VIS.min);
@@ -108,12 +108,16 @@ export function buildStack(
       }
     }
     if (!hits.length) return null;
-    // parts by bottom height; heights within STEP of each other are one part (one flat bottom at the lowest of them)
-    const levels: { y0: number; region: MP }[] = [];
+    // parts by bottom height; heights within STEP of each other are one part, with one flat bottom at the highest of them: a
+    // film over the ITO edge rests on the ITO (a hair above the bare glass beside it, too thin to see) instead of sharing the
+    // ITO's bottom plane, which flickered when the device was seen from below
+    const levels: { y0: number; lo: number; region: MP }[] = [];
     for (const x of [...hits].sort((a, b) => a.top - b.top)) {
-      const l = levels.find((v) => x.top - v.y0 < STEP);
-      if (l) l.region = pc.union(l.region, x.region);
-      else levels.push({ y0: x.top, region: x.region });
+      const l = levels.find((v) => x.top - v.lo < STEP);
+      if (l) {
+        l.region = pc.union(l.region, x.region);
+        l.y0 = Math.max(l.y0, x.top);
+      } else levels.push({ y0: x.top, lo: x.top, region: x.region });
     }
     for (const l of levels) parts.push({ region: toRegion(l.region), y0: l.y0, ...(conformal ? { h } : {}) });
     const top = base + h;
