@@ -12,16 +12,24 @@ const defaults = () => ({
   subId: '',
   subName: '',
   design: null as SubD | null,
-  sub: '1.2 × 1.2 cm' as SubKey,
-  steps: SOLV.map((s) => ({ s, m: 10 })) as Step[],
-  sf: [{ s: 'N2 dry', m: 1 }] as Step[],
+  sub: '' as SubKey | '', // earlier versions: a fixed substrate size instead of a design
+  steps: [] as Step[],
+  sf: [] as Step[],
 });
 type D = ReturnType<typeof defaults>;
 const sum = (l: Step[]) => l.reduce((a, x) => a + x.m, 0);
-const sub = (d: D): SubKey => (d.sub in SUBSTRATES ? d.sub : '1.2 × 1.2 cm');
+const sub = (d: D): SubKey => (d.sub in SUBSTRATES ? (d.sub as SubKey) : '1.2 × 1.2 cm');
+/** Saved before substrate designs existed (a fixed size), and not yet given a design. */
+const legacy = (d: D) => !d.design && d.sub in SUBSTRATES;
 
 /** Drawing of the chosen substrate design, or of the fixed size used by earlier versions. */
 function Glass({ d, small }: { d: D; small?: boolean }) {
+  if (!d.design && !legacy(d))
+    return small ? (
+      <div className="mat-art">
+        <span>No substrate</span>
+      </div>
+    ) : null;
   if (d.design)
     return (
       <DesignSvg
@@ -37,7 +45,7 @@ function Glass({ d, small }: { d: D; small?: boolean }) {
   const s = sub(d);
   return <SubstrateImg sub={s} k={small ? (s === '1.2 × 1.2 cm' ? 7 : 5) : 8} legend={!small} />;
 }
-const subLabel = (d: D) => (d.design ? d.subName : sub(d));
+const subLabel = (d: D) => (d.design ? d.subName : legacy(d) ? sub(d) : 'No substrate design');
 
 function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx }) {
   const subs = ctx.designs.filter((x) => x.segment === 'sub');
@@ -51,7 +59,9 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             set({ subId: e.target.value, subName: x?.name ?? '', design: x?.data ?? null });
           }}
         >
-          <option value="">{d.design ? '—' : `Earlier version: ${sub(d)} (choose a design)`}</option>
+          <option value="">
+            {d.design ? '—' : legacy(d) ? `Earlier version: ${sub(d)} (choose a design)` : 'Choose a substrate design…'}
+          </option>
           {subs.map((s) => (
             <option key={s.id} value={String(s.id)}>
               {s.name}
@@ -85,7 +95,9 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
       <p className="mut">
         {d.design
           ? `${d.design.w} × ${d.design.h} mm · ITO area ${itoArea(d.design).toFixed(1)} mm² · ${d.design.rs} Ω/sq`
-          : `${S.note} · ITO area ${S.ito[2] * S.ito[3]} mm²`}
+          : legacy(d)
+            ? `${S.note} · ITO area ${S.ito[2] * S.ito[3]} mm²`
+            : 'Choose a substrate design (Designs › Substrates).'}
       </p>
       <div className="cols2">
         <div>

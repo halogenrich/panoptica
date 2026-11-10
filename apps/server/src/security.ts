@@ -79,7 +79,7 @@ export class Limiter {
 const COMMON = new Set(
   `123456789 1234567890 12345678910 0123456789 qwertyuiop qwertyuiop1 1q2w3e4r5t password password1 password12 password123 passw0rd123
   iloveyou12 abc1234567 abcdefghij 1111111111 0000000000 aaaaaaaaaa senha12345 senha123456 minhasenha mudar12345 trocar1234 admin12345 administrator
-  welcome123 letmein123 football12 perovskite perovskite1 perovskite123 perovskitelab solarcell1 solarcells unicamp123 unicamp2024 unicamp2025 unicamp2026
+  welcome123 letmein123 football12 perovskite perovskite1 perovskite123 perovskitelab solarcell1 solarcells university1 university123
   laboratorio laboratory1 changeme123 qwerty1234 qwerty12345 asdfghjkl1 zxcvbnm123 1qaz2wsx3edc`
     .split(/\s+/)
     .filter(Boolean),

@@ -31,7 +31,7 @@ export function checkRecord(setId: number, by: U) {
   const now = best('s.id=?', setId),
     before = best('s.id<>?', setId);
   if (now === null || before === null || now <= before + 1e-9) return null; // the first measurement of a system sets no "record"
-  const sys = s.system === 'padrao' ? '8-pixel system' : '1.5 × 2.5 system';
+  const sys = s.system === 'csv' ? 'multi-pixel system' : 'per-curve system';
   notify(
     activeUsers(),
     'record',

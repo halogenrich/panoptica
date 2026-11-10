@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { BookingIn, EquipmentIn, OrderIn, OutcomeIn, ScheduleIn } from '@psc/schema';
+import { AtmoIn, BookingIn, OutcomeIn, ScheduleIn } from '@psc/schema';
+import { bookingRefusal, equipmentList, minBookingOf, offDuring } from './equipment.js';
 import { tx } from './db.js';
 import { db } from './db.js';
 import { notify } from './social.js';
@@ -29,10 +30,14 @@ function offHours(
     b = d.batch_id
       ? (db.prepare('SELECT code FROM batches WHERE id=?').get(d.batch_id) as { code: string } | undefined)
       : undefined;
+  // the admins and the equipment's responsible people
   const ids = (
-    db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0 AND id<>?").all(by.id) as {
-      id: number;
-    }[]
+    db
+      .prepare(
+        `SELECT id FROM users WHERE active=1 AND deleted=0 AND id<>? AND (role='admin'
+         OR id IN (SELECT user_id FROM equipment_people WHERE equipment_id=?))`,
+      )
+      .all(by.id, d.equipment_id) as { id: number }[]
   ).map((r) => r.id);
   notify(
     ids,
@@ -72,6 +77,9 @@ if (!bcols.includes('outcome')) {
 // 0.37.1: the scheduler's blocks of a batch (step names), so a batch is not Done while some blocks are not placed yet
 if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'plan_steps'))
   db.exec("ALTER TABLE batches ADD COLUMN plan_steps TEXT NOT NULL DEFAULT '[]'");
+// 0.38: the runs whose annealing is booked elsewhere (the scheduler's "Anneal elsewhere")
+if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'plan_split'))
+  db.exec("ALTER TABLE batches ADD COLUMN plan_split TEXT NOT NULL DEFAULT '[]'");
 // 0.37: bookings outside batches (no batch_id) say what they are for
 if (!bcols.includes('purpose')) db.exec("ALTER TABLE bookings ADD COLUMN purpose TEXT NOT NULL DEFAULT ''");
 if (
@@ -101,25 +109,7 @@ if (
     db.exec('PRAGMA foreign_keys = ON');
   }
 }
-/** The glovebox equipment the scheduler needs, by role; created, or renamed from the first defaults, once. */
-const GB: [string, string, string, string?][] = [
-  ['scale', 'GB: Scale', '#0d9488'],
-  ['spinner', 'GB: Spinner', '#7c3aed', 'Spin coater (glovebox)'],
-  ['organic', 'GB: Minivap (Organic Evaporator)', '#2563eb'],
-  ['metal', 'GB: Metal Evaporator', '#b45309', 'Thermal evaporator'],
-];
-if (!db.prepare("SELECT 1 FROM meta WHERE key='gb-equipment'").get()) {
-  for (const [role, name, color, old] of GB) {
-    const ex = (old && db.prepare('SELECT id FROM equipment WHERE name=?').get(old)) as { id: number } | undefined;
-    if (ex) db.prepare('UPDATE equipment SET name=?, role=? WHERE id=?').run(name, role, ex.id);
-    else if (!db.prepare('SELECT 1 FROM equipment WHERE name=?').get(name))
-      db.prepare(
-        'INSERT INTO equipment(name,color,role,pos) VALUES(?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
-      ).run(name, color, role);
-  }
-  db.prepare("INSERT INTO meta(key,value) VALUES('gb-equipment',?)").run(new Date().toISOString());
-}
-// 0.31: minutes the equipment is blocked after each booking to clean it (gloveboxes: 20), so the next person finds it clean
+// 0.31: minutes the equipment is blocked after each booking to clean it, so the next person finds it clean
 if (!ecols.includes('cleanup')) {
   db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
   db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'");
@@ -144,10 +134,19 @@ const roleOf = (eq: number) =>
   (db.prepare('SELECT role FROM equipment WHERE id=?').get(eq) as { role: string } | undefined)?.role ?? '';
 /** A locked batch's record stays fixed, but measuring it again on the J–V equipment is still allowed. */
 const lockFor = (batch: number | null, eq: number) => (batch && roleOf(eq) !== 'measure' ? lockedById(batch) : null);
+/** Atmosphere is asked for bookings that ended after the release that started recording it (0.38), not for older ones. */
+const ATMO_SINCE = (() => {
+  const r = db.prepare("SELECT value FROM meta WHERE key='atmo-since'").get() as { value: string } | undefined;
+  if (r) return r.value;
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO meta(key,value) VALUES('atmo-since',?)").run(now);
+  return now;
+})();
+/** 90 → "1 h 30", 60 → "1 hour", 45 → "45 min". */
+const hm = (m: number) =>
+  m === 60 ? '1 hour' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`;
 /** Bookings start from now on: a minute of grace for the time a drop takes. */
 const PAST_GRACE = 60_000;
-/** Shortest booking, in minutes. */
-export const MIN_BOOKING = 60;
 // times are compared as text, so every stored time must be UTC ISO (…Z)
 for (const r of db
   .prepare("SELECT id,start,end FROM bookings WHERE start NOT LIKE '%Z' OR end NOT LIKE '%Z'")
@@ -157,13 +156,6 @@ for (const r of db
     new Date(r.end).toISOString(),
     r.id,
   );
-if (!db.prepare('SELECT 1 FROM equipment LIMIT 1').get()) {
-  const ins = db.prepare('INSERT INTO equipment(name,color,pos) VALUES(?,?,?)');
-  [
-    ['Solar simulator (J–V)', '#dc2626'],
-    ['UV-ozone cleaner', '#0891b2'],
-  ].forEach(([n, c], i) => ins.run(n, c, i));
-}
 
 type U = { id: number; name: string; role: string; manager?: boolean };
 const minutes = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 6e4;
@@ -171,7 +163,7 @@ const after = (t: string, min: number) => new Date(new Date(t).getTime() + min *
 const before = (t: string, min: number) => after(t, -min);
 const cleanupOf = (eq: number) =>
   (db.prepare('SELECT cleanup FROM equipment WHERE id=?').get(eq) as { cleanup: number } | undefined)?.cleanup ?? 0;
-const ROW = `SELECT k.*, e.name AS equipment, e.color, b.code AS batch_code, b.name AS batch_name, b.status AS batch_status, u.name AS user_name, u.photo_v AS photoV
+const ROW = `SELECT k.*, e.name AS equipment, e.color, e.atmosphere, e.role AS eq_role, b.code AS batch_code, b.name AS batch_name, b.status AS batch_status, u.name AS user_name, u.photo_v AS photoV
   FROM bookings k JOIN equipment e ON e.id=k.equipment_id LEFT JOIN batches b ON b.id=k.batch_id JOIN users u ON u.id=k.user_id`;
 const out = (r: any, u: U) => ({
   ...r,
@@ -236,11 +228,33 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         .prepare(
           ROW +
             // batch steps only: bookings outside a batch and measurements of finished batches have no outcome to give
-            " WHERE k.outcome IS NULL AND k.end <= ? AND k.batch_id IS NOT NULL AND e.role<>'measure' AND b.deleted_at IS NULL AND (k.user_id=? OR b.owner_id=?) ORDER BY k.start",
+            // and (0.38) any ended booking of equipment that records its atmosphere, until O₂ and H₂O are written down
+            ` WHERE k.end <= ? AND (
+                (k.outcome IS NULL AND k.batch_id IS NOT NULL AND e.role<>'measure' AND b.deleted_at IS NULL AND (k.user_id=? OR b.owner_id=?))
+                OR (e.atmosphere=1 AND k.atmo='' AND k.user_id=? AND (k.batch_id IS NULL OR k.outcome IS NOT NULL OR e.role='measure')
+                    AND k.end > ?)
+              ) ORDER BY k.start`,
         )
-        .all(new Date().toISOString(), req.user.id, req.user.id) as any[]
-    ).map((r) => out(r, req.user)),
+        .all(
+          new Date().toISOString(),
+          req.user.id,
+          req.user.id,
+          req.user.id,
+          ATMO_SINCE, // bookings from before atmosphere was recorded are not asked about
+        ) as any[]
+    ).map((r) => ({ ...out(r, req.user), atmoOnly: !r.batch_id || !!r.outcome || r.eq_role === 'measure' })),
   );
+  /** O₂ and H₂O at the end of a booking (equipment that records its atmosphere). */
+  app.post('/api/bookings/:id/atmosphere', { preHandler: auth() }, async (req: any, reply) => {
+    const k = db.prepare('SELECT user_id FROM bookings WHERE id=?').get(+req.params.id) as any;
+    if (!k) return reply.code(404).send({ error: 'not found' });
+    if (k.user_id !== req.user.id && req.user.role !== 'admin')
+      return reply.code(403).send({ error: 'not your booking' });
+    const p = AtmoIn.safeParse(req.body);
+    if (!p.success) return bad(reply, p);
+    db.prepare('UPDATE bookings SET atmo=? WHERE id=?').run(JSON.stringify(p.data), +req.params.id);
+    return { ok: true };
+  });
   app.post('/api/bookings/:id/outcome', { preHandler: auth() }, async (req: any, reply) => {
     const k = db
       .prepare('SELECT k.*, b.owner_id FROM bookings k JOIN batches b ON b.id=k.batch_id WHERE k.id=?')
@@ -252,6 +266,10 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     if (lk) return reply.code(423).send({ error: lk });
     const p = OutcomeIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
+    const atmoEq = (db.prepare('SELECT atmosphere FROM equipment WHERE id=?').get(k.equipment_id) as any)?.atmosphere;
+    if (atmoEq && p.data.outcome === 'done' && !p.data.atmo && !k.atmo)
+      return reply.code(400).send({ error: 'write down the O₂ and H₂O of the glovebox (ppm)' });
+    if (p.data.atmo) db.prepare('UPDATE bookings SET atmo=? WHERE id=?').run(JSON.stringify(p.data.atmo), k.id);
     db.prepare('UPDATE bookings SET outcome=?, reason=?, outcome_at=?, outcome_by=? WHERE id=?').run(
       p.data.outcome,
       p.data.reason ?? '',
@@ -313,7 +331,16 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
           .slice(0, 60)
       : null;
     if (!steps) return reply.code(400).send({ error: 'steps: a list of step names' });
-    if (b.status !== 'done') db.prepare('UPDATE batches SET plan_steps=? WHERE id=?').run(JSON.stringify(steps), id);
+    const split = Array.isArray(req.body?.split)
+      ? (req.body.split as unknown[])
+          .filter((x): x is string => typeof x === 'string')
+          .map((x) => x.slice(0, 60))
+          .slice(0, 60)
+      : null;
+    if (b.status !== 'done') {
+      db.prepare('UPDATE batches SET plan_steps=? WHERE id=?').run(JSON.stringify(steps), id);
+      if (split) db.prepare('UPDATE batches SET plan_split=? WHERE id=?').run(JSON.stringify(split), id);
+    }
     return { ok: true };
   });
   /**
@@ -338,8 +365,14 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         return reply.code(400).send({ error: `${it.step}: that time has passed`, index: i });
       if (!(it.end > it.start))
         return reply.code(400).send({ error: `${it.step}: the end must be after the start`, index: i });
-      if (minutes(it.start, it.end) < MIN_BOOKING)
-        return reply.code(400).send({ error: `${it.step}: a booking is at least 1 hour`, index: i });
+      if (minutes(it.start, it.end) < minBookingOf(it.equipment_id))
+        return reply
+          .code(400)
+          .send({ error: `${it.step}: a booking is at least ${hm(minBookingOf(it.equipment_id))}`, index: i });
+      const no = bookingRefusal(req.user, it.equipment_id);
+      if (no) return reply.code(403).send({ error: `${it.step}: ${no}`, index: i });
+      if (offDuring(it.equipment_id, it.start, it.end).length)
+        return reply.code(409).send({ error: `${it.step}: the equipment is out of service then`, index: i });
     }
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
@@ -389,7 +422,17 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
         ? db.prepare(ROW + ' WHERE k.end > ? AND k.start < ? AND b.deleted_at IS NULL ORDER BY k.start').all(from, to)
         : [];
     return {
-      equipment: db.prepare('SELECT * FROM equipment ORDER BY pos, id').all(),
+      equipment: equipmentList(),
+      // the equipment this user is trained on (they can book it), and out-of-service periods in view
+      trained: (
+        db.prepare('SELECT equipment_id FROM equipment_training WHERE user_id=?').all(req.user.id) as {
+          equipment_id: number;
+        }[]
+      ).map((r) => r.equipment_id),
+      off:
+        from && to
+          ? db.prepare('SELECT * FROM equipment_off WHERE end > ? AND start < ? ORDER BY start').all(from, to)
+          : [],
       bookings: (rows as any[]).map((r) => out(r, req.user)),
       // the batches this user can book for
       batches: db
@@ -414,6 +457,9 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
   const check = (req: any, reply: any, d: any, id = 0) => {
     const e = db.prepare('SELECT name, role FROM equipment WHERE id=?').get(d.equipment_id) as any;
     if (!e) return reply.code(400).send({ error: 'choose the equipment' });
+    // trained on it (admins need not be), and it is booked by itself (not inside other equipment)
+    const no = bookingRefusal(req.user, d.equipment_id);
+    if (no) return reply.code(403).send({ error: no });
     // bookings start from now on; a booking that has begun keeps its start (its end can still move, but not into the past)
     const was = id ? (db.prepare('SELECT start, end FROM bookings WHERE id=?').get(id) as any) : null;
     const gone = (t: string) => new Date(t).getTime() < Date.now() - PAST_GRACE;
@@ -445,7 +491,14 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     }
     if (!(new Date(d.end) > new Date(d.start)))
       return reply.code(400).send({ error: 'the end must be after the start' });
-    if (minutes(d.start, d.end) < MIN_BOOKING) return reply.code(400).send({ error: 'a booking is at least 1 hour' });
+    const least = minBookingOf(d.equipment_id);
+    if (minutes(d.start, d.end) < least)
+      return reply.code(400).send({ error: `a booking of ${e.name} is at least ${hm(least)}` });
+    const off = offDuring(d.equipment_id, d.start, d.end);
+    if (off.length && !(d.force && req.user.role === 'admin'))
+      return reply.code(409).send({
+        error: `${e.name} is out of service ${dm(off[0].start)}–${dm(off[0].end)}${off[0].reason ? ` (${off[0].reason})` : ''}`,
+      });
     const c = clashes(d.equipment_id, d.start, d.end, id);
     if (c.length && !(d.force && req.user.role === 'admin')) {
       const x = c[0];
@@ -515,67 +568,6 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
     const lk = lockFor(k.batch_id, k.equipment_id);
     if (lk) return reply.code(423).send({ error: lk });
     db.prepare('DELETE FROM bookings WHERE id=?').run(+req.params.id);
-    return { ok: true };
-  });
-
-  // ---- equipment: admins ----
-  app.post('/api/equipment', { preHandler: auth(true) }, async (req: any, reply) => {
-    const p = EquipmentIn.safeParse(req.body);
-    if (!p.success) return bad(reply, p);
-    try {
-      return {
-        id: Number(
-          db
-            .prepare(
-              'INSERT INTO equipment(name,color,place,role,cleanup,art,pos) VALUES(?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))',
-            )
-            .run(
-              p.data.name,
-              p.data.color ?? '#2563eb',
-              p.data.place ?? '',
-              p.data.role ?? '',
-              p.data.cleanup ?? (/^GB:/i.test(p.data.name) ? 20 : 0), // gloveboxes are cleaned after each use
-              p.data.art ?? '',
-            ).lastInsertRowid,
-        ),
-      };
-    } catch {
-      return reply.code(409).send({ error: 'this equipment already exists' });
-    }
-  });
-  /** Equipment in a new order: the order of the Day view's columns, the filter and the pickers. */
-  app.put('/api/equipment/order', { preHandler: auth(true) }, async (req: any, reply) => {
-    const p = OrderIn.safeParse(req.body);
-    if (!p.success) return bad(reply, p);
-    const up = db.prepare('UPDATE equipment SET pos=? WHERE id=?');
-    tx(() => p.data.ids.forEach((id, i) => up.run(i, id)));
-    return { ok: true };
-  });
-  app.patch('/api/equipment/:id', { preHandler: auth(true) }, async (req: any, reply) => {
-    const p = EquipmentIn.partial().safeParse(req.body);
-    if (!p.success) return bad(reply, p);
-    try {
-      for (const k of ['name', 'color', 'place', 'role', 'cleanup', 'art'] as const)
-        if (p.data[k] !== undefined)
-          db.prepare(`UPDATE equipment SET ${k}=? WHERE id=?`).run(p.data[k]!, +req.params.id);
-      if (p.data.active !== undefined)
-        db.prepare('UPDATE equipment SET active=? WHERE id=?').run(p.data.active ? 1 : 0, +req.params.id);
-      return { ok: true };
-    } catch {
-      return reply.code(409).send({ error: 'this equipment already exists' });
-    }
-  });
-  app.delete('/api/equipment/:id', { preHandler: auth(true) }, async (req: any, reply) => {
-    const n = (
-      db
-        .prepare('SELECT COUNT(*) AS n FROM bookings WHERE equipment_id=? AND end > ?')
-        .get(+req.params.id, new Date().toISOString()) as any
-    ).n;
-    if (n)
-      return reply.code(400).send({
-        error: `${n} upcoming booking${n === 1 ? '' : 's'}; hide the equipment instead, or remove the bookings first`,
-      });
-    db.prepare('DELETE FROM equipment WHERE id=?').run(+req.params.id);
     return { ok: true };
   });
 }

@@ -44,7 +44,7 @@ export interface IvSet {
   id: number;
   name: string;
   date: string;
-  system: 'padrao' | 'sun';
+  system: 'csv' | 'txt';
   visibility: 'private' | 'shared';
   owner: string;
   created_at: string;
@@ -81,7 +81,8 @@ export interface IvSetFull extends Omit<IvSet, 'curves'> {
   lifeRun?: LifeRun;
 }
 
-export const SYSTEM: Record<string, string> = { padrao: '8-pixel system (Padrão)', sun: '1.5 × 2.5 system' };
+/** J–V systems by their export format. */
+export const SYSTEM: Record<string, string> = { csv: 'Multi-pixel system (CSV)', txt: 'Per-curve system (TXT)' };
 export const METRICS = [
   { key: 'pce', label: 'PCE', unit: '%', digits: 2 },
   { key: 'voc', label: 'Voc', unit: 'V', digits: 3 },

@@ -46,9 +46,10 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
       description: '',
       authors: me.name,
       affiliation: k.affiliation ?? '',
+      funder: k.funder ?? '',
       grant: k.grant ?? '',
       license: k.license ?? 'CC-BY-4.0',
-      keywords: k.keywords ?? 'perovskite solar cells, current–voltage (J–V), device fabrication',
+      keywords: k.keywords ?? '',
     };
   });
   useEffect(() => {
@@ -143,6 +144,7 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
         KEEP,
         JSON.stringify({
           affiliation: meta.affiliation,
+          funder: meta.funder,
           grant: meta.grant,
           license: meta.license,
           keywords: meta.keywords,
@@ -259,18 +261,18 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
             <span>Affiliation</span>
             <input
               value={meta.affiliation}
-              placeholder="For example, LNES, Unicamp"
+              placeholder="Your group and institution"
               onChange={(e) => set({ affiliation: e.target.value })}
             />
           </label>
           <div className="grid2">
             <label className="fld">
-              <span>FAPESP process</span>
-              <input
-                value={meta.grant}
-                placeholder="For example, 2024/01234-5"
-                onChange={(e) => set({ grant: e.target.value })}
-              />
+              <span>Funding agency</span>
+              <input value={meta.funder} onChange={(e) => set({ funder: e.target.value })} />
+            </label>
+            <label className="fld">
+              <span>Grant number</span>
+              <input value={meta.grant} onChange={(e) => set({ grant: e.target.value })} />
             </label>
             <label className="fld">
               <span>Licence</span>

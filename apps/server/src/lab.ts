@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { AcceptIn, AccessRequestIn, DeclineIn, LabIn, LoginCheck, LoginSet, SetupIn, VisitorIn } from '@psc/schema';
 import { DEFAULT_HOURS, passwordProblem, usernameFor, type WorkDay } from '@psc/core';
-import { db, tx } from './db.js';
+import { db, tagHas, tx } from './db.js';
 import { hash } from './auth.js';
 import { notify } from './social.js';
 import { weakPassword, type Limiter } from './security.js';
@@ -112,7 +112,7 @@ const admins = () =>
   (db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0").all() as { id: number }[]).map(
     (r) => r.id,
   );
-/** Email domains the lab accepts for requests (any, when none are set); subdomains count (dac.unicamp.br for unicamp.br). */
+/** Email domains the lab accepts for requests (any, when none are set); subdomains count (chem.example.edu for example.edu). */
 const domainOk = (email: string) => {
   const ds = lab().domains;
   const d = email.split('@')[1] ?? '';
@@ -148,7 +148,7 @@ export function registerLab(
       professors: db
         .prepare(
           `SELECT DISTINCT u.name FROM users u JOIN user_tags ut ON ut.user_id=u.id JOIN tags t ON t.id=ut.tag_id
-           WHERE t.kind='professor' AND u.deleted=0 AND u.active=1 ORDER BY u.name`,
+           WHERE ${tagHas('comments')} AND u.deleted=0 AND u.active=1 ORDER BY u.name`,
         )
         .all()
         .map((r: any) => r.name),

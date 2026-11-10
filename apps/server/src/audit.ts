@@ -87,6 +87,18 @@ const LABEL: Record<string, string> = {
   'POST /api/tags': 'Created a tag',
   'PATCH /api/tags/:id': 'Changed a tag',
   'DELETE /api/tags/:id': 'Deleted a tag',
+  'POST /api/equipment': 'Added equipment',
+  'PATCH /api/equipment/:id': 'Changed equipment',
+  'DELETE /api/equipment/:id': 'Removed equipment',
+  'POST /api/equipment/:id/move': 'Moved equipment',
+  'PUT /api/equipment/:id/people': 'Chose who is responsible for equipment',
+  'POST /api/equipment/:id/training/:uid': 'Marked someone as trained on equipment',
+  'DELETE /api/equipment/:id/training/:uid': 'Removed someone’s training on equipment',
+  'POST /api/equipment/:id/off': 'Set equipment out of service',
+  'DELETE /api/equipment/off/:oid': 'Ended an out-of-service period',
+  'POST /api/places': 'Added a place',
+  'PATCH /api/places/:id': 'Renamed a place',
+  'DELETE /api/places/:id': 'Removed a place',
   'PATCH /api/me': 'Changed own profile',
   'POST /api/me/password': 'Changed own password',
   'POST /api/presets': 'Created a recipe or design',
@@ -159,9 +171,11 @@ function nameOf(route: string, params: Record<string, string>): string {
               ? q('SELECT name AS n FROM iv_sets WHERE id=?')
               : route.startsWith('/api/tags/')
                 ? q('SELECT name AS n FROM tags WHERE id=?')
-                : route.startsWith('/api/backups/:name')
-                  ? params.name
-                  : undefined;
+                : route.startsWith('/api/equipment/:id')
+                  ? q('SELECT name AS n FROM equipment WHERE id=?')
+                  : route.startsWith('/api/backups/:name')
+                    ? params.name
+                    : undefined;
   const rest = Object.entries(params)
     .filter(([k]) => k !== 'id' && k !== 'name')
     .map(([k, v]) => `${k} ${v}`)

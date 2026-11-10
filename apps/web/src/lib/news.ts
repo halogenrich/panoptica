@@ -52,7 +52,7 @@ export const HEADLINES = [
   'Defect passivation so effective the defects filed a missing persons report',
 ];
 
-/** While the Professor is online (eye and news both on). {prof} is her name, {name} the reader's first name. */
+/** While the Professor is online (eye and news both on). {prof} is their name, {name} the reader's first name. */
 export const PROF_HEADLINES = [
   '{prof} is questioning why {name} is like this',
   '{prof} has opened {name}’s latest batch. Thoughts and prayers',

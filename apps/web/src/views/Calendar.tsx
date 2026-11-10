@@ -1,4 +1,4 @@
-import EquipmentArt, { ARTS, artOf, type ArtKind } from '../lib/EquipmentArt';
+import EquipmentArt, { artOf } from '../lib/EquipmentArt';
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
@@ -6,34 +6,34 @@ import { MeCtx } from '../ctx';
 import { Seg } from '../lib/ui';
 import { showToast, useRefresh } from '../lib/trash';
 import { firstName, mdOf, useBirthdays, useHours } from '../lib/hours';
-import { minutesOf, withinHours, workDayOf, type WorkDay } from '@psc/core';
+import { minutesOf, stepLabel, withinHours, workDayOf, type WorkDay } from '@psc/core';
 import { batchesChanged } from './Batches';
-import { ROLE_NAME, bundlesOf, eqFor, placedOf, type Bundle } from '../lib/bundles';
+import { ROLE_NAME, autoSplit, bundlesOf, eqCandidates, placedOf, type Bundle } from '../lib/bundles';
 import type { StackD } from '../stacks/model';
-import { DragHandle, useReorder } from './common';
 
-type Eq = {
+export type Eq = {
   id: number;
   name: string;
   color: string;
-  place: string;
   pos: number;
-  active: number;
+  active: boolean | number;
   role: string;
+  /** booked by itself (false: inside other equipment, or used freely) */
+  booked?: boolean;
+  /** the steps it can do (0.38) */
+  steps?: string[];
+  parent_id?: number | null;
+  place_id?: number | null;
+  /** shortest booking, minutes */
+  min_booking?: number;
+  /** O₂ and H₂O are recorded after each booking */
+  atmosphere?: boolean;
+  people?: { id: number; name: string }[];
   /** minutes blocked after each booking for cleaning (gloveboxes: 20) */
   cleanup?: number;
   /** the drawing ('' = from its use and name) */
   art?: string;
 };
-const USED_FOR: [string, string][] = [
-  ['', 'Other'],
-  ['prep', 'Substrate preparation'],
-  ['scale', 'Solution preparation'],
-  ['spinner', 'Spin coating'],
-  ['organic', 'Organic evaporation'],
-  ['metal', 'Metal evaporation'],
-  ['measure', 'J–V measurement'],
-];
 export type Booking = {
   id: number;
   equipment_id: number;
@@ -61,6 +61,9 @@ type Data = {
   equipment: Eq[];
   bookings: Booking[];
   batches: { id: number; code: string; name: string; status?: string }[];
+  /** equipment this user is trained on (0.38), and out-of-service periods in view */
+  trained: number[];
+  off: Off[];
   /** the user's finished batches, for the J–V measurement equipment */
   finished: { id: number; code: string; name: string; status?: string }[];
 };
@@ -77,6 +80,10 @@ const DAY = 864e5,
  * The booking of the same equipment that a new time would clash with, if any. The cleanup after each booking counts as taken,
  * both after the existing booking and after the new one.
  */
+type Off = { id: number; equipment_id: number; start: string; end: string; reason: string };
+/** An out-of-service period of the equipment over a time (0.38). */
+const offOf = (off: Off[] | undefined, eq: number | undefined, s: number, e: number) =>
+  (off ?? []).find((o) => o.equipment_id === eq && new Date(o.end).getTime() > s && new Date(o.start).getTime() < e);
 function clashOf(list: Booking[], eqs: Eq[], eq: number | undefined, s: number, e: number, except?: number) {
   const cl = (eqs.find((x) => x.id === eq)?.cleanup ?? 0) * 6e4;
   return list.find(
@@ -130,12 +137,8 @@ function namer(list: Booking[]) {
 const PAST_GRACE = 60_000;
 const PAST = 'That time has passed: bookings start from now on';
 const what = (b: Booking) => (b.batch_id ? `${b.batch_code}${b.step ? ` (${b.step})` : ''}` : b.purpose);
-/** Equipment names as said in the lab: "GB: Minivap (Organic Evaporator)" → "Minivap". The full name is in headers and the hover card. */
-const shortEq = (n: string) =>
-  n
-    .replace(/^GB:\s*/i, '')
-    .replace(/\s*\(.*\)\s*$/, '')
-    .trim() || n;
+/** Short equipment names for small blocks: "Evaporator 2 (organic)" → "Evaporator 2". The full name is in headers and the hover card. */
+const shortEq = (n: string) => n.replace(/\s*\(.*\)\s*$/, '').trim() || n;
 /** The first time from `t` at which a 1-hour booking fits in the working hours (looks a week ahead; else `t`). */
 function nextWorking(h: WorkDay[], t: Date): Date {
   for (let i = 0; i < 8; i++) {
@@ -251,12 +254,17 @@ export default function Calendar({
       return [];
     }
   });
-  const [draft, setDraft] = useState<Draft | null>(null),
-    [eqOpen, setEqOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null),
     [preview, setPreview] = useState<Preview | null>(null),
     justDragged = useRef(false);
-  const [sb, setSb] = useState<{ id: number; code: string; snapshot: { stack: StackD }; status: string } | null>(null),
+  const [sb, setSb] = useState<{
+      id: number;
+      code: string;
+      snapshot: { stack: StackD };
+      status: string;
+      plan_split?: string;
+    } | null>(null),
     [sbBooks, setSbBooks] = useState<Booking[]>([]);
   const loadSb = () => {
     if (scheduling) {
@@ -264,10 +272,13 @@ export default function Calendar({
         .then((b) => {
           setSb(b);
           // tell the server the plan's blocks: the batch is not Done until each of them is booked and answered
-          if (b?.status !== 'done')
+          if (b?.status !== 'done') {
+            const split: string[] = JSON.parse(b.plan_split || '[]');
             api(`/batches/${b.id}/plan`, 'PUT', {
-              steps: bundlesOf(b.snapshot.stack, b.snapshot.resolved).map((x) => x.step),
+              steps: bundlesOf(b.snapshot.stack, b.snapshot.resolved, split).map((x) => x.step),
+              split,
             }).catch(() => {});
+          }
         })
         .catch(() => setSb(null));
       api<Booking[]>(`/batches/${scheduling}/bookings`)
@@ -326,11 +337,11 @@ export default function Calendar({
           ? addDays(date, 7 * k)
           : new Date(date.getFullYear(), date.getMonth() + k, 1),
     );
-  const eqs = (data?.equipment ?? []).filter((e) => e.active),
+  // the calendar shows what is booked by itself (not what sits inside a glovebox)
+  const eqs = (data?.equipment ?? []).filter((e) => e.active && e.booked !== false),
     shown = eqs.filter((e) => !hidden.includes(e.id));
   const list = (data?.bookings ?? []).filter((b) => shown.some((e) => e.id === b.equipment_id));
-  const canManage = me.role === 'admin',
-    work = useHours();
+  const work = useHours();
   // ---- dragging a tray block or a booking onto the grid
   const slotAt = (x: number, y: number, d: Drag): Preview | null => {
     const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest('.tg-col') as HTMLElement | null;
@@ -341,7 +352,9 @@ export default function Calendar({
     const day = el.dataset.day!,
       start = at(day, '00:00').getTime() + m * 6e4,
       end = start + d.dur * 6e4;
-    const clash = !!clashOf(data?.bookings ?? [], eqs, d.eq, start, end, d.kind === 'move' ? d.booking.id : undefined);
+    const clash =
+      !!clashOf(data?.bookings ?? [], eqs, d.eq, start, end, d.kind === 'move' ? d.booking.id : undefined) ||
+      !!offOf(data?.off, d.eq, start, end);
     return {
       day,
       eq: d.eq,
@@ -422,10 +435,13 @@ export default function Calendar({
       m = Math.max(0, Math.min(24 * 60, Math.round((((y - rect.top) / HOUR_PX) * 60) / SNAP) * SNAP));
     let s = new Date(r.b.start).getTime(),
       e = new Date(r.b.end).getTime();
-    // never shorter than the shortest booking
-    if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - MIN_BOOK * 6e4);
-    else e = Math.max(d0 + m * 6e4, s + MIN_BOOK * 6e4);
-    const clash = !!clashOf(data?.bookings ?? [], eqs, r.b.equipment_id, s, e, r.b.id);
+    // never shorter than the equipment's shortest booking
+    const least = (eqs.find((x) => x.id === r.b.equipment_id)?.min_booking ?? MIN_BOOK) * 6e4;
+    if (r.edge === 'start') s = Math.min(d0 + m * 6e4, e - least);
+    else e = Math.max(d0 + m * 6e4, s + least);
+    const clash =
+      !!clashOf(data?.bookings ?? [], eqs, r.b.equipment_id, s, e, r.b.id) ||
+      !!offOf(data?.off, r.b.equipment_id, s, e);
     // an edge can only move to a time still to come (the start of a booking that has begun stays where it is)
     const past = (s !== new Date(r.b.start).getTime() && s < Date.now() - PAST_GRACE) || e < Date.now() - PAST_GRACE;
     return { s, e, clash, past };
@@ -539,7 +555,7 @@ export default function Calendar({
     });
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest('input,select,textarea') || draft || eqOpen) return;
+      if ((e.target as HTMLElement)?.closest('input,select,textarea') || draft) return;
       if (e.key === 'ArrowLeft') step(-1);
       else if (e.key === 'ArrowRight') step(1);
       else if (e.key.toLowerCase() === 't') setDate(sod(new Date()));
@@ -576,11 +592,6 @@ export default function Calendar({
             ['month', 'Month'],
           ]}
         />
-        {canManage && (
-          <button className="btn secondary" onClick={() => setEqOpen(true)}>
-            Equipment
-          </button>
-        )}
         <button
           className="btn"
           onClick={() => {
@@ -619,13 +630,7 @@ export default function Calendar({
       ) : !eqs.length ? (
         <div className="cal-empty">
           <p>No equipment yet.</p>
-          {canManage ? (
-            <button className="btn" onClick={() => setEqOpen(true)}>
-              Add equipment
-            </button>
-          ) : (
-            <p className="mut">An admin or manager adds the lab’s equipment first.</p>
-          )}
+          <p className="mut">The lab’s equipment is added under Lab › Equipment.</p>
         </div>
       ) : view === 'month' ? (
         <Month
@@ -650,6 +655,7 @@ export default function Calendar({
           busy={!!drag || !!resize}
           activeId={resize?.b.id ?? (drag?.kind === 'move' ? drag.booking.id : undefined)}
           preview={preview}
+          off={(data.off ?? []).filter((o) => (view === 'day' ? eqs : shown).some((e) => e.id === o.equipment_id))}
         />
       )}
       {scheduling && !narrow && data && (
@@ -657,6 +663,17 @@ export default function Calendar({
           batch={sb}
           books={sbBooks}
           eqs={eqs}
+          trained={data?.trained ?? []}
+          isAdmin={me.role === 'admin'}
+          onSplit={(split) =>
+            sb &&
+            api(`/batches/${sb.id}/plan`, 'PUT', {
+              steps: bundlesOf(sb.snapshot.stack, (sb.snapshot as any).resolved, split).map((x) => x.step),
+              split,
+            })
+              .then(loadSb)
+              .catch((e) => showToast(e.message))
+          }
           onStart={(d) => {
             if (view === 'month') pickView('week');
             setDrag(d);
@@ -689,7 +706,6 @@ export default function Calendar({
           onOpenBatch={onOpenBatch}
         />
       )}
-      {eqOpen && data && <EquipmentDialog eqs={data.equipment} onClose={() => setEqOpen(false)} reload={load} />}
     </div>
   );
 }
@@ -768,7 +784,10 @@ function TimeGrid({
   busy,
   activeId,
   preview,
+  off = [],
 }: {
+  /** out-of-service periods (0.38), drawn hatched in their equipment's columns */
+  off?: Off[];
   view: 'day' | 'week';
   date: Date;
   eqs: Eq[];
@@ -876,7 +895,6 @@ function TimeGrid({
               <div key={c.key} className="tg-col-h eq">
                 <EquipmentArt kind={artOf(c.eq)} color={c.eq.color} size={44} />
                 <b>{c.eq.name}</b>
-                {c.eq.place && <span className="mut small">{c.eq.place}</span>}
               </div>
             ) : (
               <div
@@ -955,6 +973,30 @@ function TimeGrid({
                     aria-hidden
                   />
                 ))}
+                {off
+                  .filter(
+                    (o) =>
+                      (!c.eq || o.equipment_id === c.eq.id) &&
+                      new Date(o.end).getTime() > d0 &&
+                      new Date(o.start).getTime() < d1,
+                  )
+                  .map((o) => {
+                    const s = Math.max(d0, new Date(o.start).getTime()),
+                      e = Math.min(d1, new Date(o.end).getTime()),
+                      name = eqs.find((x) => x.id === o.equipment_id)?.name ?? '';
+                    return (
+                      <div
+                        key={'oos' + o.id}
+                        className="bk-oos"
+                        style={{ top: ((s - d0) / 3.6e6) * HOUR_PX, height: ((e - s) / 3.6e6) * HOUR_PX }}
+                        title={`${name} out of service${o.reason ? `: ${o.reason}` : ''}`}
+                      >
+                        <span>
+                          {c.eq ? '' : name + ' · '}Out of service{o.reason ? `: ${o.reason}` : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
                 {mine.map((b) => {
                   const s = Math.max(d0, new Date(b.start).getTime()),
                     e = Math.min(d1, new Date(b.end).getTime()),
@@ -1257,7 +1299,8 @@ function BookingForm({
     ro = existing && (!draft.editable || !!draft.outcome); // answered steps are history
   const s0 = new Date(draft.start),
     e0 = new Date(draft.end);
-  const eqs = data.equipment.filter((e) => e.active || e.id === draft.equipment_id);
+  // what can be booked: active and booked by itself (not what sits inside a glovebox)
+  const eqs = data.equipment.filter((e) => (e.active && e.booked !== false) || e.id === draft.equipment_id);
   /** the batches this equipment can be booked for: finished ones for J–V measurement, Planned and Running ones otherwise */
   const batchesFor = (eqId: number) => {
     const list = eqs.find((e) => e.id === eqId)?.role === 'measure' ? (data.finished ?? []) : data.batches;
@@ -1310,6 +1353,9 @@ function BookingForm({
   );
   const eq = eqs.find((e) => e.id === f.eq),
     hours = (end.getTime() - start.getTime()) / 3.6e6,
+    least = eq?.min_booking ?? MIN_BOOK,
+    oos = offOf(data.off, f.eq, start.getTime(), end.getTime()),
+    untrained = !!eq && !isAdmin && !(data.trained ?? []).includes(eq.id),
     work = useHours();
   // a new booking, or a changed start, cannot be in the past (an ongoing booking keeps its start)
   const past =
@@ -1317,7 +1363,13 @@ function BookingForm({
       (!existing || start.getTime() !== new Date(draft.start!).getTime())) ||
     end.getTime() < Date.now() - PAST_GRACE;
   const ok =
-    !!f.eq && (!!f.batch || !!f.purpose.trim()) && hours >= MIN_BOOK / 60 && !past && (!clash || (isAdmin && f.force));
+    !!f.eq &&
+    (!!f.batch || !!f.purpose.trim()) &&
+    hours >= least / 60 &&
+    !past &&
+    !untrained &&
+    (!oos || (isAdmin && f.force)) &&
+    (!clash || (isAdmin && f.force));
   const body = () => ({
     equipment_id: f.eq,
     batch_id: f.batch || null,
@@ -1468,10 +1520,21 @@ function BookingForm({
               </label>
             </div>
             <p className="mut small when-sum">
-              {hours >= MIN_BOOK / 60
+              {hours >= least / 60
                 ? `${hours % 1 ? hours.toFixed(2).replace(/0$/, '') : hours} h${!sameDay(start, end) ? ', ending the next day' : ''}${eq?.cleanup ? `, then ${eq.cleanup} min of cleanup` : ''}`
-                : 'A booking is at least 1 hour.'}
+                : `A booking of ${eq?.name ?? 'this equipment'} is at least ${least >= 60 && least % 60 === 0 ? `${least / 60} h` : `${least} min`}.`}
             </p>
+            {untrained && (
+              <p className="err small" role="alert">
+                You are not trained on {eq!.name} yet
+                {eq!.people?.length ? `; ask ${eq!.people.map((p) => p.name).join(' or ')}` : '; ask an admin'}.
+              </p>
+            )}
+            {oos && (
+              <p className="err small" role="alert">
+                {eq?.name} is out of service then{oos.reason ? `: ${oos.reason}` : ''}.
+              </p>
+            )}
             {past && (
               <p className="err small" role="alert">
                 {PAST}.
@@ -1540,27 +1603,39 @@ function Tray({
   batch,
   books,
   eqs,
+  trained,
+  isAdmin,
   onStart,
   onEnd,
+  onSplit,
 }: {
   batch: {
     id: number;
     code: string;
     snapshot: { stack: StackD; resolved?: Record<number, any> };
     status: string;
+    plan_split?: string;
   } | null;
   books: Booking[];
   eqs: Eq[];
+  trained: number[];
+  isAdmin: boolean;
   onStart: (d: Drag) => void;
   onEnd?: (back: boolean) => void;
+  /** the blocks whose annealing goes elsewhere, chosen for this batch */
+  onSplit: (split: string[]) => void;
 }) {
+  // the equipment picked for a block when more than one can take it
+  const [pick, setPick] = useState<Record<string, number>>({});
   if (!batch)
     return (
       <div className="tray">
         <p className="mut">Loading the batch…</p>
       </div>
     );
-  const blocks = bundlesOf(batch.snapshot.stack, batch.snapshot.resolved),
+  const chosen: string[] = JSON.parse(batch.plan_split || '[]'),
+    split = autoSplit(batch.snapshot.stack, batch.snapshot.resolved, eqs, chosen),
+    blocks = bundlesOf(batch.snapshot.stack, batch.snapshot.resolved, split),
     left = blocks.filter((b) => !placedOf(b, books)).length;
   return (
     <section className="tray" aria-label={`Equipment blocks for batch ${batch.code}`}>
@@ -1581,286 +1656,88 @@ function Tray({
       </div>
       <div className="tray-blocks">
         {blocks.map((b) => {
-          const eq = eqFor(b, eqs),
+          const cands = eqCandidates(b, eqs, trained),
+            eq = cands.find((e) => e.id === pick[b.key]) ?? cands[0],
             placed = placedOf(b, books),
-            dur = Math.max(MIN_BOOK, b.minutes); // what will be booked: the recipe's time, at least the shortest booking
+            notTrained = !!eq && !isAdmin && !trained.includes(eq.id),
+            least = eq?.min_booking ?? MIN_BOOK,
+            dur = Math.max(least, b.minutes), // what will be booked: the recipe's time, at least the equipment's shortest booking
+            base = b.key.replace(/-anneal$/, ''),
+            movable = !placed && !!b.extra && !(split.includes(b.key) && !chosen.includes(b.key));
+          const usable = !!eq && !placed && !notTrained;
           return (
-            <button
-              key={b.key}
-              type="button"
-              className={'tray-block' + (placed ? ' placed' : '') + (eq ? '' : ' missing')}
-              style={
-                {
-                  '--eq': eq?.color ?? 'var(--sep)',
-                  minHeight: Math.max(52, Math.min(110, (dur / 60) * HOUR_PX)), // grows to show its text
-                } as React.CSSProperties
-              }
-              disabled={!eq || !!placed}
-              title={
-                !eq
-                  ? `No equipment is set up for ${ROLE_NAME[b.role].toLowerCase()} (an admin sets the procedure under Equipment)`
-                  : placed
-                    ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
-                    : 'Drag onto the calendar'
-              }
-              onPointerDown={(e) => {
-                if (!eq || placed || e.button !== 0) return;
-                e.preventDefault();
-                onStart({
-                  kind: 'bundle',
-                  bundle: b,
-                  eq: eq.id,
-                  dur,
-                  color: eq.color,
-                  label: eq.name,
-                  grab: Math.min(30, b.minutes / 2),
-                });
-              }}
-            >
-              <b>{eq?.name ?? ROLE_NAME[b.role]}</b>
-              <span>{b.what ?? b.layers.join(', ')}</span>
-              <span className="tray-t">
-                {placed
-                  ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric' })} ${hm(new Date(placed.start))}`
-                  : `${dur >= 60 ? `${Math.floor(dur / 60)} h${dur % 60 ? ` ${dur % 60}` : ''}` : `${dur} min`}`}
-              </span>
-            </button>
+            <div key={b.key} className="tray-cell">
+              <button
+                type="button"
+                className={'tray-block' + (placed ? ' placed' : '') + (usable || placed ? '' : ' missing')}
+                style={
+                  {
+                    '--eq': eq?.color ?? 'var(--sep)',
+                    minHeight: Math.max(52, Math.min(110, (dur / 60) * HOUR_PX)), // grows to show its text
+                  } as React.CSSProperties
+                }
+                disabled={!usable}
+                title={
+                  !eq
+                    ? `No equipment can do ${b.needs.map(stepLabel).join(' and ').toLowerCase()} (set up under Lab › Equipment)`
+                    : placed
+                      ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
+                      : notTrained
+                        ? `You are not trained on ${eq.name} yet`
+                        : 'Drag onto the calendar'
+                }
+                onPointerDown={(e) => {
+                  if (!usable || e.button !== 0) return;
+                  e.preventDefault();
+                  onStart({
+                    kind: 'bundle',
+                    bundle: b,
+                    eq: eq!.id,
+                    dur,
+                    color: eq!.color,
+                    label: eq!.name,
+                    grab: Math.min(30, b.minutes / 2),
+                  });
+                }}
+              >
+                <b>{eq?.name ?? (b.role ? ROLE_NAME[b.role] : b.needs.map(stepLabel).join(', '))}</b>
+                <span>{b.what ?? b.layers.join(', ')}</span>
+                <span className="tray-t">
+                  {placed
+                    ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric' })} ${hm(new Date(placed.start))}`
+                    : notTrained
+                      ? 'Not trained on it'
+                      : `${dur >= 60 ? `${Math.floor(dur / 60)} h${dur % 60 ? ` ${dur % 60}` : ''}` : `${dur} min`}`}
+                </span>
+              </button>
+              {!placed && cands.length > 1 && (
+                <select
+                  className="tray-eq"
+                  aria-label={`Equipment for ${b.step}`}
+                  value={eq?.id}
+                  onChange={(e) => setPick({ ...pick, [b.key]: +e.target.value })}
+                >
+                  {cands.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {!isAdmin && !trained.includes(c.id) ? ' (not trained)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {movable && (
+                <button
+                  type="button"
+                  className="link small"
+                  onClick={() => onSplit(chosen.includes(base) ? chosen.filter((k) => k !== base) : [...chosen, base])}
+                >
+                  {chosen.includes(base) ? 'Anneal in the same place' : 'Anneal elsewhere'}
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
     </section>
-  );
-}
-
-// ------------------------------------------------------------------ equipment (admins)
-function EquipmentDialog({ eqs, onClose, reload }: { eqs: Eq[]; onClose: () => void; reload: () => void }) {
-  // the order is the order of the Day view's columns and of the pickers; dragged here, saved when the dragging pauses
-  const [local, setLocal] = useState<Eq[] | null>(null),
-    saveT = useRef(0);
-  const list = local ?? eqs;
-  const order = useReorder(
-    list,
-    (l) => {
-      setLocal(l);
-      window.clearTimeout(saveT.current);
-      saveT.current = window.setTimeout(
-        () =>
-          api('/equipment/order', 'PUT', { ids: l.map((x) => x.id) })
-            .then(reload)
-            .finally(() => setLocal(null)),
-        500,
-      );
-    },
-    'equipment',
-  );
-  const [name, setName] = useState(''),
-    [color, setColor] = useState('#2563eb'),
-    [role, setRole] = useState(''),
-    [err, setErr] = useState('');
-  const run = (p: Promise<unknown>) =>
-    p
-      .then(() => {
-        setErr('');
-        reload();
-      })
-      .catch((e) => setErr(e.message));
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, []);
-  return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog wide eq-dialog" role="dialog" aria-label="Equipment">
-        <div className="dialog-head">
-          <h2>Equipment</h2>
-          <button className="iconbtn" aria-label="Close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <p className="mut small">
-          What can be booked, its colour in the calendar, the procedure it is used for (the batch scheduler books it for
-          those steps), and how long it stays taken after each booking to be cleaned (gloveboxes: 20 min). Bookings are
-          at least 1 hour.
-        </p>
-        <div className="eq-table" role="table">
-          <div className="eq-h" role="row">
-            <span />
-            <span>Colour</span>
-            <span>Drawing</span>
-            <span>Name</span>
-            <span>Procedure</span>
-            <span title="Minutes the equipment stays taken after each booking, to clean it">Cleanup after</span>
-            <span />
-          </div>
-          {list.map((e, i) => (
-            <div key={e.id} className={'eq-r' + (order.drag === i ? ' dragging' : '')} role="row" ref={order.rowRef(i)}>
-              <DragHandle h={order.handle(i)} show={list.length > 1} />
-              <input
-                type="color"
-                aria-label={`Colour of ${e.name}`}
-                defaultValue={e.color}
-                onChange={(x) => run(api('/equipment/' + e.id, 'PATCH', { color: x.target.value }))}
-              />
-              <ArtPick eq={e} onPick={(art) => run(api('/equipment/' + e.id, 'PATCH', { art }))} />
-              <input
-                aria-label="Name"
-                defaultValue={e.name}
-                onBlur={(x) =>
-                  x.target.value.trim() &&
-                  x.target.value.trim() !== e.name &&
-                  run(api('/equipment/' + e.id, 'PATCH', { name: x.target.value.trim() }))
-                }
-              />
-              <select
-                aria-label="Procedure"
-                value={e.role}
-                onChange={(x) => run(api('/equipment/' + e.id, 'PATCH', { role: x.target.value }))}
-              >
-                {USED_FOR.map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-              <label className="eq-clean">
-                <input
-                  type="number"
-                  min={0}
-                  max={240}
-                  step={5}
-                  aria-label={`Cleanup after each booking of ${e.name}, minutes`}
-                  defaultValue={e.cleanup ?? 0}
-                  onBlur={(x) => {
-                    const v = Math.max(0, Math.min(240, Math.round(+x.target.value || 0)));
-                    if (v !== (e.cleanup ?? 0)) run(api('/equipment/' + e.id, 'PATCH', { cleanup: v }));
-                  }}
-                />
-                <span className="mut small">min</span>
-              </label>
-              <button
-                className="link small danger-link"
-                onClick={() =>
-                  window.confirm(`Remove ${e.name}? Past bookings of it are removed too.`) &&
-                  run(api('/equipment/' + e.id, 'DELETE'))
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          <form
-            className="eq-r new"
-            role="row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(
-                api('/equipment', 'POST', { name: name.trim(), color, role }).then(() => {
-                  setName('');
-                  setRole('');
-                }),
-              );
-            }}
-          >
-            <span />
-            <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
-            <span className="eq-art-cell" style={{ '--eq': color } as React.CSSProperties}>
-              <EquipmentArt kind={artOf({ name, role })} size={40} />
-            </span>
-            <input
-              aria-label="Name"
-              value={name}
-              placeholder="Name of the new equipment"
-              onChange={(e) => setName(e.target.value)}
-            />
-            <select aria-label="Procedure" value={role} onChange={(e) => setRole(e.target.value)}>
-              {USED_FOR.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <span className="mut small">{/^GB:/i.test(name) ? '20 min' : '—'}</span>
-            <button className="btn" disabled={!name.trim()}>
-              Add
-            </button>
-          </form>
-        </div>
-        {err && <p className="err small">{err}</p>}
-      </div>
-    </div>
-  );
-}
-
-/** The drawing of one equipment: the current one, a click away from the others ("Automatic" follows its use and name). */
-function ArtPick({ eq, onPick }: { eq: Eq; onPick: (art: string) => void }) {
-  const [open, setOpen] = useState<DOMRect | null>(null),
-    ref = useRef<HTMLSpanElement>(null),
-    menu = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const f = (e: MouseEvent) =>
-      !ref.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setOpen(null);
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        setOpen(null);
-      }
-    };
-    document.addEventListener('mousedown', f);
-    document.addEventListener('keydown', k, true);
-    return () => {
-      document.removeEventListener('mousedown', f);
-      document.removeEventListener('keydown', k, true);
-    };
-  }, [open]);
-  const auto = artOf({ name: eq.name, role: eq.role });
-  return (
-    <span className="eq-art-cell" ref={ref} style={{ '--eq': eq.color } as React.CSSProperties}>
-      <button
-        type="button"
-        className="art-btn"
-        aria-label={`Drawing of ${eq.name}`}
-        aria-expanded={!!open}
-        aria-haspopup="listbox"
-        onClick={(e) => setOpen(open ? null : e.currentTarget.getBoundingClientRect())}
-      >
-        <EquipmentArt kind={artOf(eq)} size={40} />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={menu}
-            className="art-menu"
-            role="listbox"
-            aria-label={`Drawing of ${eq.name}`}
-            style={
-              {
-                '--eq': eq.color,
-                left: Math.min(open.left - 8, window.innerWidth - 384),
-                top: open.bottom + 380 < window.innerHeight ? open.bottom + 4 : Math.max(8, open.top - 384),
-              } as React.CSSProperties
-            }
-          >
-            {[['', `Automatic (${ARTS.find(([k]) => k === auto)?.[1]})`] as [string, string], ...ARTS].map(([k, l]) => (
-              <button
-                key={k || 'auto'}
-                type="button"
-                role="option"
-                aria-selected={(eq.art ?? '') === k}
-                className={(eq.art ?? '') === k ? 'on' : ''}
-                onClick={() => {
-                  onPick(k);
-                  setOpen(null);
-                }}
-              >
-                <EquipmentArt kind={(k || auto) as ArtKind} size={44} />
-                <span>{l}</span>
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
-    </span>
   );
 }

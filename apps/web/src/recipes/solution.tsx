@@ -23,12 +23,12 @@ const comp = (d: {
     : { A: d.A, X: d.X, L: { ion: spacerOf(d).ion, z: d.dim === 'DJ' ? 2 : 1 }, n: Math.max(1, d.n || 1), s: d.s };
 const defaults = () => ({
   mode: 'Perovskite' as Mode,
-  A: { FA: 1 } as Record<string, number>,
-  X: { I: 1 } as Record<string, number>,
-  M: 1,
-  V: 1,
+  A: {} as Record<string, number>,
+  X: {} as Record<string, number>,
+  M: 0,
+  V: 0,
   meth: 'solvent' as 'solvent' | 'density',
-  rho: 4.1,
+  rho: 0,
   dim: '3D' as Dim,
   L: 'PEA',
   n: 2,
@@ -36,19 +36,16 @@ const defaults = () => ({
   prep: 'one' as 'one' | 'stocks',
   stocks: {} as Record<string, { c?: number; v?: number }>,
   sol: '',
-  c: 20,
+  c: 0,
   u: 'mg/mL' as 'mg/mL' | 'mM',
-  sv: [
-    { n: 'DMF', p: 4 },
-    { n: 'DMSO', p: 1 },
-  ],
+  sv: [] as { n: string; p: number }[],
   ad: [] as Additive[],
-  stir: true,
-  sm: 30,
+  stir: false,
+  sm: 0,
   heat: false,
-  hT: 60,
-  hm: 30,
-  cool: true,
+  hT: 0,
+  hm: 0,
+  cool: false,
 });
 type D = ReturnType<typeof defaults>;
 const BASES: Basis[] = ['mol%', 'wt%', 'mg/mL', 'µL/mL', 'µL stock/mL'];
@@ -87,8 +84,14 @@ const prep = (d: D) =>
     d.heat ? `heat ${d.hT} °C for ${d.hm} min${d.cool ? ', cool down before use' : ', use warm'}` : 'no heating',
   ].join(' · ');
 const solvents = (d: D) => d.sv.map((s) => `${s.n} ${s.p}`).join(' : ');
+/** A new perovskite solution has no ions chosen yet. */
+const noComp = (d: D) => !Object.keys(d.A).length && !Object.keys(d.X).length;
 const headline = (d: D, ctx: Ctx) =>
-  d.mode === 'Perovskite' ? plan(d, ctx).target : `${solute(d, ctx)} ${d.c} ${d.u}`;
+  d.mode === 'Perovskite'
+    ? noComp(d)
+      ? 'No composition yet'
+      : plan(d, ctx).target
+    : `${solute(d, ctx) || 'No solute yet'} ${d.c} ${d.u}`;
 
 const A_IONS = ['Cs', 'FA', 'MA'],
   X_IONS = ['I', 'Br', 'Cl'];
@@ -247,51 +250,59 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
           </div>
         </div>
       </div>
-      <div className="fx" role="group" aria-label="Perovskite formula: type the fraction of each ion in its subscript">
-        {two && m && (
-          <span className="fx-term">
-            ({sp.ion})<SubIn v={rd(m.s)} label={`${sp.ion} amount (spacer)`} on={setS} />
-          </span>
-        )}
-        {showA &&
-          (a.length > 1 || two ? (
-            <span className={'fx-term' + (two && aCount < 1e-9 ? ' fx-zero' : '')}>
-              {a.length > 1 || a[0].length > 1 ? '(' : ''}
-              {a.map((k) => (
-                <span key={k} className="fx-term">
-                  {k}
-                  {a.length > 1 && (
-                    <SubIn v={A[k]} label={`${k} fraction on the A-site`} on={(v) => set({ A: { ...A, [k]: v } })} />
-                  )}
-                </span>
-              ))}
-              {a.length > 1 || a[0].length > 1 ? ')' : ''}
-              {two && <SubIn v={rd(aCount)} label="A-cation amount" on={setA} />}
+      {!a.length && !x.length ? (
+        <p className="mut small">Choose the A-site and X-site ions above; the formula appears here.</p>
+      ) : (
+        <div
+          className="fx"
+          role="group"
+          aria-label="Perovskite formula: type the fraction of each ion in its subscript"
+        >
+          {two && m && (
+            <span className="fx-term">
+              ({sp.ion})<SubIn v={rd(m.s)} label={`${sp.ion} amount (spacer)`} on={setS} />
+            </span>
+          )}
+          {showA &&
+            (a.length > 1 || two ? (
+              <span className={'fx-term' + (two && aCount < 1e-9 ? ' fx-zero' : '')}>
+                {a.length > 1 || a[0].length > 1 ? '(' : ''}
+                {a.map((k) => (
+                  <span key={k} className="fx-term">
+                    {k}
+                    {a.length > 1 && (
+                      <SubIn v={A[k]} label={`${k} fraction on the A-site`} on={(v) => set({ A: { ...A, [k]: v } })} />
+                    )}
+                  </span>
+                ))}
+                {a.length > 1 || a[0].length > 1 ? ')' : ''}
+                {two && <SubIn v={rd(aCount)} label="A-cation amount" on={setA} />}
+              </span>
+            ) : (
+              <span className="fx-term">{a[0]}</span>
+            ))}
+          <span className="fx-term">Pb{two && m && <SubIn v={rd(m.pb)} label="n, Pb amount" on={setPb} />}</span>
+          {x.length > 1 ? (
+            <span className="fx-term">
+              (
+              <>
+                {x.map((k) => (
+                  <span key={k} className="fx-term">
+                    {k}
+                    <SubIn v={X[k]} label={`${k} fraction on the X-site`} on={(v) => set({ X: { ...X, [k]: v } })} />
+                  </span>
+                ))}
+              </>
+              )<sub className="fx-fixed">{r2(xCount)}</sub>
             </span>
           ) : (
-            <span className="fx-term">{a[0]}</span>
-          ))}
-        <span className="fx-term">Pb{two && m && <SubIn v={rd(m.pb)} label="n, Pb amount" on={setPb} />}</span>
-        {x.length > 1 ? (
-          <span className="fx-term">
-            (
-            <>
-              {x.map((k) => (
-                <span key={k} className="fx-term">
-                  {k}
-                  <SubIn v={X[k]} label={`${k} fraction on the X-site`} on={(v) => set({ X: { ...X, [k]: v } })} />
-                </span>
-              ))}
-            </>
-            )<sub className="fx-fixed">{r2(xCount)}</sub>
-          </span>
-        ) : (
-          <span className="fx-term">
-            {x[0]}
-            <sub className="fx-fixed">{r2(xCount)}</sub>
-          </span>
-        )}
-      </div>
+            <span className="fx-term">
+              {x[0]}
+              <sub className="fx-fixed">{r2(xCount)}</sub>
+            </span>
+          )}
+        </div>
+      )}
       {two && m && (
         <p className="small mut">
           {d.dim === 'RP'
@@ -413,24 +424,6 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   const upAd = (i: number, p: Partial<Additive>) => set({ ad: d.ad.map((a, j) => (j === i ? { ...a, ...p } : a)) });
   const upSv = (i: number, p: Partial<{ n: string; p: number }>) =>
     set({ sv: d.sv.map((a, j) => (j === i ? { ...a, ...p } : a)) });
-  const spiro = () =>
-    set({
-      mode: 'HTL',
-      sol: 'Spiro-OMeTAD',
-      c: 72.3,
-      u: 'mg/mL',
-      V: 1,
-      sv: [{ n: 'CB', p: 1 }],
-      ad: [
-        { n: 'LiTFSI', b: 'µL stock/mL', v: 17.5, sc: 520 },
-        { n: 'tBP', b: 'µL/mL', v: 28.8 },
-        { n: 'FK209', b: 'µL stock/mL', v: 29, sc: 300 },
-      ],
-      stir: true,
-      sm: 30,
-      heat: false,
-      cool: false,
-    });
   const rSv = useReorder(d.sv, (sv) => set({ sv }), 'solvent'),
     rAd = useReorder(d.ad, (ad) => set({ ad }), 'additive');
   // perovskite: the additives right after the composition, before how the precursor solution is prepared; others: after the solvents
@@ -584,11 +577,6 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             <span>Volume (mL)</span>
             <Num v={d.V} on={(V) => set({ V })} />
           </label>
-          {d.mode === 'HTL' && sol === 'Spiro-OMeTAD' && (
-            <button className="link" onClick={spiro}>
-              Load typical doped spiro-OMeTAD recipe
-            </button>
-          )}
         </Section>
       )}
       <Section title="Solvents (volume parts)">
@@ -611,7 +599,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             </span>
           </div>
         ))}
-        <button className="link add" onClick={() => set({ sv: [...d.sv, { n: names('solvent')[0] ?? 'DMF', p: 1 }] })}>
+        <button className="link add" onClick={() => set({ sv: [...d.sv, { n: names('solvent')[0] ?? '', p: 1 }] })}>
           Add solvent
         </button>
       </Section>

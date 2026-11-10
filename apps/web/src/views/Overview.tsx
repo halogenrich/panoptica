@@ -1,5 +1,5 @@
 import EquipmentArt, { artOf } from '../lib/EquipmentArt';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRefresh } from '../lib/trash';
 import { api } from '../api';
 import Avatar from '../lib/Avatar';
@@ -17,7 +17,7 @@ import {
   useSlide,
   PresentationExport,
 } from './overview/slides';
-import type { Tag } from '../ctx';
+import { MeCtx, type Tag } from '../ctx';
 
 type Unit = 'week' | 'month';
 type Person = {
@@ -50,6 +50,9 @@ type Eq = {
   postponed: number;
   canceled: number;
 };
+type Scopes = { lab: boolean; students: number; people: { id: number; name: string }[] };
+/** How the summary names whose overview it is. */
+type Who = { subj: string; title: string; record: string };
 type Dash = {
   from: string;
   to: string;
@@ -154,7 +157,7 @@ const seen = (iso: string | null) => {
 const STATUS: Record<string, string> = { planned: 'Planned', running: 'Running', done: 'Done' };
 
 /**
- * Overview for the Professor and Managers: the lab in a week or a month, in plain words first and details on request.
+ * Overview: everyone's own work, a supervisor's students, or (with Lab overview access) the lab, in a week or a month, in plain words first and details on request.
  * Summary (a sentence, three numbers, the trend, who was active, details folded), People (cards, one page each) and
  * Equipment (how busy each instrument was). Each view exports a 16:9 slide.
  */
@@ -174,19 +177,47 @@ export default function Overview({
   });
   const [start, setStart] = useState(() => startOf(new Date(), 'week')),
     [tab, setTab] = useState<'lab' | 'people' | 'equipment'>('lab');
+  const { me } = useContext(MeCtx);
   const [d, setD] = useState<Dash | null>(null),
     [err, setErr] = useState(''),
     [person, setPerson] = useState<number | null>(null);
+  // whose overview: everyone has their own; supervisors add their students; Lab overview access adds the lab and anyone
+  const [scopes, setScopes] = useState<Scopes | null>(null),
+    [scope, setScope] = useState('');
+  useEffect(() => {
+    api<Scopes>('/dashboard/scopes')
+      .then((x) => {
+        setScopes(x);
+        setScope((v) => v || (x.lab ? 'lab' : 'me'));
+      })
+      .catch((x) => setErr(x.message));
+  }, []);
   const s = startOf(start, unit),
     e = endOf(s, unit);
-  const loadDash = () =>
-    api<Dash>(`/dashboard?from=${s.toISOString()}&to=${e.toISOString()}&unit=${unit}`)
+  const loadDash = () => {
+    if (!scope) return;
+    api<Dash>(`/dashboard?from=${s.toISOString()}&to=${e.toISOString()}&unit=${unit}&scope=${scope}`)
       .then(setD)
       .catch((x) => setErr(x.message));
+  };
   useEffect(() => {
     setD(null);
+    setErr('');
     loadDash();
-  }, [s.getTime(), unit]);
+  }, [s.getTime(), unit, scope]);
+  const one = scope.startsWith('user:') ? scopes?.people.find((p) => 'user:' + p.id === scope) : undefined;
+  const who: Who =
+    scope === 'lab'
+      ? { subj: 'The lab', title: 'in the lab', record: 'New lab record' }
+      : scope === 'students'
+        ? { subj: 'Your students', title: 'for your students', record: 'New best among your students' }
+        : one
+          ? { subj: one.name, title: `for ${one.name}`, record: `New best for ${one.name}` }
+          : { subj: 'You', title: 'for you', record: 'New personal best' };
+  const group = scope === 'lab' || scope === 'students';
+  useEffect(() => {
+    if (!group && tab === 'people') setTab('lab');
+  }, [group]);
   useRefresh(loadDash, ['batches', 'iv', 'calendar', 'users']);
   const pickUnit = (u: Unit) => {
     setUnit(u);
@@ -220,6 +251,32 @@ export default function Overview({
           <h2 className="cal-title">{label}</h2>
         </div>
         <div className="grow" />
+        {scopes && (scopes.lab || scopes.students > 0) && (
+          <select
+            className="ov-scope"
+            aria-label="Whose overview"
+            value={scope}
+            onChange={(ev) => {
+              setPerson(null);
+              setScope(ev.target.value);
+            }}
+          >
+            <option value="me">Mine</option>
+            {scopes.students > 0 && <option value="students">My students</option>}
+            {scopes.lab && <option value="lab">The lab</option>}
+            {scopes.lab && (
+              <optgroup label="A person">
+                {scopes.people
+                  .filter((p) => p.id !== me.id)
+                  .map((p) => (
+                    <option key={p.id} value={'user:' + p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
+          </select>
+        )}
         <Seg
           value={unit}
           on={pickUnit}
@@ -235,11 +292,18 @@ export default function Overview({
           value={tab}
           on={setTab}
           small
-          opts={[
-            ['lab', 'Summary'],
-            ['people', 'People'],
-            ['equipment', 'Equipment'],
-          ]}
+          opts={
+            group
+              ? [
+                  ['lab', 'Summary'],
+                  ['people', 'People'],
+                  ['equipment', 'Equipment'],
+                ]
+              : [
+                  ['lab', 'Summary'],
+                  ['equipment', 'Equipment'],
+                ]
+          }
         />
       )}
       {err && <p className="err">{err}</p>}
@@ -248,7 +312,7 @@ export default function Overview({
       ) : !d ? (
         <p className="mut">Loading…</p>
       ) : tab === 'lab' ? (
-        <Summary d={d} label={label} onPerson={setPerson} onOpenBatch={onOpenBatch} onOpenIv={onOpenIv} />
+        <Summary d={d} who={who} label={label} onPerson={setPerson} onOpenBatch={onOpenBatch} onOpenIv={onOpenIv} />
       ) : tab === 'people' ? (
         <People d={d} onPerson={setPerson} />
       ) : (
@@ -505,12 +569,14 @@ function LineChart({
 // ------------------------------------------------------------------ Summary (the lab and what happened, in one page)
 function Summary({
   d,
+  who,
   label,
   onPerson,
   onOpenBatch,
   onOpenIv,
 }: {
   d: Dash;
+  who: Who;
   label: string;
   onPerson: (id: number) => void;
   onOpenBatch?: (id: number) => void;
@@ -531,7 +597,7 @@ function Summary({
   // the period in one or two plain sentences
   const lede = [
     L.batchesStarted || L.devices
-      ? `The lab started ${plural(L.batchesStarted, 'batch', 'batches')} and measured ${plural(L.devices, 'cell')}${g.measurements.length ? ` in ${plural(g.measurements.length, 'measurement')}` : ''}.`
+      ? `${who.subj} started ${plural(L.batchesStarted, 'batch', 'batches')} and measured ${plural(L.devices, 'cell')}${g.measurements.length ? ` in ${plural(g.measurements.length, 'measurement')}` : ''}.`
       : `No batches started and no cells measured ${period}.`,
     L.running ? `${plural(L.running, 'batch is', 'batches are')} in progress.` : '',
     L.batchesDone ? `${plural(L.batchesDone, 'batch', 'batches')} finished.` : '',
@@ -542,14 +608,14 @@ function Summary({
   // slides
   const lines = [
     g.record
-      ? `New lab record: ${g.record.pce.toFixed(2)} % by ${g.record.owner}${g.record.before ? ` (was ${g.record.before.toFixed(2)} %)` : ''}`
+      ? `${who.record}: ${g.record.pce.toFixed(2)} % by ${g.record.owner}${g.record.before ? ` (was ${g.record.before.toFixed(2)} %)` : ''}`
       : null,
     `${plural(g.started.length, 'batch', 'batches')} started, ${g.finished.length} finished`,
     `${plural(g.measurements.length, 'measurement')}, ${plural(L.devices, 'working cell')}`,
     g.setbacks.length ? `${plural(g.setbacks.length, 'step')} postponed or canceled` : 'No steps postponed or canceled',
   ].filter(Boolean) as string[];
   const highlights = (ref: React.Ref<SVGSVGElement>) => (
-    <SlideFrame svgRef={ref} title={`${d.unit === 'week' ? 'Week' : 'Month'} in the lab`} sub={label}>
+    <SlideFrame svgRef={ref} title={`${d.unit === 'week' ? 'Week' : 'Month'} ${who.title}`} sub={label}>
       <g transform="translate(110 330)">
         {lines.map((l, i) => (
           <g key={i} transform={`translate(0 ${i * 74})`}>
@@ -583,7 +649,7 @@ function Summary({
       </div>
       {g.record && (
         <div className="ov-record">
-          <span className="ov-record-k">New lab record</span>
+          <span className="ov-record-k">{who.record}</span>
           <b>{g.record.pce.toFixed(2)} %</b>
           <span>
             by {g.record.owner}
@@ -662,9 +728,7 @@ function Summary({
           unitTick={(x) => tick(x, d.unit)}
           empty={`No cells measured in the last 12 ${d.unit}s.`}
         />
-        <p className="mut small ov-foot">
-          A cell counts with its best working pixel. Stability follow-ups are not included.
-        </p>
+        <p className="mut small ov-foot">A cell counts with its best working pixel.</p>
       </section>
       <section className="ov-sec">
         <h4 className="ov-h">Who was active</h4>

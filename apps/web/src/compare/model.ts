@@ -42,7 +42,7 @@ export const memberKey = (m: Member) => `${m.set}|${m.sample}|${m.substrate}`;
 export const newId = () => Math.random().toString(36).slice(2, 9);
 
 /**
- * Sample names in the lab are usually `batch_mod` (e.g. TripleC_Padrao, TripleC_fulerenol_com_aneal): the part before the first
+ * Sample names are often `batch_mod` (e.g. B1_control, B1_additive_annealed): the part before the first
  * underscore names the batch, the rest the modification. Without an underscore the whole name is the modification.
  */
 export function splitName(sample: string) {
@@ -67,9 +67,9 @@ function dist(a: string, b: string) {
 }
 
 /**
- * Groups from the names: one group per modification, the reference ("Padrão", "ref", "control"…) first and marked.
+ * Groups from the names: one group per modification, the reference ("ref", "control", "standard"…) first and marked.
  * Names to check: no batch_mod form, or a modification (or batch part) that is one or two letters away from a more common one,
- * which is usually a typo ("Padroa" next to "Padrao") that would otherwise make a group of its own.
+ * which is usually a typo ("contorl" next to "control") that would otherwise make a group of its own.
  */
 export function autoGroups(devs: DeviceRow[]): { groups: Group[]; odd: { dev: DeviceRow; why: string }[] } {
   const parts = devs.map((d) => ({ d, ...splitName(d.sample) }));
