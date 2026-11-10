@@ -2,6 +2,19 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.37.1 (2026-11-10)
+
+- **Logo only**: slides no longer write the lab name next to the logo (plots already did not).
+- **Plots and tables abbreviate again** (fwd/bwd, SD, IQR, Q1/Q3, Min/Max); the rest of the interface keeps full words.
+- **Photos**: asking for access starts with the photo, a circle you click to add or change, with Remove; it is optional there. Choosing the first password asks only for the birth date (the email for accounts without one) and needs a photo: the one sent with the request shows and can be kept or changed. First setup uses the same circle. Fix: after **Remove photo** the profile and every list showed an empty frame instead of the initials; removed photos are repaired on start.
+- **No bookings in the past**: new bookings, dropped scheduler blocks, moves and resized edges must start from now on (the server refuses them too); a booking that has begun keeps its start. Fix: a block dropped in the past could be answered at once and close the batch as Done with blocks still unplaced; a batch now waits until every block of its plan is booked and answered. The red line for now has no dots.
+- **Box plots**: a group not linked to a batch or stack is named by its sample alone (no "(not linked)").
+- **Stacks**: **Start batch** is a button under the 3D view and opens a window for the batch code and name (the header keeps Print run sheet).
+- **Solutions**: additives come right after the composition, before the preparation of the precursor solution. Advice about the chemistry (2D phase stability, halide degradation) removed; the checks that fractions add up stay.
+- **Measurements**: the side menu has **J–V curves** and **Lifetime** (each import lands in its list), then Comparisons. Stability tests removed (lifetime runs replace them).
+- **3D view**: layers rest on the ITO instead of sharing its bottom plane, so seen from below there is no flicker; the view settings and the actions (Flip, Reset view, Export PNG) sit on two fixed rows, so nothing moves when the legend is switched.
+- First setup: the sign-in preview no longer spills over the fields under it (Safari).
+
 ## 0.37.0 (2026-11-09)
 
 - **Plots carry the lab logo only**, never the lab name: J–V figures, comparisons, lifetime and stability plots, box plots, the pixel map. The option is now called **Lab logo**.

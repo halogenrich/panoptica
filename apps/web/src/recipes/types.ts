@@ -62,7 +62,8 @@ export interface Kind<T = any> {
   defaults: () => T;
   Editor: (p: { d: T; set: (p: Partial<T>) => void; ctx: Ctx }) => ReactNode;
   /** Read-only output. `blanks` adds write-in columns for printed run sheets. */
-  Output: (p: { d: T; ctx: Ctx; blanks?: boolean }) => ReactNode;
+  /** `item`: the saved item being viewed (absent in previews and print), for actions that need its id and name */
+  Output: (p: { d: T; ctx: Ctx; blanks?: boolean; item?: { id: number; name: string } }) => ReactNode;
   Visual: (p: { d: T; ctx: Ctx }) => ReactNode;
   /** Editor takes the whole sheet (designers with a canvas) instead of inputs | live output. */
   wideEditor?: boolean;

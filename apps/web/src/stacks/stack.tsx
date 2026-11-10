@@ -3,7 +3,7 @@ import { newId } from '@psc/core';
 import { api } from '../api';
 import { PrefCtx } from '../ctx';
 import { PresetSheet } from '../lib/Library';
-import { usePrint } from '../lib/ui';
+import { Modal, usePrint } from '../lib/ui';
 import { DragHandle, useReorder } from '../views/common';
 import { KINDS } from '../recipes';
 import { Section } from '../recipes/shared';
@@ -43,7 +43,7 @@ const Loading = () => (
 );
 
 /** 3D view heights that fit the window: the stack's page (in its sheet) and the stack editor, so neither needs scrolling. */
-export const FIT_VIEW = 'clamp(240px, calc(100dvh - 250px), 480px)';
+export const FIT_VIEW = 'clamp(240px, calc(100dvh - 310px), 480px)'; // room for Start batch under it
 export const FIT_EDIT = 'clamp(240px, calc(100dvh - 290px), 560px)';
 /** On the batch page: the Schedule button under the view stays on screen. */
 export const FIT_BATCH = 'clamp(240px, calc(100dvh - 330px), 440px)';
@@ -545,11 +545,18 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
   );
 }
 
-function Output({ d: raw, ctx }: { d: StackD; ctx: Ctx; blanks?: boolean }) {
+function Output({ d: raw, ctx, item }: { d: StackD; ctx: Ctx; blanks?: boolean; item?: { id: number; name: string } }) {
   const st = nstack(raw);
   return (
     <div className="stack-out">
-      <View3D st={st} ctx={ctx} height={FIT_VIEW} cog />
+      <div>
+        <View3D st={st} ctx={ctx} height={FIT_VIEW} cog />
+        {item && (
+          <div className="below-3d">
+            <StartBatch id={item.id} name={item.name} d={raw} ctx={ctx} />
+          </div>
+        )}
+      </div>
       <div className="layer-list">
         {[...st.sl]
           .map((s, j) => ({ s, j }))
@@ -578,31 +585,86 @@ function Output({ d: raw, ctx }: { d: StackD; ctx: Ctx; blanks?: boolean }) {
   );
 }
 
-function Actions({ id, name, d, ctx }: { id: number; name: string; d: StackD; ctx: Ctx }) {
-  const pr = usePrint(),
+/** Start a batch from this stack: a window to name it (code and name), then the batch opens. Under the 3D view, like Schedule equipment. */
+function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD; ctx: Ctx }) {
+  const { prefs } = useContext(PrefCtx),
+    [open, setOpen] = useState(false),
     [code, setCode] = useState(''),
+    [bname, setBname] = useState(name),
     [err, setErr] = useState(''),
-    { prefs } = useContext(PrefCtx);
-  const start = () => {
-    const c =
-      code.trim() ||
-      'B-' +
-        new Date().toISOString().slice(0, 10).replace(/-/g, '') +
-        '-' +
-        Date.now().toString(36).slice(-3).toUpperCase();
+    [busy, setBusy] = useState(false);
+  const suggest = () =>
+    'B-' +
+    new Date().toISOString().slice(0, 10).replace(/-/g, '') +
+    '-' +
+    Date.now().toString(36).slice(-3).toUpperCase();
+  const start = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
     api<{ id: number }>('/batches', 'POST', {
-      code: c,
-      name,
+      code: code.trim(),
+      name: bname.trim() || name,
       visibility: prefs.vis ?? 'shared',
       stack: { arch: d.arch, sl: d.sl, thumb: d.thumb },
       source: id || undefined,
     })
-      .then((r) => ctx.openBatch?.(r.id))
-      .catch((e) => setErr(e.message));
+      .then((r) => {
+        setOpen(false);
+        ctx.openBatch?.(r.id);
+      })
+      .catch((x) => setErr(x.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
+      .finally(() => setBusy(false));
   };
   return (
     <>
-      {err && <span className="err small">{err}</span>}
+      <button
+        className="btn"
+        onClick={() => {
+          setCode(suggest());
+          setBname(name);
+          setErr('');
+          setOpen(true);
+        }}
+      >
+        Start batch
+      </button>
+      {open && (
+        <Modal onClose={() => setOpen(false)} className="start-batch">
+          <form onSubmit={start}>
+            <div className="modal-head">
+              <b>Start a batch from {name}</b>
+            </div>
+            <div className="start-batch-body">
+              <label className="fld">
+                <span>Batch code</span>
+                <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
+              </label>
+              <label className="fld">
+                <span>Name</span>
+                <input value={bname} onChange={(e) => setBname(e.target.value)} />
+              </label>
+              <p className="mut small">The batch starts Planned; schedule its equipment from the batch page.</p>
+              {err && <p className="err small">{err}</p>}
+              <div className="dialog-actions">
+                <button type="button" className="link" onClick={() => setOpen(false)}>
+                  Cancel
+                </button>
+                <button className="btn" disabled={!code.trim() || busy}>
+                  Start batch
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function Actions({ name, d, ctx }: { id: number; name: string; d: StackD; ctx: Ctx }) {
+  const pr = usePrint();
+  return (
+    <>
       <ExportMenu
         label="Print run sheet"
         sections={[
@@ -621,10 +683,6 @@ function Actions({ id, name, d, ctx }: { id: number; name: string; d: StackD; ct
           ],
         ]}
       />
-      <input className="batch-code" placeholder="Batch code" value={code} onChange={(e) => setCode(e.target.value)} />
-      <button className="link" onClick={start}>
-        Start batch
-      </button>
       {pr.portal}
     </>
   );

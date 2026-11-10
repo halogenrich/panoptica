@@ -2183,10 +2183,15 @@ table.list td {
   touch-action: none;
 }
 .viewer-bar {
+  display: grid;
+  gap: 8px;
+}
+.viewer-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-height: 36px;
 }
 .viewer-bar .explode input {
   width: 120px;
@@ -4871,16 +4876,6 @@ body.resizing-block * {
   background: #dc2626;
   pointer-events: none;
   z-index: 4;
-}
-.now-line::before {
-  content: '';
-  position: absolute;
-  left: -4px;
-  top: -3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #dc2626;
 }
 /* month */
 .month {
@@ -7734,14 +7729,25 @@ label.btn {
 .wm-sample .wordmark {
   margin-left: 6px;
 }
-/* sign-in screen preview: the real layout, drawn small */
+/* sign-in screen preview: the real layout, drawn small. The 16:9 box comes from a padding spacer, not aspect-ratio: in a grid
+   (the first setup's page) Safari sized the row before the width was known and the preview spilled over the fields below. */
 .look-preview {
+  position: relative;
+  width: 100%;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--sep);
-  aspect-ratio: 16 / 9;
   max-width: 560px;
   container-type: inline-size;
+}
+.look-preview::before {
+  content: '';
+  display: block;
+  padding-top: 56.25%;
+}
+.look-preview > .signin.mini {
+  position: absolute;
+  inset: 0;
 }
 .signin.mini {
   min-height: 0;
@@ -8085,4 +8091,46 @@ input[type='color']:focus-visible {
 }
 .tg-col-h.slim .wd {
   font-size: 11px;
+}
+
+/* photo picker as a circle (request access, first setup, first password): centred, click to add or change */
+.photo-circle {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  margin: 4px 0 6px;
+}
+.photo-circle .photo-frame .av {
+  width: 104px;
+  height: 104px;
+  font-size: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.photo-circle .av-empty {
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1.5px var(--sep);
+}
+.photo-circle .av-empty + .photo-hover {
+  opacity: 1;
+  background: none;
+  color: var(--mut);
+}
+.photo-circle .photo-frame:hover .av-empty + .photo-hover {
+  color: var(--ac);
+}
+
+/* start a batch from a stack (0.37.1) */
+.modal.start-batch {
+  max-width: 440px;
+  height: auto;
+}
+.start-batch-body {
+  display: grid;
+  gap: 12px;
+  padding: 18px 22px 20px;
 }

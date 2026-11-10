@@ -238,13 +238,15 @@ export function registerLab(
     if (blocked(req)) return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' });
     const name = p.data.username.replace(/^@/, '').toLowerCase();
     const u = db
-      .prepare('SELECT hash,active,visitor_until FROM users WHERE username=? COLLATE NOCASE AND deleted=0')
+      .prepare(
+        'SELECT hash,active,visitor_until,birth_date,photo_v FROM users WHERE username=? COLLATE NOCASE AND deleted=0',
+      )
       .get(name) as any;
     if (u) {
       if (!u.active) return { next: 'password' }; // a disabled account is not told apart from a wrong password
       if (u.visitor_until && u.visitor_until < new Date().toISOString().slice(0, 10))
         return { next: 'ended', until: u.visitor_until };
-      return { next: u.hash ? 'password' : 'set' };
+      return u.hash ? { next: 'password' } : { next: 'set', byEmail: !u.birth_date, hasPhoto: !!u.photo_v };
     }
     const r = db
       .prepare('SELECT status,reason,created_at FROM access_requests WHERE username=? COLLATE NOCASE ORDER BY id DESC')
@@ -254,25 +256,47 @@ export function registerLab(
     return reply.code(404).send({ error: 'there is no user with this name' });
   });
   /** Choosing a password: after an admin accepted the request, after a reset, or for a new visitor. */
-  app.post('/api/login/set', async (req: any, reply) => {
+  /** The photo of an account still waiting for its first password, shown on the set-password screen to keep or change. */
+  app.get('/api/login/photo/:username', async (req: any, reply) => {
+    const r = db
+      .prepare(
+        "SELECT photo FROM users WHERE username=? COLLATE NOCASE AND deleted=0 AND active=1 AND hash='' AND photo IS NOT NULL",
+      )
+      .get(String(req.params.username).replace(/^@/, '').toLowerCase()) as { photo: string } | undefined;
+    const m = r && imgOf(r.photo);
+    if (!m) return reply.code(404).send({ error: 'no photo' });
+    reply.header('cache-control', 'no-store').type(m[1]);
+    return Buffer.from(m[2], 'base64');
+  });
+  app.post('/api/login/set', { bodyLimit: 1024 * 1024 }, async (req: any, reply) => {
     const p = LoginSet.safeParse(req.body);
-    if (!p.success) return reply.code(400).send({ error: 'fill in every field' });
+    if (!p.success) return bad(reply, p);
     const name = p.data.username.replace(/^@/, '').toLowerCase(),
       ip = ipOf(req);
     if (blocked(req, name)) return reply.code(429).send({ error: 'too many attempts, try again in a few minutes' });
     const u = db
       .prepare("SELECT * FROM users WHERE username=? COLLATE NOCASE AND deleted=0 AND active=1 AND hash=''")
       .get(name) as any;
-    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-    if (!u || !same(u.email, p.data.email) || (u.birth_date && u.birth_date !== p.data.birthDate)) {
+    const same = (a: string, b: string) => !!a && a.trim().toLowerCase() === b.trim().toLowerCase();
+    // the birth date on the account; an account without one (some visitors) is confirmed by its email
+    const proven = u && (u.birth_date ? u.birth_date === p.data.birthDate : same(u.email, p.data.email));
+    if (!proven) {
       limits.byName.hit(name);
       limits.byAddress.hit(ip);
-      audit({ user_id: u?.id, username: name, ip, action: 'Failed first sign-in (email or birth date)', status: 401 });
-      return reply.code(401).send({ error: 'the email or birth date is not the one on this account' });
+      audit({ user_id: u?.id, username: name, ip, action: 'Failed first sign-in (birth date)', status: 401 });
+      return reply.code(401).send({
+        error:
+          u && !u.birth_date
+            ? 'the email is not the one on this account'
+            : 'the birth date is not the one on this account',
+      });
     }
+    if (!p.data.photo && !u.photo) return reply.code(400).send({ error: 'add a photo of you' });
     const problem = passwordProblem(p.data.password) || weakPassword(p.data.password, u.username);
     if (problem) return reply.code(400).send({ error: problem });
     db.prepare('UPDATE users SET hash=?, must_change=0 WHERE id=?').run(hash(p.data.password.normalize('NFC')), u.id);
+    if (p.data.photo)
+      db.prepare('UPDATE users SET photo=?, photo_v=? WHERE id=?').run(p.data.photo, Date.now() % 1e9, u.id);
     limits.byName.clear(name);
     audit({ user_id: u.id, username: u.username, ip, action: 'Chose a password (first sign-in)' });
     startSession(req, reply, u);
@@ -337,7 +361,7 @@ export function registerLab(
     db
       .prepare(
         `SELECT id,username,first_names AS firstNames,surnames,email,birth_date AS birthDate,department,supervisor,cosupervisor,
-         status,reason,created_at AS createdAt,decided_at AS decidedAt,decided_by AS decidedBy
+         status,reason,created_at AS createdAt,decided_at AS decidedAt,decided_by AS decidedBy,photo<>'' AS hasPhoto
          FROM access_requests ORDER BY status='pending' DESC, id DESC LIMIT 100`,
       )
       .all(),
@@ -375,8 +399,8 @@ export function registerLab(
             r.department,
             r.supervisor,
             r.cosupervisor,
-            r.photo,
-            Date.now() % 1e9,
+            r.photo || null,
+            r.photo ? Date.now() % 1e9 : 0, // the photo is optional when asking; the first sign-in asks for it
           ).lastInsertRowid,
       );
       const ins = db.prepare('INSERT OR IGNORE INTO user_tags VALUES(?,?)');

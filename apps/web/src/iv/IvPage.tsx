@@ -35,7 +35,6 @@ import {
 } from './model';
 import { SampleMaps } from './SubstrateMap';
 import { CompareCtx, ComparePanel, useCompare } from './Compare';
-import Stability from './Stability';
 import Lifetime from './Lifetime';
 import { DeviceTable, devKey } from './Devices';
 
@@ -44,12 +43,26 @@ const fdate = (d: string) =>
     ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : 'no date';
 
-export default function IvPage({ openId, onOpen }: { openId: number | null; onOpen: (id: number | null) => void }) {
+/** J–V curves and lifetime runs are two pages of the side menu (`mode`); an open measurement looks the same from either. */
+export default function IvPage({
+  openId,
+  onOpen,
+  mode = 'jv',
+}: {
+  openId: number | null;
+  onOpen: (id: number | null) => void;
+  mode?: 'jv' | 'life';
+}) {
   useState(() => clearGeomCache()); // once per visit: masks may have been reordered since
-  return openId ? <Detail id={openId} onBack={() => onOpen(null)} /> : <List onOpen={onOpen} />;
+  return openId ? (
+    <Detail id={openId} onBack={() => onOpen(null)} back={mode === 'life' ? 'Lifetime' : 'J–V curves'} />
+  ) : (
+    <List key={mode} mode={mode} onOpen={onOpen} />
+  );
 }
 
-function List({ onOpen }: { onOpen: (id: number) => void }) {
+function List({ onOpen, mode }: { onOpen: (id: number) => void; mode: 'jv' | 'life' }) {
+  const life = mode === 'life';
   const [rows, setRows] = useState<IvSet[] | null>(null),
     [tab, setTab] = useState<'list' | 'stats'>('list'),
     [imp, setImp] = useState(false),
@@ -63,7 +76,8 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
     load();
   }, []);
   useRefresh(load, ['iv']);
-  const shown = (rows ?? []).filter((r) =>
+  const mine = (rows ?? []).filter((r) => (r.kind === 'lifetime') === life);
+  const shown = mine.filter((r) =>
     (
       r.name +
       ' ' +
@@ -79,20 +93,22 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <>
       <div className="lib-bar">
-        <Seg
-          value={tab}
-          on={setTab}
-          small
-          opts={[
-            ['list', 'Measurements'],
-            ['stats', 'Statistics'],
-          ]}
-        />
+        {!life && (
+          <Seg
+            value={tab}
+            on={setTab}
+            small
+            opts={[
+              ['list', 'Measurements'],
+              ['stats', 'Statistics'],
+            ]}
+          />
+        )}
         {tab === 'list' && (
           <input
             className="lib-search"
             type="search"
-            placeholder="Search measurements"
+            placeholder={life ? 'Search lifetime runs' : 'Search measurements'}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -107,7 +123,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
         </button>
       </div>
       {tab === 'stats' ? (
-        <Stats sets={(rows ?? []).filter((r) => !r.stabilityOf)} />
+        <Stats sets={rows ?? []} />
       ) : rows === null ? (
         <div className="cards">
           {[0, 1, 2].map((i) => (
@@ -116,11 +132,13 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
       ) : shown.length === 0 ? (
         <Empty
-          title={rows.length ? 'Nothing matches' : 'No electric measurements yet'}
+          title={mine.length ? 'Nothing matches' : life ? 'No lifetime runs yet' : 'No J–V measurements yet'}
           text={
-            rows.length
+            mine.length
               ? 'Change the search text.'
-              : 'Use Import measurements and drop the folder the J–V system saved (or a .zip of it).'
+              : life
+                ? 'Use Import measurements and drop the lifetime run folder the J–V system saved (or a .zip of it).'
+                : 'Use Import measurements and drop the folder the J–V system saved (or a .zip of it).'
           }
         />
       ) : layout === 'list' ? (
@@ -147,15 +165,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                   <td className="num">{r.best ? r.best.toFixed(1) : '—'}</td>
                   <td className="num">{r.substrates}</td>
                   <td className="num">{r.working}</td>
-                  <td>
-                    {r.kind === 'lifetime' && <Badge tone="ac">Lifetime</Badge>}{' '}
-                    {r.stabilityOf ? (
-                      <Badge tone="warn">Stability follow-up</Badge>
-                    ) : r.followUps ? (
-                      <Badge tone="ac">Stability series</Badge>
-                    ) : null}{' '}
-                    {r.visibility === 'shared' && <Badge>Shared</Badge>}
-                  </td>
+                  <td>{r.visibility === 'shared' && <Badge>Shared</Badge>}</td>
                   <td className="mut">{fdate(r.date)}</td>
                 </tr>
               ))}
@@ -192,11 +202,6 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                       <span>{r.working} working curves</span>
                     </>
                   )}
-                  {r.stabilityOf ? (
-                    <Badge tone="warn">Stability follow-up</Badge>
-                  ) : r.followUps ? (
-                    <Badge tone="ac">Stability series</Badge>
-                  ) : null}
                   {r.visibility === 'shared' && <Badge>Shared</Badge>}
                   <span>{fdate(r.date)}</span>
                 </div>
@@ -240,18 +245,12 @@ function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: 
   );
 }
 
-function Detail({ id, onBack }: { id: number; onBack: () => void }) {
+function Detail({ id, onBack, back }: { id: number; onBack: () => void; back: string }) {
   useItemRoute('iv', id);
   const [s, setS] = useState<IvSetFull | null>(null),
     [msg, setMsg] = useState(''),
-    [tab, setTab] = useState<'life' | 'cells' | 'stats' | 'stability'>('cells');
-  const cmp = useCompare(),
-    [others, setOthers] = useState<IvSet[]>([]);
-  useEffect(() => {
-    api<IvSet[]>('/iv')
-      .then(setOthers)
-      .catch(() => {});
-  }, [id]);
+    [tab, setTab] = useState<'life' | 'cells' | 'stats'>('cells');
+  const cmp = useCompare();
   const hasRev = !!s?.curves.some((c) => c.dir === 'rev'),
     [dir, setDir] = useState<Dir | 'both'>('rev');
   const load = () =>
@@ -280,7 +279,7 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
     <div className="batch iv">
       <div className="batch-head">
         <button className="link" onClick={onBack}>
-          ‹ Measurements
+          ‹ {back}
         </button>
         <input
           className="batch-name iv-name"
@@ -323,69 +322,6 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
         {s.substrates === 1 ? '' : 's'} · {s.curves.length} curves · imported by {s.owner} {fmtDate(s.created_at)}
         {msg ? ` · ${msg}` : ''}
       </p>
-      <details className="devices-box stab-box">
-        <summary>
-          Stability test
-          {s.stabilityOf ? (
-            <span className="mut small">
-              {' '}
-              · follow-up of {others.find((o) => o.id === s.stabilityOf)?.name ?? 'an earlier measurement'}, measured{' '}
-              {new Date(s.measuredAt!).toLocaleString('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
-          ) : s.followUps ? (
-            <span className="mut small">
-              {' '}
-              · first of a series with {s.followUps} follow-up{s.followUps === 1 ? '' : 's'}
-            </span>
-          ) : (
-            <span className="mut small"> · not part of one</span>
-          )}
-        </summary>
-        <div className="stab-row">
-          <label className="inline small">
-            This is a later reading of
-            <select
-              disabled={!s.editable || !!s.followUps}
-              value={s.stabilityOf ?? ''}
-              onChange={(e) => patch({ stability_of: e.target.value ? +e.target.value : null })}
-            >
-              <option value="">nothing (a measurement of its own)</option>
-              {others
-                .filter((o) => o.id !== s.id && !o.stabilityOf)
-                .map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="inline small">
-            measured at{' '}
-            <input
-              type="datetime-local"
-              disabled={!s.editable}
-              defaultValue={
-                s.measuredAt
-                  ? new Date(new Date(s.measuredAt).getTime() - new Date().getTimezoneOffset() * 6e4)
-                      .toISOString()
-                      .slice(0, 16)
-                  : ''
-              }
-              onBlur={(e) => e.target.value && patch({ measured_at: new Date(e.target.value).toISOString() })}
-            />
-          </label>
-        </div>
-        <p className="mut small">
-          Follow-ups are matched to the first measurement by sample, substrate and pixel, plotted against time under
-          Stability, and kept out of the statistics and the lab records.
-        </p>
-      </details>
       <div className="inline">
         <Seg
           value={tab}
@@ -395,7 +331,6 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
             ...(life ? [['life', 'Lifetime'] as ['life', string]] : []),
             ['cells', life ? 'Cells (first reading)' : 'Cells'],
             ['stats', 'Statistics'],
-            ...(s.stabilityOf || s.followUps ? [['stability', 'Stability'] as ['stability', string]] : []),
           ]}
         />
         {tab === 'cells' && hasRev && (
@@ -429,8 +364,6 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
       <CompareCtx.Provider value={cmp.value}>
         {tab === 'life' ? (
           <Lifetime s={s} />
-        ) : tab === 'stability' ? (
-          <Stability setId={s.id} />
         ) : tab === 'stats' ? (
           <StatsFor sets={[sv]} />
         ) : (
@@ -685,7 +618,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
         <p className="mut small">
           Dots: pixels (gold ring = best) ·{' '}
           {outl
-            ? 'triangles: outliers (beyond 1.5 × the interquartile range)'
+            ? 'triangles: outliers (beyond 1.5 × IQR)'
             : 'axis fitted to the boxes; an arrow with a number marks outliers beyond it (still counted)'}
           {dirs.length > 1 ? ' · forward in the lighter shade' : ''} · hover for values · each plot exports on its own
           (PNG and SVG under it), or from Export{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
@@ -764,7 +697,7 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
               {METRICS.map((m) => (
                 <th key={m.key}>
                   {m.label} ({m.unit})<br />
-                  <span className="mut small">mean ± standard deviation · median · best</span>
+                  <span className="mut small">mean ± SD · median · best</span>
                 </th>
               ))}
             </tr>
@@ -845,7 +778,7 @@ export function BatchMeasurements({
   return (
     <>
       <div className="inline">
-        <h3 className="sub">Electric measurements for {code}</h3>
+        <h3 className="sub">Measurements for {code}</h3>
         <div className="grow" />
         <button className="link" onClick={() => setImp(true)}>
           Import measurements
@@ -854,7 +787,7 @@ export function BatchMeasurements({
       {list === null ? null : list.length === 0 ? (
         <p className="mut">
           None yet. Import the J–V files here (the samples are linked to this batch), or link a sample to {code} on the
-          Electric measurements page.
+          J–V curves page.
         </p>
       ) : (
         list.map(

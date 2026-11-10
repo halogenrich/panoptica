@@ -593,63 +593,68 @@ export default function Viewer3D({
     a.download = 'device-stack.png';
     a.click();
   };
+  // two fixed rows: the view settings, then the actions, so nothing moves when the legend is switched on or off
   const controls = (
     <div className="viewer-bar">
-      <div className="seg sm">
-        <button className={look === 'realistic' ? 'on' : ''} onClick={() => setLook('realistic')}>
-          Realistic
-        </button>
-        <button className={look === 'schematic' ? 'on' : ''} onClick={() => setLook('schematic')}>
-          Schematic
-        </button>
-      </div>
-      <label className="inline small explode">
-        Exploded{' '}
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={ex}
-          onChange={(e) => api.current?.explode(+e.target.value)}
-        />
-      </label>
-      <div className="grow" />
-      <label className="inline small">
-        <input
-          type="checkbox"
-          checked={legend !== 'off'}
-          onChange={(e) => setLegend(e.target.checked ? 'tags' : 'off')}
-        />{' '}
-        Legend
-      </label>
-      {legend !== 'off' && (
+      <div className="viewer-row">
         <div className="seg sm">
-          <button className={legend === 'tags' ? 'on' : ''} onClick={() => setLegend('tags')}>
-            Tags
+          <button className={look === 'realistic' ? 'on' : ''} onClick={() => setLook('realistic')}>
+            Realistic
           </button>
-          <button className={legend === 'lines' ? 'on' : ''} onClick={() => setLegend('lines')}>
-            Lines
+          <button className={look === 'schematic' ? 'on' : ''} onClick={() => setLook('schematic')}>
+            Schematic
           </button>
         </div>
-      )}
-      <button
-        className={'link flip-btn' + (flipped ? ' on' : '')}
-        aria-pressed={flipped}
-        onClick={() => {
-          const f = !flipped;
-          setFlipped(f);
-          api.current?.flip(f);
-        }}
-      >
-        {flipped ? 'Show top side' : 'Flip: view from below'}
-      </button>
-      <button className="link" onClick={() => api.current?.reset()}>
-        Reset view
-      </button>
-      <button className="link" onClick={save}>
-        Export PNG
-      </button>
+        <label className="inline small explode">
+          Exploded{' '}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={ex}
+            onChange={(e) => api.current?.explode(+e.target.value)}
+          />
+        </label>
+        <div className="grow" />
+        <label className="inline small">
+          <input
+            type="checkbox"
+            checked={legend !== 'off'}
+            onChange={(e) => setLegend(e.target.checked ? 'tags' : 'off')}
+          />{' '}
+          Legend
+        </label>
+        {legend !== 'off' && (
+          <div className="seg sm">
+            <button className={legend === 'tags' ? 'on' : ''} onClick={() => setLegend('tags')}>
+              Tags
+            </button>
+            <button className={legend === 'lines' ? 'on' : ''} onClick={() => setLegend('lines')}>
+              Lines
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="viewer-row">
+        <button
+          className={'link flip-btn' + (flipped ? ' on' : '')}
+          aria-pressed={flipped}
+          onClick={() => {
+            const f = !flipped;
+            setFlipped(f);
+            api.current?.flip(f);
+          }}
+        >
+          {flipped ? 'Show top side' : 'Flip: view from below'}
+        </button>
+        <button className="link" onClick={() => api.current?.reset()}>
+          Reset view
+        </button>
+        <button className="link" onClick={save}>
+          Export PNG
+        </button>
+      </div>
     </div>
   );
   if (cog)

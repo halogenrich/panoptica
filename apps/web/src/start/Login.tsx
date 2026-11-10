@@ -6,7 +6,7 @@ import { fmtDate } from '../lib/ui';
 import {
   NameFields,
   PasswordRules,
-  PhotoField,
+  PhotoCircle,
   Panopticon,
   Wordmark,
   passwordOk,
@@ -63,6 +63,9 @@ type Next = {
   reason?: string;
   since?: string;
   until?: string;
+  /** 'set': the account has no birth date (some visitors), so it is confirmed by its email */
+  byEmail?: boolean;
+  hasPhoto?: boolean;
 };
 type Mode = 'signin' | 'set' | 'request' | 'sent';
 
@@ -73,7 +76,8 @@ export default function Login({ lab, onLogin }: { lab: LabPublic; onLogin: (m: M
     [err, setErr] = useState(''),
     [note, setNote] = useState<ReactNode>(null),
     [busy, setBusy] = useState(false),
-    [sent, setSent] = useState('');
+    [sent, setSent] = useState(''),
+    [setInfo, setSetInfo] = useState<Next>({ next: 'set' });
   const pwRef = useRef<HTMLInputElement>(null);
   const user = u.trim().replace(/^@/, '');
 
@@ -81,7 +85,10 @@ export default function Login({ lab, onLogin }: { lab: LabPublic; onLogin: (m: M
   const route = (n: Next) => {
     setErr('');
     setNote(null);
-    if (n.next === 'set') return setMode('set');
+    if (n.next === 'set') {
+      setSetInfo(n);
+      return setMode('set');
+    }
     if (n.next === 'password') {
       setErr('Type your password.');
       return pwRef.current?.focus();
@@ -145,7 +152,7 @@ export default function Login({ lab, onLogin }: { lab: LabPublic; onLogin: (m: M
   if (mode === 'set')
     return (
       <SignInFrame lab={lab}>
-        <SetPassword username={user} onLogin={onLogin} onBack={() => setMode('signin')} />
+        <SetPassword username={user} info={setInfo} onLogin={onLogin} onBack={() => setMode('signin')} />
       </SignInFrame>
     );
   if (mode === 'request')
@@ -231,18 +238,25 @@ export default function Login({ lab, onLogin }: { lab: LabPublic; onLogin: (m: M
   );
 }
 
-/** First password (accepted request, visitor, reset): proven with the email and birth date given for the account. */
+/**
+ * First password (accepted request, visitor, reset): proven with the birth date given for the account (its email, for an account
+ * without one), with a photo (required: the one sent with the request can be kept or changed).
+ */
 function SetPassword({
   username,
+  info,
   onLogin,
   onBack,
 }: {
   username: string;
+  info: Next;
   onLogin: (m: Me) => void;
   onBack: () => void;
 }) {
   const [email, setEmail] = useState(''),
     [birth, setBirth] = useState(''),
+    [photo, setPhoto] = useState(''),
+    [kept, setKept] = useState(!!info.hasPhoto),
     [pw, setPw] = useState(''),
     [again, setAgain] = useState(''),
     [err, setErr] = useState(''),
@@ -250,7 +264,12 @@ function SetPassword({
   const go = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    api<Me>('/login/set', 'POST', { username, email, birthDate: birth, password: pw })
+    api<Me>('/login/set', 'POST', {
+      username,
+      ...(info.byEmail ? { email } : { birthDate: birth }),
+      ...(photo ? { photo } : {}),
+      password: pw,
+    })
       .then(onLogin)
       .catch((x) => setErr(x.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
       .finally(() => setBusy(false));
@@ -259,17 +278,30 @@ function SetPassword({
     <>
       <h1>Choose your password</h1>
       <p className="mut">
-        For <b>@{username}</b>. First confirm the email and birth date you gave when you asked for access.
+        For <b>@{username}</b>. Confirm the {info.byEmail ? 'email on your account' : 'birth date you gave'} and add
+        your photo.
       </p>
       <form className="signin-form" onSubmit={go}>
-        <label className="fld">
-          <span>Institutional email</span>
-          <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label className="fld">
-          <span>Birth date</span>
-          <input type="date" max={todayIso()} value={birth} onChange={(e) => setBirth(e.target.value)} />
-        </label>
+        <PhotoCircle
+          value={photo}
+          set={(v) => {
+            setPhoto(v);
+            if (!v) setKept(false);
+          }}
+          shown={info.hasPhoto ? `/api/login/photo/${encodeURIComponent(username)}` : ''}
+          required
+        />
+        {info.byEmail ? (
+          <label className="fld">
+            <span>Institutional email</span>
+            <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+        ) : (
+          <label className="fld">
+            <span>Birth date</span>
+            <input type="date" max={todayIso()} value={birth} onChange={(e) => setBirth(e.target.value)} />
+          </label>
+        )}
         <label className="fld">
           <span>New password</span>
           <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
@@ -280,7 +312,10 @@ function SetPassword({
         </label>
         <PasswordRules pw={pw} again={again} />
         {err && <p className="err small">{err}</p>}
-        <button className="btn" disabled={!email || !birth || !passwordOk(pw, again) || busy}>
+        <button
+          className="btn"
+          disabled={(info.byEmail ? !email : !birth) || !(photo || kept) || !passwordOk(pw, again) || busy}
+        >
           Save and sign in
         </button>
         <button type="button" className="link" onClick={onBack}>
@@ -322,7 +357,7 @@ function RequestAccess({
           ?.match(new RegExp(`(^|\\.)${d.replace(/\./g, '\\.')}$`)),
       ));
   const ready =
-    n.firstNames.trim() && surnameChoices(n.surnames).length && emailOk && birth && dept.trim() && sup.trim() && photo;
+    n.firstNames.trim() && surnameChoices(n.surnames).length && emailOk && birth && dept.trim() && sup.trim();
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -344,6 +379,12 @@ function RequestAccess({
       <h1>Request access</h1>
       <p className="mut">An admin of the lab checks your request. You choose your password once it is accepted.</p>
       <form className="signin-form" onSubmit={send}>
+        <PhotoCircle
+          value={photo}
+          set={setPhoto}
+          name={`${n.firstNames} ${n.surnames}`.trim()}
+          note="So the lab knows who you are; you can also add it when you choose your password."
+        />
         <NameFields
           v={n}
           set={setN}
@@ -402,7 +443,6 @@ function RequestAccess({
             <option key={p} value={p} />
           ))}
         </datalist>
-        <PhotoField value={photo} set={setPhoto} label="Your photo (so the lab knows who you are)" />
         <p className="mut small">
           Your birth date is used for the lab's statistics and to show your birthday (day and month) in the calendar;
           you can hide it in your profile.

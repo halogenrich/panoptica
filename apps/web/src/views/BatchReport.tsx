@@ -263,7 +263,7 @@ export function BatchReport({
                 <th>n</th>
                 {METRICS.map((m) => (
                   <th key={m.key}>
-                    {m.label} ({m.unit}) mean ± standard deviation · best
+                    {m.label} ({m.unit}) mean ± SD · best
                   </th>
                 ))}
               </tr>
@@ -486,20 +486,7 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
   sheets.push({
     name: 'Statistics',
     rows: [
-      [
-        'Group',
-        'Direction',
-        'Quantity',
-        'Unit',
-        'n',
-        'Mean',
-        'Standard deviation',
-        'Median',
-        'First quartile',
-        'Third quartile',
-        'Minimum',
-        'Maximum',
-      ],
+      ['Group', 'Direction', 'Quantity', 'Unit', 'n', 'Mean', 'SD', 'Median', 'Q1', 'Q3', 'Min', 'Max'],
       ...groupsOf(rows).flatMap((g) =>
         (['rev', 'fwd'] as Dir[]).flatMap((d) => {
           const rs = g.rows.filter((r) => r.dir === d);
