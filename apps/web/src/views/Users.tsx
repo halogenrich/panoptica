@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ageOn } from '@psc/core';
 import { useRefresh } from '../lib/trash';
 import { api } from '../api';
-import { Badge, Seg } from '../lib/ui';
+import { Badge, Modal, Seg } from '../lib/ui';
 import { Activity, Security, Updates } from './AdminSecurity';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
@@ -30,12 +30,28 @@ type U = {
   visitorUntil?: string | null;
   noPassword?: number;
 };
-const KIND_NOTE: Record<Tag['kind'], string> = {
-  label: '',
-  professor: 'sees everything, private comments',
-  manager: 'student pages, digests, equipment use',
-  inventory: 'edits the inventory',
-};
+/** What a tag can give (0.38): any tag may carry any of these; a tag with none is a label. */
+export const PERMS: { key: string; label: string; note: string }[] = [
+  {
+    key: 'comments',
+    label: 'Private comments',
+    note: 'Sees every stack and batch and comments privately to its owner; these comments come first',
+  },
+  { key: 'overview', label: 'Lab overview', note: 'Opens the lab’s overview and anyone’s, students included' },
+  { key: 'inventory', label: 'Inventory management', note: 'Edits the inventory' },
+  {
+    key: 'equipment',
+    label: 'Equipment management',
+    note: 'Adds, changes and removes any equipment, and chooses who is responsible for it',
+  },
+  { key: 'training', label: 'Equipment training', note: 'Marks people as trained on any equipment' },
+];
+const permsText = (t: Tag) =>
+  (t.perms ?? [])
+    .map((k) => PERMS.find((p) => p.key === k)?.label)
+    .filter(Boolean)
+    .join(', ');
+const KIND_NOTE = { title: (t: Tag) => permsText(t) || undefined };
 type Tab = 'users' | 'requests' | 'lab' | 'backups' | 'security' | 'activity' | 'updates';
 const dmy = (d?: string | null) => (d ? d.split('-').reverse().join('/') : '');
 
@@ -210,8 +226,8 @@ function Users({ meId }: { meId: number }) {
                   <button className="link" onClick={() => setTagFor(tagFor === u.id ? null : u.id)}>
                     {tagFor === u.id ? 'Done' : 'Tags'}
                   </button>
-                  <button className="link" onClick={() => setEdit(edit === u.id ? null : u.id)}>
-                    {edit === u.id ? 'Close' : 'Details'}
+                  <button className="link" onClick={() => setEdit(u.id)}>
+                    Details
                   </button>
                   {u.id !== meId && !u.noPassword && (
                     <button
@@ -237,7 +253,7 @@ function Users({ meId }: { meId: number }) {
                   )}
                 </span>
               </div>
-              {edit === u.id && <UserDetails u={u} save={(b) => patch(u.id, b)} />}
+              {edit === u.id && <UserSheet u={u} onClose={() => setEdit(null)} save={(b) => patch(u.id, b)} />}
               {tagFor === u.id ? (
                 <div className="chips">
                   {tags.map((t) => {
@@ -248,7 +264,7 @@ function Users({ meId }: { meId: number }) {
                         className={'tag' + (has ? '' : ' off')}
                         style={{ '--tag': t.color } as React.CSSProperties}
                         aria-pressed={has}
-                        title={KIND_NOTE[t.kind] || undefined}
+                        title={KIND_NOTE.title(t)}
                         onClick={() =>
                           setUserTags(
                             u,
@@ -511,82 +527,278 @@ function Backups() {
   );
 }
 
-/** Tags: labels (Master's, PhD, research topics…) and the three that give access (Professor, Manager, Inventory). */
+/** Tags: labels (Master's, PhD, research topics…) and the permissions they give. */
+/** The lab's tags: click one for what it gives and who has it; New tag opens the same window, empty. */
 function Tags({ tags, reload }: { tags: Tag[]; reload: () => void }) {
-  const [name, setName] = useState(''),
-    [color, setColor] = useState('#2563eb'),
-    [err, setErr] = useState('');
-  const run = (p: Promise<unknown>) =>
-    p
-      .then(() => {
-        setErr('');
-        reload();
-      })
-      .catch((e) => setErr(e.message));
+  const [open, setOpen] = useState<Tag | 'new' | null>(null);
   return (
     <>
       <h3 className="sub">Tags</h3>
       <section className="group">
-        <p className="mut small">
-          Give tags under Users (Tags). <b>Professor</b> sees everything, comments privately to a stack's or batch's
-          owner, and her comments come first. <b>Manager</b> opens student pages, digests and equipment use.{' '}
-          <b>Inventory</b> edits the inventory. The others are labels.
-        </p>
-        {tags.map((t) => (
-          <div key={t.id} className="tag-edit">
-            <input
-              type="color"
-              aria-label={`Colour of ${t.name}`}
-              defaultValue={t.color}
-              onBlur={(e) =>
-                e.target.value !== t.color && run(api('/tags/' + t.id, 'PATCH', { color: e.target.value }))
-              }
-            />
-            <input
-              type="text"
-              aria-label="Tag name"
-              defaultValue={t.name}
-              onBlur={(e) =>
-                e.target.value.trim() &&
-                e.target.value.trim() !== t.name &&
-                run(api('/tags/' + t.id, 'PATCH', { name: e.target.value.trim() }))
-              }
-            />
-            <span className="mut small">
-              {t.n ?? 0} {t.n === 1 ? 'person' : 'people'}
-              {t.kind !== 'label' ? ' · ' + KIND_NOTE[t.kind] : ''}
-            </span>
-            {t.kind === 'label' && (
+        <ul className="tag-list">
+          {tags.map((t) => (
+            <li key={t.id}>
+              <button className="tag-row" onClick={() => setOpen(t)}>
+                <span className="tag" style={{ '--tag': t.color } as React.CSSProperties}>
+                  {t.name}
+                </span>
+                <span className="mut small grow">{permsText(t) || 'Label'}</span>
+                <span className="mut small">
+                  {t.n ?? 0} {t.n === 1 ? 'person' : 'people'}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="mut small">Give tags to people under Users (Tags).</p>
+        <button className="btn secondary" onClick={() => setOpen('new')}>
+          New tag
+        </button>
+      </section>
+      {open && (
+        <TagSheet
+          tag={open === 'new' ? null : open}
+          onClose={() => setOpen(null)}
+          onDone={() => {
+            setOpen(null);
+            reload();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function TagSheet({ tag, onClose, onDone }: { tag: Tag | null; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState(tag?.name ?? ''),
+    [color, setColor] = useState(tag?.color ?? '#2563eb'),
+    [perms, setPerms] = useState<string[]>(tag?.perms ?? []),
+    [err, setErr] = useState('');
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    (tag
+      ? api('/tags/' + tag.id, 'PATCH', { name: name.trim(), color, perms })
+      : api('/tags', 'POST', { name: name.trim(), color, perms })
+    )
+      .then(onDone)
+      .catch((x) => setErr(x.message));
+  };
+  return (
+    <Modal onClose={onClose} className="tag-sheet">
+      <form onSubmit={save}>
+        <div className="modal-head">
+          <b>{tag ? tag.name : 'New tag'}</b>
+        </div>
+        <div className="eq-form">
+          <div className="inline">
+            <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
+            <label className="fld grow">
+              <span>Name</span>
+              <input
+                autoFocus={!tag}
+                value={name}
+                placeholder="For example 2D perovskites"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="fld">
+            <span>What it gives</span>
+            <ul className="perm-list">
+              {PERMS.map((p) => (
+                <li key={p.key}>
+                  <label className="inline">
+                    <input
+                      type="checkbox"
+                      checked={perms.includes(p.key)}
+                      onChange={(e) =>
+                        setPerms(e.target.checked ? [...perms, p.key] : perms.filter((x) => x !== p.key))
+                      }
+                    />
+                    <span>
+                      {p.label}
+                      <span className="mut small"> · {p.note}</span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <span className="mut small">With none ticked the tag is a label. Admins can do all of these anyway.</span>
+          </div>
+          {tag && (
+            <div className="fld">
+              <span>Who has it</span>
+              {tag.people?.length ? (
+                <div className="eq-people">
+                  {tag.people.map((p) => (
+                    <span key={p.id} className="eq-person">
+                      <Avatar id={p.id} name={p.name} photoV={p.photoV} size={24} /> {p.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="mut">No one yet.</span>
+              )}
+            </div>
+          )}
+          {err && <p className="err small">{err}</p>}
+          <div className="dialog-actions">
+            {tag && (
               <button
-                className="link danger-link small"
-                onClick={() => window.confirm(`Delete the tag “${t.name}”?`) && run(api('/tags/' + t.id, 'DELETE'))}
+                type="button"
+                className="link danger-link"
+                onClick={() =>
+                  window.confirm(`Delete the tag “${tag.name}”? People lose what it gives.`) &&
+                  api('/tags/' + tag.id, 'DELETE')
+                    .then(onDone)
+                    .catch((x) => setErr(x.message))
+                }
               >
-                Delete
+                Delete tag
               </button>
             )}
+            <div className="grow" />
+            <button type="button" className="link" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn" disabled={!name.trim()}>
+              {tag ? 'Save' : 'Add tag'}
+            </button>
           </div>
-        ))}
-        <form
-          className="tag-edit"
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(api('/tags', 'POST', { name: name.trim(), color }).then(() => setName('')));
-          }}
-        >
-          <input type="color" aria-label="New tag colour" value={color} onChange={(e) => setColor(e.target.value)} />
-          <input
-            type="text"
-            placeholder="New tag (for example 2D perovskites)"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button className="btn" disabled={!name.trim()}>
-            Add tag
-          </button>
-        </form>
-        {err && <p className="err small">{err}</p>}
-      </section>
-    </>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+type Training = {
+  id: number;
+  name: string;
+  color: string;
+  trained: boolean;
+  at?: string;
+  by?: string;
+  note?: string;
+  canTrain: boolean;
+};
+/**
+ * A person, read only: who they are, how to reach them, their tags, and the equipment they are trained on (ticked by
+ * whoever may train on that equipment). Edit details opens the form.
+ */
+function UserSheet({ u, onClose, save }: { u: U; onClose: () => void; save: (b: object) => Promise<unknown> }) {
+  const [tr, setTr] = useState<Training[] | null>(null),
+    [editing, setEditing] = useState(false),
+    [err, setErr] = useState('');
+  const loadTr = () =>
+    api<Training[]>(`/users/${u.id}/training`)
+      .then(setTr)
+      .catch((x) => setErr(x.message));
+  useEffect(() => {
+    loadTr();
+  }, [u.id]);
+  const facts: [string, string][] = [
+    ['Username', '@' + u.username],
+    ['Role', u.role === 'admin' ? 'Admin' : 'Member'],
+    ['Department', u.department || '—'],
+    ['Supervisor', u.supervisor || '—'],
+    ['Co-supervisor', u.cosupervisor || '—'],
+    ['Institutional email', u.email || '—'],
+    ['Birth date', u.birthDate ? `${dmy(u.birthDate)}${u.age != null ? ` (${u.age} years)` : ''}` : '—'],
+    ...(u.visitorUntil ? ([['Visitor until', dmy(u.visitorUntil)]] as [string, string][]) : []),
+    ['Account', !u.active ? 'Disabled' : u.noPassword ? 'No password yet' : 'Active'],
+    ['Last seen', u.last_seen ? fmtDate(u.last_seen) : 'Never'],
+  ];
+  return (
+    <Modal onClose={onClose} className="user-sheet">
+      <div className="modal-head">
+        <Avatar id={u.id} name={u.name} photoV={u.photoV} size={48} />
+        <div className="title-block grow">
+          <h2>{u.name}</h2>
+          {u.tags.length > 0 && (
+            <div className="chips">
+              {u.tags.map((t) => (
+                <span key={t.id} className="tag" style={{ '--tag': t.color } as React.CSSProperties}>
+                  {t.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <button className="iconbtn" aria-label="Close" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <div className="modal-body eq-body">
+        {editing ? (
+          <section className="group">
+            <h3>Edit details</h3>
+            <UserDetails
+              u={u}
+              save={(b) =>
+                save(b).then(() => {
+                  setEditing(false);
+                })
+              }
+            />
+            <button className="link" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </section>
+        ) : (
+          <section className="group">
+            <dl className="user-facts-list">
+              {facts.map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <button className="link" onClick={() => setEditing(true)}>
+              Edit details
+            </button>
+          </section>
+        )}
+        <section className="group">
+          <h3>Equipment training</h3>
+          <p className="mut small">
+            Booking a piece of equipment needs training on it. Its responsible people, Equipment training and admins
+            tick it here or on the equipment’s page.
+          </p>
+          {err && <p className="err small">{err}</p>}
+          {!tr ? (
+            <p className="mut">Loading…</p>
+          ) : !tr.length ? (
+            <p className="mut">No bookable equipment yet (Lab › Equipment).</p>
+          ) : (
+            <ul className="train-list">
+              {tr.map((e) => (
+                <li key={e.id} style={{ '--eq': e.color } as React.CSSProperties}>
+                  <label className="inline">
+                    <input
+                      type="checkbox"
+                      checked={e.trained}
+                      disabled={!e.canTrain}
+                      onChange={(x) =>
+                        api(`/equipment/${e.id}/training/${u.id}`, x.target.checked ? 'POST' : 'DELETE', {})
+                          .then(loadTr)
+                          .catch((y) => setErr(y.message))
+                      }
+                    />
+                    <span className="eq-name">{e.name}</span>
+                  </label>
+                  <span className="mut small">
+                    {e.trained
+                      ? `${e.at ? fmtDate(e.at) : ''}${e.by ? `, by ${e.by}` : e.note ? `, ${e.note}` : ''}`
+                      : 'Not trained'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Modal>
   );
 }
 
@@ -835,7 +1047,7 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
                         className={'tag' + (on ? '' : ' off')}
                         style={{ '--tag': t.color } as React.CSSProperties}
                         aria-pressed={on}
-                        title={KIND_NOTE[t.kind] || undefined}
+                        title={KIND_NOTE.title(t)}
                         onClick={() =>
                           setPick({
                             ...pick,

@@ -70,7 +70,7 @@ export const LabIn = z.object({
         .string()
         .trim()
         .toLowerCase()
-        .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'a domain like unicamp.br'),
+        .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'a domain like example.edu'),
     )
     .max(20)
     .optional(),
@@ -166,7 +166,8 @@ const Appearance = z
   })
   .optional();
 export const BatchIn = z.object({
-  code: z.string().min(1).max(40),
+  /** 0.38: optional; the server numbers batches by date (B-yymmdd-n) when none is given. */
+  code: z.string().max(40).default(''),
   /** The stack the batch was started from (its variations are offered as variants). */
   source: z.number().int().positive().optional(),
   name: z.string().max(120).default(''),
@@ -307,7 +308,8 @@ export const IvDevice = z.object({ g: z.string().max(80).optional(), off: z.bool
 export const IvSetIn = z.object({
   name: z.string().min(1).max(160),
   date: z.string().max(10),
-  system: z.enum(['padrao', 'sun']),
+  // 'padrao' and 'sun' were the names before 0.38 (old exports and backups)
+  system: z.preprocess((v) => (v === 'padrao' ? 'csv' : v === 'sun' ? 'txt' : v), z.enum(['csv', 'txt'])),
   visibility: Visibility,
   links: z.record(z.string(), IvLink).default({}),
   notes: z.string().max(5000).default(''),
@@ -403,12 +405,15 @@ export const ProfileIn = z.object({
     .optional(),
 });
 export const TagKind = z.enum(['label', 'professor', 'manager', 'inventory']);
+export const TagPerm = z.enum(['comments', 'overview', 'inventory', 'equipment', 'training']);
 export const TagIn = z.object({
   name: z.string().trim().min(1).max(40),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'pick a colour')
     .optional(),
+  /** what the tag gives (empty: a label) */
+  perms: z.array(TagPerm).max(5).optional(),
 });
 export const UserTagsIn = z.object({ tags: z.array(z.number().int()).max(50) });
 
@@ -526,8 +531,14 @@ export const EquipmentIn = z.object({
     .optional(),
 });
 /** Outcome of a booking once it has ended; postponing or canceling needs a reason. */
+/** The glovebox atmosphere at the end of a booking, in ppm (0.38: asked for equipment that records it). */
+export const AtmoIn = z.object({ o2: z.number().min(0).max(1e6), h2o: z.number().min(0).max(1e6) });
 export const OutcomeIn = z
-  .object({ outcome: z.enum(['done', 'postponed', 'canceled']), reason: z.string().trim().max(500).optional() })
+  .object({
+    outcome: z.enum(['done', 'postponed', 'canceled']),
+    reason: z.string().trim().max(500).optional(),
+    atmo: AtmoIn.optional(),
+  })
   .refine((o) => o.outcome === 'done' || (o.reason ?? '').length >= 3, {
     message: 'say why it was postponed or canceled',
     path: ['reason'],

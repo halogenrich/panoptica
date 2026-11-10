@@ -88,50 +88,11 @@ const nextName = (name: string, fam: Row[]) => {
   return `${base} v${n + 1}`;
 };
 
-/** Starter substrate designs matching the two substrates used so far (created once, owned by the first admin, shared). */
-function seedSubstrates() {
-  if (db.prepare("SELECT 1 FROM presets WHERE segment='sub' LIMIT 1").get()) return;
-  const admin = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get() as
-    { id: number } | undefined;
-  if (!admin) return;
-  const ins = db.prepare("INSERT INTO presets(owner_id,segment,name,visibility,data) VALUES(?,'sub',?,'shared',?)");
-  const rect = (id: string, x: number, y: number, w: number, h: number) => ({ id, kind: 'rect', x, y, w, h });
-  ins.run(
-    admin.id,
-    'ITO 12 × 12 mm, two side strips',
-    JSON.stringify({
-      w: 12,
-      h: 12,
-      ito: [rect('ito1', 2, 0, 8, 12)],
-      rs: 15,
-      t: 150,
-      supplier: '',
-      marker: 'tl',
-      notes: 'ITO-free strips of 2 mm on two opposite edges.',
-    }),
-  );
-  ins.run(
-    admin.id,
-    'ITO 25 × 15 mm, bottom strip',
-    JSON.stringify({
-      w: 25,
-      h: 15,
-      ito: [rect('ito1', 0, 0, 25, 12)],
-      rs: 15,
-      t: 150,
-      supplier: '',
-      marker: 'tl',
-      notes: 'ITO-free strip of 3 mm along one long edge.',
-    }),
-  );
-}
-
 export function registerPresets(
   app: FastifyInstance,
   auth: (admin?: boolean) => any,
   bad: (reply: any, p: any) => any,
 ) {
-  seedSubstrates();
   app.get('/api/presets', { preHandler: auth() }, async (req: any) => {
     const use = usageMap();
     const rows = db

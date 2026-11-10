@@ -65,13 +65,13 @@ export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>)
       <div className="grid2">
         <label className="fld">
           <span>Lab name</span>
-          <input value={d.name} placeholder="For example, LNES" onChange={(e) => set({ name: e.target.value })} />
+          <input value={d.name} placeholder="Your lab’s short name" onChange={(e) => set({ name: e.target.value })} />
         </label>
         <label className="fld">
           <span>Institution</span>
           <input
             value={d.institution}
-            placeholder="For example, Unicamp"
+            placeholder="University or institute"
             onChange={(e) => set({ institution: e.target.value })}
           />
         </label>
@@ -83,11 +83,11 @@ export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>)
         <span>Institutional email domains, separated by commas</span>
         <input
           value={d.domains}
-          placeholder="For example, unicamp.br"
+          placeholder="For example, example.edu"
           onChange={(e) => set({ domains: e.target.value })}
         />
         <span className="mut small">
-          Only these emails can ask for access (subdomains too: unicamp.br accepts dac.unicamp.br). Empty: any email.
+          Only these emails can ask for access (subdomains too: example.edu accepts chem.example.edu). Empty: any email.
         </span>
       </label>
       <label className="fld">
@@ -95,7 +95,7 @@ export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>)
         <textarea
           rows={4}
           value={d.departments}
-          placeholder={'Applied Physics\nPhysical Chemistry'}
+          placeholder={'Physics\nChemistry'}
           onChange={(e) => set({ departments: e.target.value })}
         />
         <span className="mut small">People choose theirs when they ask for access.</span>

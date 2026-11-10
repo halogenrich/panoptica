@@ -5,7 +5,10 @@ export type Tag = {
   name: string;
   color: string;
   kind: 'label' | 'professor' | 'manager' | 'inventory';
+  /** what it gives (0.38): comments, overview, inventory, equipment, training */
+  perms?: string[];
   n?: number;
+  people?: { id: number; name: string; photoV?: number }[];
 };
 export type Me = {
   id: number;
@@ -18,6 +21,10 @@ export type Me = {
   professor?: boolean;
   manager?: boolean;
   inventory?: boolean;
+  /** manages all equipment */
+  equipment?: boolean;
+  /** trains people on any equipment */
+  training?: boolean;
   email?: string;
   birthDate?: string;
   department?: string;

@@ -89,37 +89,41 @@ CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NUL
 CREATE TABLE IF NOT EXISTS user_tags(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
   PRIMARY KEY(user_id, tag_id));
 `);
-if (!db.prepare('SELECT 1 FROM tags LIMIT 1').get()) {
-  const ins = db.prepare('INSERT INTO tags(name,color,kind,pos) VALUES(?,?,?,?)');
-  (
-    [
-      ['Professor', '#7c3aed', 'professor'],
-      ['Manager', '#0f766e', 'manager'],
-      ['Inventory', '#b45309', 'inventory'],
-      ["Master's", '#2563eb', 'label'],
-      ['PhD', '#1d4ed8', 'label'],
-      ['Post-doc', '#0369a1', 'label'],
-      ['Visitor', '#6b7280', 'label'],
-    ] as const
-  ).forEach(([n, c, k], i) => ins.run(n, c, k, i));
-}
 
-/** Access a user's tags give: Professor sees everything and can comment privately; Manager and Inventory open their pages. */
+/**
+ * 0.38: what a tag gives is a set of permissions any tag can carry, instead of three built-in kinds:
+ * comments (sees everything and comments privately to the owner, the old Professor), overview (the lab overview, the old
+ * Manager), inventory (edits the inventory), equipment (manages all equipment), training (trains people on any equipment).
+ */
+export const PERMS = ['comments', 'overview', 'inventory', 'equipment', 'training'] as const;
+export type Perm = (typeof PERMS)[number];
+if (!cols('tags').includes('perms')) {
+  db.exec("ALTER TABLE tags ADD COLUMN perms TEXT NOT NULL DEFAULT '[]'");
+  db.exec(`UPDATE tags SET perms='["comments","overview"]' WHERE kind='professor'`); // the Professor saw the overview too
+  db.exec(`UPDATE tags SET perms='["overview"]' WHERE kind='manager'`);
+  db.exec(`UPDATE tags SET perms='["inventory"]' WHERE kind='inventory'`);
+}
+/** SQL condition: tag `t` gives this permission. */
+export const tagHas = (p: Perm, t = 't') => `${t}.perms LIKE '%"${p}"%'`;
+
+/** Access a user's tags give (the names kept from before: professor = comments, manager = overview). */
 export function perms(uid: number) {
-  const kinds = (
-    db
-      .prepare('SELECT DISTINCT t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=?')
-      .all(uid) as { kind: string }[]
-  ).map((r) => r.kind);
+  const ps = new Set<string>();
+  for (const r of db
+    .prepare('SELECT t.perms FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=?')
+    .all(uid) as { perms: string }[])
+    for (const p of JSON.parse(r.perms || '[]') as string[]) ps.add(p);
   return {
-    professor: kinds.includes('professor'),
-    manager: kinds.includes('manager'),
-    inventory: kinds.includes('inventory'),
+    professor: ps.has('comments'),
+    manager: ps.has('overview'),
+    inventory: ps.has('inventory'),
+    equipment: ps.has('equipment'),
+    training: ps.has('training'),
   };
 }
 export const tagsOf = (uid: number) =>
   db
     .prepare(
-      'SELECT t.id,t.name,t.color,t.kind FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=? ORDER BY t.pos,t.name',
+      'SELECT t.id,t.name,t.color,t.kind,t.perms FROM user_tags ut JOIN tags t ON t.id=ut.tag_id WHERE ut.user_id=? ORDER BY t.pos,t.name',
     )
     .all(uid);

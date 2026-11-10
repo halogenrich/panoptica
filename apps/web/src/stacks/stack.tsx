@@ -26,7 +26,6 @@ import {
 } from './model';
 import { defaultLook, isCustom, lookOf, type Appearance } from './appearance';
 import RunSheet from './RunSheet';
-import ExportMenu from '../lib/ExportMenu';
 
 const Viewer3D = lazy(() => import('./Viewer3D'));
 const autoThickness = (s: Slot) => (/perovskite/i.test(s.n) ? 500 : /sam|pacz/i.test(s.n) ? 2 : 50);
@@ -553,6 +552,7 @@ function Output({ d: raw, ctx, item }: { d: StackD; ctx: Ctx; blanks?: boolean; 
         <View3D st={st} ctx={ctx} height={FIT_VIEW} cog />
         {item && (
           <div className="below-3d">
+            <PrintRunSheet name={item.name} d={raw} ctx={ctx} />
             <StartBatch id={item.id} name={item.name} d={raw} ctx={ctx} />
           </div>
         )}
@@ -585,25 +585,18 @@ function Output({ d: raw, ctx, item }: { d: StackD; ctx: Ctx; blanks?: boolean; 
   );
 }
 
-/** Start a batch from this stack: a window to name it (code and name), then the batch opens. Under the 3D view, like Schedule equipment. */
+/** Start a batch from this stack: a window to name it, then the batch opens. Under the 3D view, like Schedule equipment. */
 function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD; ctx: Ctx }) {
   const { prefs } = useContext(PrefCtx),
     [open, setOpen] = useState(false),
-    [code, setCode] = useState(''),
     [bname, setBname] = useState(name),
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(false);
-  const suggest = () =>
-    'B-' +
-    new Date().toISOString().slice(0, 10).replace(/-/g, '') +
-    '-' +
-    Date.now().toString(36).slice(-3).toUpperCase();
   const start = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     api<{ id: number }>('/batches', 'POST', {
-      code: code.trim(),
-      name: bname.trim() || name,
+      name: bname.trim(),
       visibility: prefs.vis ?? 'shared',
       stack: { arch: d.arch, sl: d.sl, thumb: d.thumb },
       source: id || undefined,
@@ -620,7 +613,6 @@ function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD;
       <button
         className="btn"
         onClick={() => {
-          setCode(suggest());
           setBname(name);
           setErr('');
           setOpen(true);
@@ -636,12 +628,8 @@ function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD;
             </div>
             <div className="start-batch-body">
               <label className="fld">
-                <span>Batch code</span>
-                <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
-              </label>
-              <label className="fld">
-                <span>Name</span>
-                <input value={bname} onChange={(e) => setBname(e.target.value)} />
+                <span>Batch name</span>
+                <input autoFocus value={bname} onChange={(e) => setBname(e.target.value)} />
               </label>
               <p className="mut small">The batch starts Planned; schedule its equipment from the batch page.</p>
               {err && <p className="err small">{err}</p>}
@@ -649,7 +637,7 @@ function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD;
                 <button type="button" className="link" onClick={() => setOpen(false)}>
                   Cancel
                 </button>
-                <button className="btn" disabled={!code.trim() || busy}>
+                <button className="btn" disabled={!bname.trim() || busy}>
                   Start batch
                 </button>
               </div>
@@ -661,28 +649,14 @@ function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD;
   );
 }
 
-function Actions({ name, d, ctx }: { id: number; name: string; d: StackD; ctx: Ctx }) {
+/** Print the stack's run sheet (left of Start batch under the 3D view; the batch page has the same button). */
+function PrintRunSheet({ name, d, ctx }: { name: string; d: StackD; ctx: Ctx }) {
   const pr = usePrint();
   return (
     <>
-      <ExportMenu
-        label="Print run sheet"
-        sections={[
-          [
-            'Run sheet',
-            [
-              [
-                'With a notes box under each layer',
-                [['Print', () => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} notes />)]],
-              ],
-              [
-                'Without notes boxes',
-                [['Print', () => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} notes={false} />)]],
-              ],
-            ],
-          ],
-        ]}
-      />
+      <button className="btn secondary" onClick={() => pr.print(<RunSheet st={nstack(d)} ctx={ctx} name={name} />)}>
+        Print run sheet
+      </button>
       {pr.portal}
     </>
   );
@@ -735,7 +709,6 @@ export const stack: Kind<StackD> = {
     { key: 'devices', label: 'Devices made' },
     { key: 'best', label: 'Best PCE', unit: '%' },
   ],
-  viewActions: (p) => <Actions {...p} />,
   prepareSave: async (d, ctx) => {
     try {
       const { renderThumb } = await import('./Viewer3D'),

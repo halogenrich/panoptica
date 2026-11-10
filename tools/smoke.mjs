@@ -411,7 +411,7 @@ console.log('Measurements and comparisons');
   const r = await call('POST', '/api/iv', {
     name: 'smoke J-V',
     date: '2026-11-06',
-    system: 'padrao',
+    system: 'csv',
     visibility: 'shared',
     curves: [
       curve(quick, '01', 'fwd'),
@@ -468,7 +468,7 @@ console.log('Measurements and comparisons');
     const sr = await call('POST', '/api/iv', {
       name: 'smoke short',
       date: '2026-11-09',
-      system: 'padrao',
+      system: 'csv',
       visibility: 'shared',
       curves: [
         curve(good, '01', 'fwd'),
@@ -496,7 +496,7 @@ console.log('Measurements and comparisons');
   const life = await call('POST', '/api/iv', {
     name: 'smoke lifetime',
     date: '2026-11-05',
-    system: 'padrao',
+    system: 'csv',
     visibility: 'shared',
     kind: 'lifetime',
     life: {
@@ -533,12 +533,12 @@ console.log('Calendar: shortest booking and cleanup');
     stack: { arch: 'n-i-p', sl: [] },
   });
   ok(b.s === 200, 'batch for bookings made');
-  const eq = await call('POST', '/api/equipment', { name: 'GB: Smoke box' });
+  const eq = await call('POST', '/api/equipment', { name: 'Smoke box', cleanup: 20 });
   const plain = await call('POST', '/api/equipment', { name: 'Smoke profilometer' });
   const eqs = (await call('GET', '/api/calendar?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z')).j.equipment;
   ok(
     eqs.find((e) => e.id === eq.j.id)?.cleanup === 20 && eqs.find((e) => e.id === plain.j.id)?.cleanup === 0,
-    'glovebox equipment gets 20 min of cleanup by default, other equipment none',
+    'cleanup is set per equipment (none unless given)',
   );
   const book = (equipment_id, s, e) =>
     call('POST', '/api/bookings', {
@@ -712,6 +712,83 @@ console.log('Batches: variants, lock, mentions');
   ok(people.some((p) => p.username === 'anas') && people.some((p) => p.me), 'people who can open it are offered');
 }
 
+console.log('Batches by name, equipment, training, atmosphere and overviews (0.38)');
+{
+  const stack = { arch: 'n-i-p', sl: [] };
+  const n1 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
+  const n2 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
+  const c1 = (await call('GET', '/api/batches/' + n1.j.id)).j.code,
+    c2 = (await call('GET', '/api/batches/' + n2.j.id)).j.code;
+  ok(
+    n1.s === 200 && /^B-\d{6}-\d+$/.test(c1) && c1 !== c2,
+    `a batch started by name is numbered by the app (${c1}, ${c2})`,
+  );
+  ok((await call('POST', '/api/batches', { visibility: 'shared', stack })).s === 400, 'a batch needs a name');
+  ok(
+    (await call('PUT', `/api/batches/${n1.j.id}/plan`, { steps: ['Spin', 'Spin anneal'], split: ['s1'] })).s === 200 &&
+      (await call('GET', '/api/batches/' + n1.j.id)).j.plan_split === '["s1"]',
+    'the runs annealed elsewhere are kept with the plan',
+  );
+
+  // equipment: a place, a glovebox that records its atmosphere, and a spin coater inside it
+  const asAna = async (method, path, body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: { cookie: anaCookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  const anaId = db.prepare("SELECT id FROM users WHERE username='anas'").get().id;
+  const place = await call('POST', '/api/places', { name: 'Smoke room' });
+  ok(place.s === 200, 'a place is added');
+  const gb = await call('POST', '/api/equipment', { name: 'Smoke glovebox', place_id: place.j.id, atmosphere: true });
+  const sc = await call('POST', '/api/equipment', { name: 'Smoke spin coater', parent_id: gb.j.id, steps: ['spin'] });
+  ok(gb.s === 200 && sc.s === 200, 'a glovebox and the spin coater inside it are added');
+  ok((await asAna('POST', '/api/equipment', { name: 'Mine' })).s === 403, 'members cannot add equipment');
+  const at = (d, h) => new Date(2031, 0, d, h).toISOString();
+  const book = (who, eq, d, h) =>
+    who('POST', '/api/bookings', { equipment_id: eq, purpose: 'Smoke test', start: at(d, h), end: at(d, h + 1) });
+  ok((await book(call, sc.j.id, 6, 9)).s === 403, 'what is inside a glovebox is booked with it, not on its own');
+  const untrained = await book(asAna, gb.j.id, 6, 9);
+  ok(untrained.s === 403 && /trained/.test(untrained.j.error), 'booking needs training on the equipment');
+  ok((await call('POST', `/api/equipment/${gb.j.id}/training/${anaId}`)).s === 200, 'an admin records the training');
+  ok((await book(asAna, gb.j.id, 6, 9)).s === 200, 'then the trained member books it');
+  const off = await call('POST', `/api/equipment/${gb.j.id}/off`, {
+    start: at(7, 0),
+    end: at(8, 0),
+    reason: 'Regeneration',
+  });
+  ok(off.s === 200, 'an out-of-service period is set');
+  ok((await book(asAna, gb.j.id, 7, 10)).s === 409, 'no bookings while it is out of service');
+  ok((await call('DELETE', '/api/equipment/off/' + off.j.id)).s === 200, 'and it can be removed');
+  ok((await book(asAna, gb.j.id, 7, 10)).s === 200, 'then the time can be booked');
+  // atmosphere: a step done in the glovebox asks for its O₂ and H₂O
+  const kid = db
+    .prepare(
+      "INSERT INTO bookings(equipment_id,batch_id,user_id,step,start,end) VALUES(?,?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
+    )
+    .run(gb.j.id, n2.j.id, (await call('GET', '/api/me')).j.id).lastInsertRowid;
+  ok((await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done' })).s === 400, 'done needs the atmosphere');
+  ok(
+    (await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done', atmo: { o2: 0.4, h2o: 0.2 } })).s === 200,
+    'with O₂ and H₂O in ppm it is done',
+  );
+
+  // overviews: everyone has their own; the Lab overview permission opens the lab
+  const per = 'from=2026-01-05T00:00:00.000Z&to=2026-01-12T00:00:00.000Z&unit=week';
+  ok((await asAna('GET', '/api/dashboard/scopes')).j.lab === false, 'a member sees no lab scope');
+  const mine = await asAna('GET', `/api/dashboard?${per}&scope=me`);
+  ok(mine.s === 200 && mine.j.scope === 'one', 'a member opens their own overview');
+  ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 403, 'but not the lab’s');
+  ok((await asAna('GET', '/api/dashboard/person/1')).s === 403, 'nor someone else’s page');
+  ok((await call('GET', `/api/dashboard?${per}&scope=lab`)).j.scope === 'lab', 'an admin opens the lab');
+  const tag = await call('POST', '/api/tags', { name: 'Smoke overview', perms: ['overview'] });
+  ok((await call('PUT', `/api/users/${anaId}/tags`, { tags: [tag.j.id] })).s === 200, 'a tag with Lab overview given');
+  ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 200, 'then the member opens the lab overview');
+  await call('PUT', `/api/users/${anaId}/tags`, { tags: [] });
+}
+
 console.log('Updates');
 ok(
   (await call('POST', '/api/updates/check')).j.error?.includes('token'),
@@ -764,16 +841,16 @@ console.log('First setup (a fresh install)');
   ok((await j('POST', '/api/access-requests', askBody)).status === 409, 'no requests before the setup');
   const setup = {
     admin: {
-      firstNames: 'Richard',
-      surnames: 'Costa',
-      surname: 'Costa',
+      firstNames: 'Marie',
+      surnames: 'Curie',
+      surname: 'Curie',
       email: 'r@lab.example',
       birthDate: '1995-06-01',
       password: 'Perov-Ç4ke',
     },
     lab: {
-      name: 'LNES',
-      institution: 'Unicamp',
+      name: 'Test Lab',
+      institution: 'Example University',
       domains: ['lab.example'],
       departments: ['Applied Physics'],
       hours: Array.from({ length: 7 }, (_, i) => ({ on: i < 6, from: '08:00', to: '18:00' })),
@@ -786,13 +863,13 @@ console.log('First setup (a fresh install)');
   const st = await j('POST', '/api/setup', setup);
   const sj = await st.json();
   ok(
-    st.status === 200 && sj.username === 'richardc' && /sid=/.test(st.headers.get('set-cookie') ?? ''),
+    st.status === 200 && sj.username === 'mariec' && /sid=/.test(st.headers.get('set-cookie') ?? ''),
     'setup makes the first admin and signs in',
   );
   ok((await j('POST', '/api/setup', setup)).status === 409, 'and cannot run again');
   const pub2 = await (await j('GET', '/api/lab/public')).json();
   ok(
-    pub2.name === 'LNES' && pub2.setup === null && pub2.domains[0] === 'lab.example',
+    pub2.name === 'Test Lab' && pub2.setup === null && pub2.domains[0] === 'lab.example',
     'the lab name and domains are kept',
   );
   ok(

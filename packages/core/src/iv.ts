@@ -5,15 +5,15 @@
  * light intensity in mW/cm². Every system's export is converted to this on reading.
  *
  * Supported exports
- *  - "padrao" (8-pixel system, e.g. 1.2 × 1.2 substrates): per measurement `<id> J-V Data.csv`
+ *  - "csv" (multi-pixel systems that write CSV, such as Ossila's): per measurement `<id> J-V Data.csv`
  *    (pairs of columns "Pixel n" / "Pixel n Reverse", V (V) and J (A/cm^2)), optional `<id> Metrics.csv`,
  *    `<id> J-V Settings.csv` (often in a Settings folder: pixel area, illumination, sweep) and
  *    `<id> Light Temperature Data.csv` (ignored). id = `dd_mm_yy-<sample>_<substrate>_<scan>[r]`.
- *  - "sun" (1.5 × 2.5 system): one file per curve `<dd-Mon-yyyy> -<id>-JV-<Backward|Forward>-Sun-<pixel>.txt`
+ *  - "txt" (systems that write one text file per curve): one file per curve `<dd-Mon-yyyy> -<id>-JV-<Backward|Forward>-Sun-<pixel>.txt`
  *    with columns V, J (mA/cm²), I (mA); and `<date>-<id>-Parameters.txt` with the instrument's values.
  */
 
-export type IvSystem = 'padrao' | 'sun';
+export type IvSystem = 'csv' | 'txt';
 export type Dir = 'fwd' | 'rev';
 export type PixelStatus = 'ok' | 'dead' | 'short';
 
@@ -21,7 +21,7 @@ export interface IvCurve {
   file: string;
   system: IvSystem;
   date: string; // yyyy-mm-dd when it can be read from the name, else ''
-  sample: string; // condition / sample name from the file name, e.g. "TripleC_Padrao", "pvk_TC"
+  sample: string; // condition / sample name from the file name, e.g. "Control", "Additive_x"
   substrate: string; // substrate number within the sample
   scan: string; // repeat or measurement number ("01", "02", "01r", "1", "")
   pixel: string; // "1".."8", "A1"…
@@ -107,7 +107,7 @@ export function ivDate(s: string): string {
   if (m && +m[2] >= 1 && +m[2] <= 12) return `20${m[1]}-${m[2]}-${m[3]}`;
   return '';
 }
-/** "<sample>_<substrate>[_<scan>][r]" → parts. The sample keeps underscores ("TripleC_fulerenol_com_aneal"). */
+/** "<sample>_<substrate>[_<scan>][r]" → parts. The sample keeps underscores ("Additive_x_annealed"). */
 export function splitId(id: string): { sample: string; substrate: string; scan: string } {
   const m = /^(.+?)_(\d+)(?:_(\d+[a-z]*))?([a-z]*)$/i.exec(id);
   if (!m) return { sample: id, substrate: '', scan: '' };
@@ -282,7 +282,7 @@ export function sweepStep(V: number[]): number {
 
 type SweepKey = { sample: string; substrate: string; pixel: string; scan: string; dir: Dir; V: number[] };
 /**
- * Check (exploratory) sweeps: quick scans run before the real measurement, e.g. on the 8-pixel system 0.05 V steps forward only,
+ * Check (exploratory) sweeps: quick scans run before the real measurement, e.g. 0.05 V steps forward only,
  * then the measurement at 0.02 V with both directions. Per pixel, a scan is a check sweep when another scan of the same pixel
  * is at least as fine and either clearly finer (step under 0.8×) or has both directions where this one has one. A scan that is
  * alone, or not beaten by another, is never a check sweep. Returns the keys `sample|substrate|pixel|scan` of the check sweeps.
@@ -331,19 +331,19 @@ export function shortedPixels(
 }
 
 // ------------------------------------------------------------------ readers
-const PADRAO = / (J-V Data|Metrics|J-V Settings|Light Temperature Data)\.csv$/i;
+const CSV_EXPORT = / (J-V Data|Metrics|J-V Settings|Light Temperature Data)\.csv$/i;
 const DATE_PREFIX = String.raw`(\d{1,2}-[A-Za-z]{3}-\d{4}|\d{2}_\d{2}_\d{2})`;
-const SUN = new RegExp(
+const TXT_CURVE = new RegExp(
   String.raw`^(?:${DATE_PREFIX}\s*-\s*)?(.+)-JV-(Backward|Forward)-(Sun|Dark)-([A-Za-z]*\d+)\.txt$`,
   'i',
 );
-const SUN_PARAMS = new RegExp(String.raw`^(?:${DATE_PREFIX}\s*-\s*)?(.+)-Parameters\.txt$`, 'i');
+const TXT_PARAMS = new RegExp(String.raw`^(?:${DATE_PREFIX}\s*-\s*)?(.+)-Parameters\.txt$`, 'i');
 
-function readPadrao(files: IvFile[], warn: string[]): IvCurve[] {
+function readCsvExport(files: IvFile[], warn: string[]): IvCurve[] {
   const by = new Map<string, Partial<Record<string, string>>>();
   for (const f of files) {
     const b = base(f.name),
-      m = PADRAO.exec(b);
+      m = CSV_EXPORT.exec(b);
     if (!m) continue;
     const id = b.slice(0, m.index),
       e = by.get(id) ?? {};
@@ -387,7 +387,7 @@ function readPadrao(files: IvFile[], warn: string[]): IvCurve[] {
       if (V.length < 3) continue;
       group.push({
         file: e.dataFile ?? id,
-        system: 'padrao',
+        system: 'csv',
         date,
         sample,
         substrate,
@@ -409,10 +409,10 @@ function readPadrao(files: IvFile[], warn: string[]): IvCurve[] {
   return out;
 }
 
-function readSun(files: IvFile[], warn: string[]): IvCurve[] {
+function readTxtExport(files: IvFile[], warn: string[]): IvCurve[] {
   const params = new Map<string, { pin: number; inst: IvCurve['inst'] }>();
   for (const f of files) {
-    if (!SUN_PARAMS.test(base(f.name))) continue;
+    if (!TXT_PARAMS.test(base(f.name))) continue;
     for (const block of f.text.split(/\r?\n\s*\r?\n/)) {
       const lines = block
         .split(/\r?\n/)
@@ -433,7 +433,7 @@ function readSun(files: IvFile[], warn: string[]): IvCurve[] {
   const out: IvCurve[] = [],
     bySub = new Map<string, IvCurve[]>();
   for (const f of files) {
-    const m = SUN.exec(base(f.name));
+    const m = TXT_CURVE.exec(base(f.name));
     if (!m) continue;
     const [, d, id, dirw, , pixel] = m;
     const V: number[] = [],
@@ -460,7 +460,7 @@ function readSun(files: IvFile[], warn: string[]): IvCurve[] {
     A.sort((a, b) => a - b);
     const c: IvCurve = {
       file: f.name,
-      system: 'sun',
+      system: 'txt',
       date,
       ...s,
       pixel: pixel.toUpperCase(),
@@ -492,9 +492,9 @@ export function parseIvFiles(files: IvFile[]): { curves: IvCurve[]; warnings: st
     useful = files.filter(
       (f) => !/(^|[\\/])(__MACOSX|\._)/.test(f.name) && !/^\._/.test(base(f.name)) && !LIFE_JV.test(base(f.name)), // lifetime runs: parseLifetime
     );
-  const curves = [...readPadrao(useful, warnings), ...readSun(useful, warnings)];
+  const curves = [...readCsvExport(useful, warnings), ...readTxtExport(useful, warnings)];
   const used = useful.filter(
-    (f) => PADRAO.test(base(f.name)) || SUN.test(base(f.name)) || SUN_PARAMS.test(base(f.name)),
+    (f) => CSV_EXPORT.test(base(f.name)) || TXT_CURVE.test(base(f.name)) || TXT_PARAMS.test(base(f.name)),
   ).length;
   return { curves, warnings, ignored: files.length - used };
 }
@@ -536,7 +536,7 @@ export function tFraction(points: { t: number; v: number }[], f: number): number
   return null;
 }
 
-// ------------------------------------------------------------------ lifetime runs (8-pixel system)
+// ------------------------------------------------------------------ lifetime runs (multi-pixel CSV systems)
 /**
  * The Ossila software's lifetime test: the same pixels scanned again and again (held at maximum power in between), one export
  * folder per run:
@@ -554,7 +554,7 @@ const LIFE_LIGHT = /^(.+) Light Temperature Data(?: \((\d+)\))?\.csv$/i;
 
 export type LifeCurve = IvCurve & { t: number; point: number };
 export interface LifetimeRun {
-  /** run name given in the software ("fulerenol_lifetime") */
+  /** run name given in the software ("additive_lifetime") */
   run: string;
   folder: string;
   date: string; // yyyy-mm-dd
@@ -654,7 +654,7 @@ export function parseLifetime(files: IvFile[]): LifetimeRun[] {
         const t = exact && row && Number.isFinite(row[0]) ? row[0] : (ms - jv[0].ms) / 1000;
         group.push({
           file: f.name,
-          system: 'padrao',
+          system: 'csv',
           date: jv[0].at.slice(0, 10),
           sample: run,
           substrate: '1',
