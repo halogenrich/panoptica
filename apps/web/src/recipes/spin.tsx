@@ -5,17 +5,18 @@ import { Section, T } from './shared';
 import type { Ctx, Kind } from './types';
 
 const st = (t: number, rpm: number, final = false): SpinStep => ({ t, rpm, n2: false, final });
+// a new recipe starts empty: the lab enters its own program
 const defaults = () => ({
-  steps: [st(1, 1000), st(9, 1000), st(1, 5000), st(39, 5000, true)],
+  steps: [] as SpinStep[],
   dp: [] as Dispense[],
-  an: true,
-  aT: 100,
-  aM: 10,
+  an: false,
+  aT: 0,
+  aM: 0,
   ox: false,
-  oa: 'dry air',
-  oh: 12,
-  N: 4,
-  ov: 20,
+  oa: '',
+  oh: 0,
+  N: 1,
+  ov: 0,
 });
 type D = ReturnType<typeof defaults>;
 const maxRpm = (d: D) => Math.max(0, ...d.steps.map((s) => s.rpm));
@@ -314,7 +315,7 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
           · {d.steps.length} steps · up to {maxRpm(d)} rpm
         </span>
       </p>
-      {!r.finalOk && <p className="err">Flag exactly one final step.</p>}
+      {!r.finalOk && d.steps.length > 0 && <p className="err">Flag exactly one final step.</p>}
       <T
         h={['#', 'Time', 'rpm', 'N2', '', 'Remaining (s)']}
         rows={r.rows.map((x, i) => [

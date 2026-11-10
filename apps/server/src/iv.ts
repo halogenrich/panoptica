@@ -59,6 +59,8 @@ CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
     db.exec("ALTER TABLE iv_sets ADD COLUMN devices TEXT NOT NULL DEFAULT '{}'");
   if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'deleted_at'))
     db.exec('ALTER TABLE iv_sets ADD COLUMN deleted_at TEXT');
+  // 0.38: J–V systems are named by their export format (CSV with a column pair per pixel; one text file per curve)
+  db.exec("UPDATE iv_sets SET system='csv' WHERE system='padrao'; UPDATE iv_sets SET system='txt' WHERE system='sun'");
   // 0.23: stability tests. A follow-up measurement points at the first one of the series; measured_at is when it was measured
   if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'stability_of')) {
     db.exec('ALTER TABLE iv_sets ADD COLUMN stability_of INTEGER REFERENCES iv_sets(id) ON DELETE SET NULL');

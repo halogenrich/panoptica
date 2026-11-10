@@ -11,7 +11,7 @@ const clients = new Set<Client>();
 
 /** API area → what pages should reload. Changes to bookings also move batches between Planned, Running and Done. */
 const TOPICS: [RegExp, string[]][] = [
-  [/^\/api\/(bookings|equipment|schedule|calendar)/, ['calendar', 'batches']],
+  [/^\/api\/(bookings|equipment|places|schedule|calendar)/, ['calendar', 'batches', 'equipment']],
   [/^\/api\/batches/, ['batches', 'calendar']],
   [/^\/api\/(presets|runs)/, ['presets', 'batches']],
   [/^\/api\/(chemicals|storage|shelves|containers|inventory)/, ['inventory']],

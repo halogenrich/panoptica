@@ -27,7 +27,7 @@ import type { SubD } from './substrate';
 const defaults = (): MaskD => ({
   subId: '',
   subName: '',
-  sub: { w: 12, h: 12, ito: [] },
+  sub: { w: 25, h: 25, ito: [] },
   active: [],
   conn: [],
   scrape: [],

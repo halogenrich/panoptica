@@ -6,7 +6,7 @@ export type Prof = { id: number; name: string };
 
 /**
  * Who with the Professor tag is online. Every open tab checks in every 15 s (this is also how the server knows who is online)
- * and says goodbye when it closes, so the list empties within seconds of her signing out or closing the app.
+ * and says goodbye when it closes, so the list empties within seconds of them signing out or closing the app.
  */
 export function usePresence() {
   const [on, setOn] = useState<Prof[]>([]);

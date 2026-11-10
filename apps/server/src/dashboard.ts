@@ -51,11 +51,49 @@ function workHours(from: Date, to: Date) {
 }
 
 export function registerDashboard(app: FastifyInstance, auth: (need?: any) => any) {
-  const allowed = async (req: any, reply: any) => {
-    const u = req.user;
-    if (!(u.role === 'admin' || u.professor || u.manager))
-      return reply.code(403).send({ error: 'the overview is for the Professor and Managers' });
+  /**
+   * 0.38: everyone has an overview of their own work. Lab overview access (admins, the Lab overview permission) opens the
+   * whole lab or anyone's; a supervisor (named as supervisor or co-supervisor on a student's account) opens their students'.
+   */
+  const lead = (u: any) => u.role === 'admin' || !!u.manager;
+  const studentsOf = (u: any) =>
+    (
+      db
+        .prepare(
+          `SELECT id FROM users WHERE deleted=0 AND id<>? AND (lower(trim(supervisor))=lower(?) OR lower(trim(cosupervisor))=lower(?))`,
+        )
+        .all(u.id, u.name, u.name) as { id: number }[]
+    ).map((r) => r.id);
+  /** The people a scope covers, or null for the whole lab; undefined when the viewer may not open it. */
+  const scopeIds = (req: any): number[] | null | undefined => {
+    const u = req.user,
+      sc = String(req.query.scope ?? (lead(u) ? 'lab' : 'me'));
+    if (sc === 'me') return [u.id];
+    if (sc === 'students') return studentsOf(u);
+    if (sc === 'lab') return lead(u) ? null : undefined;
+    const m = sc.match(/^user:(\d+)$/);
+    if (m) return lead(u) || +m[1] === u.id || studentsOf(u).includes(+m[1]) ? [+m[1]] : undefined;
+    return undefined;
   };
+  const allowed = async (req: any, reply: any) => {
+    if (req.routeOptions?.url === '/api/dashboard/person/:id') {
+      const id = +req.params.id,
+        u = req.user;
+      if (!(lead(u) || id === u.id || studentsOf(u).includes(id)))
+        return reply.code(403).send({ error: 'you can open your own overview and your students’' });
+      return;
+    }
+    if (scopeIds(req) === undefined)
+      return reply.code(403).send({ error: 'you can open your own overview and your students’' });
+  };
+  /** What the viewer may pick in the overview: themselves, their students, the lab and anyone (with lab overview access). */
+  app.get('/api/dashboard/scopes', { preHandler: auth() }, async (req: any) => {
+    const u = req.user;
+    const people = lead(u)
+      ? db.prepare('SELECT id,name FROM users WHERE deleted=0 AND active=1 ORDER BY name COLLATE NOCASE').all()
+      : [];
+    return { lab: lead(u), students: studentsOf(u).length, people };
+  });
   app.get('/api/dashboard', { preHandler: [auth(), allowed] }, async (req: any, reply) => {
     const from = new Date(String(req.query.from)),
       to = new Date(String(req.query.to)),
@@ -66,18 +104,24 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       t = iso(to),
       fd = f.slice(0, 10),
       td = t.slice(0, 10);
+    const ids = scopeIds(req),
+      inScope = (id: number) => ids === null || !!ids?.includes(id);
     const users = (
       db
         .prepare(
           'SELECT id,name,username,photo_v AS photoV,last_seen,role FROM users WHERE deleted=0 AND active=1 ORDER BY name',
         )
         .all() as any[]
-    ).map((u) => ({ ...u, tags: tagsOf(u.id) }));
-    const sets = db
-      .prepare(
-        'SELECT s.id,s.owner_id,s.name,s.date,s.created_at,s.system,s.links FROM iv_sets s WHERE s.deleted_at IS NULL AND s.stability_of IS NULL',
-      )
-      .all() as any[];
+    )
+      .filter((u) => inScope(u.id))
+      .map((u) => ({ ...u, tags: tagsOf(u.id) }));
+    const sets = (
+      db
+        .prepare(
+          'SELECT s.id,s.owner_id,s.name,s.date,s.created_at,s.system,s.links FROM iv_sets s WHERE s.deleted_at IS NULL AND s.stability_of IS NULL',
+        )
+        .all() as any[]
+    ).filter((s) => inScope(s.owner_id));
     const inP = (s: any) => {
       const d = dayOf(s);
       return d >= fd && d < td;
@@ -92,11 +136,13 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
         : [];
     const pSets = sets.filter(inP),
       pDev = devicesOf(curvesOf(pSets.map((s) => s.id)));
-    const batches = db
-      .prepare(
-        'SELECT b.id,b.code,b.name,b.owner_id,b.status,b.created_at,b.updated_at,u.name AS owner FROM batches b JOIN users u ON u.id=b.owner_id WHERE b.deleted_at IS NULL',
-      )
-      .all() as any[];
+    const batches = (
+      db
+        .prepare(
+          'SELECT b.id,b.code,b.name,b.owner_id,b.status,b.created_at,b.updated_at,u.name AS owner FROM batches b JOIN users u ON u.id=b.owner_id WHERE b.deleted_at IS NULL',
+        )
+        .all() as any[]
+    ).filter((b) => inScope(b.owner_id));
     const started = batches.filter(
       (b) =>
         b.created_at.replace(' ', 'T') >= f.slice(0, 19).replace('Z', '') &&
@@ -113,7 +159,8 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
         `SELECT k.*, e.name AS equipment, e.color, e.role AS role, u.name AS user_name, b.code AS batch_code FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN users u ON u.id=k.user_id LEFT JOIN batches b ON b.id=k.batch_id
       WHERE k.end > ? AND k.start < ? AND b.deleted_at IS NULL`,
       )
-      .all(f, t) as any[];
+      .all(f, t)
+      .filter((k: any) => inScope(k.user_id)) as any[];
     const hoursOf = (k: any) =>
       (Math.min(new Date(k.end).getTime(), to.getTime()) - Math.max(new Date(k.start).getTime(), from.getTime())) /
       3.6e6;
@@ -231,7 +278,18 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       hours: books.reduce((a, k) => a + hoursOf(k), 0),
       workHours: wh,
     };
-    return { from: f, to: t, unit, lab, trend, people, equipment, digest };
+    return {
+      from: f,
+      to: t,
+      unit,
+      lab,
+      trend,
+      people,
+      // the lab's equipment for the lab; only what the people in view used, otherwise
+      equipment: ids === null ? equipment : equipment.filter((e) => e.bookings > 0),
+      digest,
+      scope: ids === null ? 'lab' : ids?.length === 1 ? 'one' : 'group',
+    };
   });
 
   /** One person's page: their batches, measurements over time, and equipment time (all time, newest first). */

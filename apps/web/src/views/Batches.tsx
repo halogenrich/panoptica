@@ -407,55 +407,6 @@ function Detail({
         />
         <CopyLink view="batches" id={b.id} what={`batch ${b.code}`} />
         <ExportMenu
-          label="Print sheet"
-          primary
-          sections={[
-            [
-              'Run sheet',
-              [
-                [
-                  'With a notes box under each layer',
-                  [
-                    [
-                      'Print',
-                      () =>
-                        pr.print(
-                          <RunSheet
-                            st={st}
-                            ctx={ctx}
-                            name={b.name || st.arch}
-                            batch={b.code}
-                            variants={b.variants}
-                            notes
-                          />,
-                        ),
-                    ],
-                  ],
-                ],
-                [
-                  'Without notes boxes',
-                  [
-                    [
-                      'Print',
-                      () =>
-                        pr.print(
-                          <RunSheet
-                            st={st}
-                            ctx={ctx}
-                            name={b.name || st.arch}
-                            batch={b.code}
-                            variants={b.variants}
-                            notes={false}
-                          />,
-                        ),
-                    ],
-                  ],
-                ],
-              ],
-            ],
-          ]}
-        />
-        <ExportMenu
           label={busyRep ? 'Preparing…' : 'Export'}
           disabled={!!busyRep}
           sections={[
@@ -569,6 +520,14 @@ function Detail({
         <div>
           <View3D st={st} ctx={ctx} height={FIT_BATCH} cog />
           <div className="below-3d">
+            <button
+              className="btn secondary"
+              onClick={() =>
+                pr.print(<RunSheet st={st} ctx={ctx} name={b.name || st.arch} batch={b.code} variants={b.variants} />)
+              }
+            >
+              Print run sheet
+            </button>
             <ScheduleButton b={b} books={books} onSchedule={onSchedule} />
           </div>
         </div>
