@@ -86,17 +86,30 @@ export function Modal({
 /** Prints one piece of content on its own (for example a run sheet from inside a sheet), instead of the whole screen. */
 export function usePrint() {
   const [node, setNode] = useState<ReactNode>(null);
+  /*
+   * The sheet stays in the page (hidden on screen, the only thing printed) until the person is back in the app. Clearing it
+   * right after window.print() returned printed the page itself in browsers whose print() does not wait for the dialog
+   * (Safari): by the time they laid out the print, the sheet was gone. A later click or key press ends print mode.
+   */
   useEffect(() => {
     if (!node) return;
-    document.body.classList.add('print-mode');
+    const body = document.body;
+    body.classList.add('print-mode');
+    let wait = 0;
+    const end = () => setNode(null);
     const t = setTimeout(() => {
       window.print();
-      document.body.classList.remove('print-mode');
-      setNode(null);
+      wait = window.setTimeout(() => {
+        window.addEventListener('pointerdown', end, true);
+        window.addEventListener('keydown', end, true);
+      }, 1000);
     }, 80);
     return () => {
       clearTimeout(t);
-      document.body.classList.remove('print-mode');
+      clearTimeout(wait);
+      window.removeEventListener('pointerdown', end, true);
+      window.removeEventListener('keydown', end, true);
+      body.classList.remove('print-mode');
     };
   }, [node]);
   return {
