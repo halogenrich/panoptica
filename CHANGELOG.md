@@ -2,6 +2,10 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.38.1 (2026-11-10)
+
+- Fix: **Print run sheet** printed the page instead of the run sheet in browsers whose print dialog does not hold the page (Safari). The sheet now stays ready to print until you are back in the app.
+
 ## 0.38.0 (2026-11-10)
 
 - **Equipment** (side menu, under Lab): the lab's places and its equipment, with equipment that holds other equipment (a glovebox with a spin coater and a hotplate inside). Each equipment says what it can do (the recipe steps), whether it is booked (equipment inside another is booked with it), its shortest booking, cleanup and drawing, and whether it records its atmosphere. **Move** keeps a history of where it was. **Responsible people** train others, edit, move and set it out of service.
