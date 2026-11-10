@@ -19,7 +19,7 @@ import Molecule from './Molecule';
 import { moleculeFor } from './molecules';
 
 // ---------------- organic evaporation ----------------
-const orgDefaults = () => ({ mat: 'C60', th: 30, rate: 0.3, u: 'A/s' as RateUnit, T: 0, P: 1, Pe: -6, pu: 'mbar' });
+const orgDefaults = () => ({ mat: '', th: 0, rate: 0, u: 'A/s' as RateUnit, T: 0, P: 0, Pe: 0, pu: 'mbar' });
 type O = ReturnType<typeof orgDefaults>;
 const ru = (u: RateUnit) => u.replace('A', 'Å');
 
@@ -30,7 +30,8 @@ function OrgEditor({ d, set, ctx }: { d: O; set: (p: Partial<O>) => void; ctx: C
       <label className="row">
         <span>Material</span>
         <select value={d.mat} onChange={(e) => set({ mat: e.target.value })}>
-          {(mats.includes(d.mat) ? mats : [d.mat, ...mats]).map((m) => (
+          {!d.mat && <option value="">Choose a material…</option>}
+          {(mats.includes(d.mat) || !d.mat ? mats : [d.mat, ...mats]).map((m) => (
             <option key={m}>{m}</option>
           ))}
         </select>
@@ -165,23 +166,20 @@ export const organic: Kind<O> = {
 
 // ---------------- metal evaporation ----------------
 const metDefaults = () => ({
-  met: 'Ag',
-  p0: 10,
-  st: [
-    { until: 5, rate: 0.1 },
-    { until: 15, rate: 0.2 },
-    { until: 100, rate: 1 },
-  ] as { until: number; rate: number }[],
+  met: '',
+  p0: 0,
+  st: [] as { until: number; rate: number }[],
   subId: '',
   maskId: '',
   maskName: '',
   mask: null as MaskD | null, // current: substrate design + mask layout (snapshot of the layout)
-  sub: '1.2 × 1.2 cm' as SubKey,
-  pat: '', // earlier versions: fixed size + placeholder pattern
+  sub: '' as SubKey | '', // earlier versions: fixed size + placeholder pattern
+  pat: '',
 });
 type M = ReturnType<typeof metDefaults>;
-const sub = (d: M): SubKey => (d.sub in SUBSTRATES ? d.sub : '1.2 × 1.2 cm');
-const legacy = (d: M) => !d.mask;
+const sub = (d: M): SubKey => (d.sub in SUBSTRATES ? (d.sub as SubKey) : '1.2 × 1.2 cm');
+/** Saved before substrate designs and mask layouts existed, and not yet given them. */
+const legacy = (d: M) => !d.mask && d.sub in SUBSTRATES;
 
 function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: Ctx }) {
   const metals = ctx.chems.filter((c) => c.role === 'metal').map((c) => c.name),
@@ -226,7 +224,7 @@ function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: C
             ))}
           </select>
         </label>
-        {legacy(d) && (
+        {!d.mask && (d.subId || legacy(d)) && (
           <p className="mut small">
             {d.subId
               ? 'Only mask layouts drawn for this substrate are listed. Create them under Designs › Metal masks.'
@@ -238,7 +236,8 @@ function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: C
         <label className="row">
           <span>Metal</span>
           <select value={d.met} onChange={(e) => set({ met: e.target.value })}>
-            {(metals.includes(d.met) ? metals : [d.met, ...metals]).map((x) => (
+            {!d.met && <option value="">Choose a metal…</option>}
+            {(metals.includes(d.met) || !d.met ? metals : [d.met, ...metals]).map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
@@ -358,6 +357,14 @@ function Pattern({ d, small }: { d: M; small?: boolean }) {
       </>
     );
   }
+  if (!legacy(d))
+    return small ? (
+      <div className="mat-art">
+        <span>{d.met || 'Metal'}</span>
+      </div>
+    ) : (
+      <p className="mut">Choose a substrate design and a mask layout to see the pattern.</p>
+    );
   const s = sub(d),
     g = pattern(s, d.pat),
     mc = metalColor(d.met);
@@ -401,7 +408,7 @@ function MetOutput({ d, blanks }: { d: M; ctx: Ctx; blanks?: boolean }) {
   return (
     <>
       <p className="headline">
-        {d.met} · {m.final} nm{' '}
+        {d.met || 'No metal yet'} · {m.final} nm{' '}
         <span className="mut">
           · {(m.final / 100).toFixed(3)} kÅ on controller · start at {d.p0} % · {mmss(m.total)}
         </span>

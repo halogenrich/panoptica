@@ -10,7 +10,7 @@ type Phase = 'closed' | 'opening' | 'running' | 'closing';
  * Breaking news in the header (a funny setting). One headline at a time: the strip opens from the middle out, the headline
  * crosses it once, then the strip folds from the sides to the middle and disappears. The next one comes after the pause an
  * admin sets for everyone (30 s by default). With the eye on too, about one headline in three is about the Professor while
- * she is online, and her arrival opens the strip at once with a red, shaking border. Reduced motion: no sliding or shaking.
+ * they are online, and their arrival opens the strip at once with a red, shaking border. Reduced motion: no sliding or shaking.
  */
 export default function NewsTicker({ name, profs }: { name: string; profs: Prof[] }) {
   const lab = useMemo(() => shuffle(HEADLINES), []),
@@ -64,7 +64,7 @@ export default function NewsTicker({ name, profs }: { name: string; profs: Prof[
     timer.current = window.setTimeout(next, 1500);
     return () => clearTimeout(timer.current);
   }, []);
-  // her arrival opens the strip straight away
+  // their arrival opens the strip straight away
   useEffect(() => {
     const ids = new Set(profs.map((p) => p.id));
     if (seen.current) {

@@ -23,6 +23,7 @@ import { Toaster } from './lib/trash';
 import { NotificationList, useNotifications } from './lib/Notifications';
 import IvPage from './iv/IvPage';
 import Comparisons from './compare/Comparisons';
+import EquipmentPage from './views/Equipment';
 import { parseRoute, pushRoute } from './lib/route';
 const Invite = lazy(() => import('./lib/Invite'));
 const DataPackage = lazy(() => import('./lib/DataPackage'));
@@ -45,6 +46,7 @@ type Key =
   | 's4'
   | 's5'
   | 'chem'
+  | 'eq'
   | 'users'
   | 'help'
   | 'trash'
@@ -88,7 +90,13 @@ const NAV: { group: string; items: [Key, string][] }[] = [
       ['mask', 'Metal masks'],
     ],
   },
-  { group: 'Lab', items: [['chem', 'Inventory']] },
+  {
+    group: 'Lab',
+    items: [
+      ['chem', 'Inventory'],
+      ['eq', 'Equipment'],
+    ],
+  },
 ];
 const LABEL: Record<string, string> = {
   ...Object.fromEntries(NAV.flatMap((g) => g.items)),
@@ -176,7 +184,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
-  const seesOverview = me.role === 'admin' || !!me.professor || !!me.manager;
+  const seesOverview = true; // 0.38: everyone has an overview of their own work
   // the page's address follows the page (open items add their id themselves, lib/route.ts)
   useEffect(() => {
     if (parseRoute()?.view !== view) pushRoute(view);
@@ -358,6 +366,8 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
         return <IvPage mode="life" openId={ivId} onOpen={setIvId} />;
       case 'cmp':
         return <Comparisons openId={focus} onOpen={setFocus} />;
+      case 'eq':
+        return <EquipmentPage openId={focus} onOpen={setFocus} />;
       case 'sub':
         return <Library kind={KINDS.sub} openId={focus} />;
       case 'mask':

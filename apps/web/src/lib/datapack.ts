@@ -12,14 +12,15 @@ import { fixName } from './names';
 
 /**
  * Data package: a .zip with the chosen batches, measurements and comparisons as open formats (CSV and JSON), a README that
- * describes them (what, who, when, how, units), metadata.json with the fields of a repository deposit (REDU / Dataverse) and
- * SHA-256 checksums of every file. Meant for the data management plan of a FAPESP project: what is deposited is self-describing.
+ * describes them (what, who, when, how, units), metadata.json with the fields of a repository deposit (Dataverse and similar) and
+ * SHA-256 checksums of every file. Meant for a project's data management plan: what is deposited is self-describing.
  */
 export type PackMeta = {
   title: string;
   description: string;
   authors: string;
   affiliation: string;
+  funder: string;
   grant: string;
   license: string;
   keywords: string;
@@ -297,7 +298,7 @@ export async function buildPackage(sel: PackSel, meta: PackMeta, version: string
     .split(/[,;\n]/)
     .map((x) => x.trim())
     .filter(Boolean);
-  // the citation fields of a Dataverse deposit (REDU, Unicamp's research data repository, runs Dataverse)
+  // the citation fields of a Dataverse deposit (many institutional data repositories run Dataverse)
   put(
     f,
     'metadata.json',
@@ -308,7 +309,7 @@ export async function buildPackage(sel: PackSel, meta: PackMeta, version: string
       subject: ['Engineering', 'Physics', 'Chemistry'],
       keywords,
       license: meta.license || null,
-      grant: meta.grant ? { agency: 'FAPESP', number: meta.grant } : null,
+      grant: meta.grant || meta.funder ? { agency: meta.funder || null, number: meta.grant || null } : null,
       kindOfData: ['Current–voltage (J–V) measurements', 'Device fabrication records'],
       timePeriodCovered: dates.length ? { start: dates[0], end: dates[dates.length - 1] } : null,
       dateOfDeposit: null,
@@ -346,7 +347,9 @@ function readme(
   L.push(
     `- Authors: ${authors.join('; ') || 'not given'}`,
     `- Affiliation: ${meta.affiliation || 'not given'}`,
-    ...(meta.grant ? [`- Funding: FAPESP, process ${meta.grant}`] : []),
+    ...(meta.grant || meta.funder
+      ? [`- Funding: ${[meta.funder, meta.grant && `grant ${meta.grant}`].filter(Boolean).join(', ')}`]
+      : []),
     `- Licence: ${LICENSE_TEXT[meta.license] ?? meta.license}`,
     `- Keywords: ${keywords.join(', ') || 'none'}`,
     `- Period covered: ${dates.length ? `${dates[0]} to ${dates[dates.length - 1]}` : 'not dated'}`,
@@ -393,13 +396,13 @@ function readme(
     '## Methods',
     '',
     '- Devices were made as recorded in each batch: the stack (layer order, method and recipe of each layer) frozen when the batch started, the variants (devices that differ from the default), and the values recorded during the run.',
-    '- J–V curves were measured on the 8-pixel system (Padrão) or the 1.5 × 2.5 system and imported from the instrument files (named in `source_file`).',
+    '- J–V curves were imported from the instrument files (named in `source_file`).',
     '- Parameters were calculated by PANOPTICA from each curve: Jsc at 0 V, Voc where the current crosses zero, maximum power on a fine grid, FF, PCE from the light intensity, Rs and Rsh from the slopes at Voc and at 0 V. Isolated contact glitches are left out. `instrument_pce_pct` is the value the instrument software reported, for comparison.',
     '- Counted pixels (`counted`): working pixels only, never check sweeps (a quick exploratory scan before the real measurement of the same pixel), and when a pixel was measured more than once, its best scan in each direction. Statistics and comparisons use counted pixels only.',
     '',
     '## Depositing',
     '',
-    'FAPESP asks that data from the projects it funds be deposited in an institutional repository. At Unicamp that is REDU (Repositório de Dados de Pesquisa da Unicamp). Upload the files of this folder; `metadata.json` holds what the deposit form asks for.',
+    'Many funders ask that data from the projects they fund be deposited in a research data repository (an institutional Dataverse, Zenodo or similar). Upload the files of this folder; `metadata.json` holds what the deposit form asks for.',
     '',
   );
   return L.join('\n');

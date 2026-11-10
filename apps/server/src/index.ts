@@ -23,7 +23,7 @@ import {
   UserTagsIn,
 } from '@psc/schema';
 import { ADDED_CHEMS, DEFAULT_CHEMS, CORE_VERSION, passwordProblem, ageOn } from '@psc/core';
-import { db, tx, perms, tagsOf } from './db.js';
+import { db, tx, perms, tagHas, tagsOf } from './db.js';
 import { hash, verify as verifyRaw } from './auth.js';
 import { registerPresets } from './presets.js';
 import { registerIv } from './iv.js';
@@ -31,6 +31,7 @@ import { registerComparisons } from './comparisons.js';
 import { registerSocial } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
+import { registerEquipment } from './equipment.js';
 import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
 import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
@@ -146,6 +147,10 @@ export type User = {
   professor?: boolean;
   manager?: boolean;
   inventory?: boolean;
+  /** manages all equipment (tag permission) */
+  equipment?: boolean;
+  /** trains people on any equipment (tag permission) */
+  training?: boolean;
   all?: boolean;
 };
 const bad = (reply: any, p: { error: { issues: { message: string }[] } }) =>
@@ -250,12 +255,12 @@ app.get('/api/users/:id/photo', { preHandler: auth() }, async (req: any, reply) 
     .type(m[1])
     .send(Buffer.from(m[2], 'base64'));
 });
-/** Who is online with the Professor tag, for the eye next to search; `since` changes each time she comes back. Also the heartbeat of open tabs. */
+/** Who is online with the Professor tag, for the eye next to search; `since` changes each time they come back. Also the heartbeat of open tabs. */
 app.get('/api/presence', { preHandler: auth() }, async (req: any) => ({
   professors: db
     .prepare(
       `SELECT DISTINCT u.id,u.name,u.photo_v AS photoV,u.online_since AS since FROM users u JOIN user_tags ut ON ut.user_id=u.id JOIN tags t ON t.id=ut.tag_id
-    WHERE t.kind='professor' AND u.deleted=0 AND u.active=1 AND u.id<>? AND u.last_seen>?`,
+    WHERE ${tagHas('comments')} AND u.deleted=0 AND u.active=1 AND u.id<>? AND u.last_seen>?`,
     )
     .all(req.user.id, new Date(Date.now() - ONLINE_MS).toISOString()),
 }));
@@ -284,11 +289,22 @@ app.put('/api/fun', { preHandler: auth(true) }, async (req: any, reply) => {
 
 // ---- tags: everyone reads, admin edits ----
 app.get('/api/tags', { preHandler: auth() }, async () =>
-  db
-    .prepare(
-      'SELECT t.*, (SELECT COUNT(*) FROM user_tags ut JOIN users u ON u.id=ut.user_id WHERE ut.tag_id=t.id AND u.deleted=0) AS n FROM tags t ORDER BY t.pos, t.name',
-    )
-    .all(),
+  (
+    db
+      .prepare(
+        'SELECT t.*, (SELECT COUNT(*) FROM user_tags ut JOIN users u ON u.id=ut.user_id WHERE ut.tag_id=t.id AND u.deleted=0) AS n FROM tags t ORDER BY t.pos, t.name',
+      )
+      .all() as any[]
+  ).map((t) => ({
+    ...t,
+    perms: JSON.parse(t.perms || '[]'),
+    // who has it (for the tag's window)
+    people: db
+      .prepare(
+        'SELECT u.id,u.name,u.photo_v AS photoV FROM user_tags ut JOIN users u ON u.id=ut.user_id WHERE ut.tag_id=? AND u.deleted=0 ORDER BY u.name',
+      )
+      .all(t.id),
+  })),
 );
 app.post('/api/tags', { preHandler: auth(true) }, async (req: any, reply) => {
   const p = TagIn.safeParse(req.body);
@@ -297,8 +313,8 @@ app.post('/api/tags', { preHandler: auth(true) }, async (req: any, reply) => {
     const pos = ((db.prepare('SELECT MAX(pos) AS m FROM tags').get() as any).m ?? 0) + 1;
     return {
       id: db
-        .prepare("INSERT INTO tags(name,color,kind,pos) VALUES(?,?,'label',?)")
-        .run(p.data.name, p.data.color ?? '#6b7280', pos).lastInsertRowid,
+        .prepare("INSERT INTO tags(name,color,kind,pos,perms) VALUES(?,?,'label',?,?)")
+        .run(p.data.name, p.data.color ?? '#6b7280', pos, JSON.stringify(p.data.perms ?? [])).lastInsertRowid,
     };
   } catch {
     return reply.code(409).send({ error: 'a tag with this name already exists' });
@@ -310,6 +326,10 @@ app.patch('/api/tags/:id', { preHandler: auth(true) }, async (req: any, reply) =
   try {
     if (p.data.name) db.prepare('UPDATE tags SET name=? WHERE id=?').run(p.data.name, +req.params.id);
     if (p.data.color) db.prepare('UPDATE tags SET color=? WHERE id=?').run(p.data.color, +req.params.id);
+    if (p.data.perms) {
+      // at least one admin keeps the app manageable: perms never lock admins out, they only add access
+      db.prepare('UPDATE tags SET perms=? WHERE id=?').run(JSON.stringify([...new Set(p.data.perms)]), +req.params.id);
+    }
     return { ok: true };
   } catch {
     return reply.code(409).send({ error: 'a tag with this name already exists' });
@@ -318,10 +338,7 @@ app.patch('/api/tags/:id', { preHandler: auth(true) }, async (req: any, reply) =
 app.delete('/api/tags/:id', { preHandler: auth(true) }, async (req: any, reply) => {
   const t = db.prepare('SELECT kind FROM tags WHERE id=?').get(+req.params.id) as { kind: string } | undefined;
   if (!t) return reply.code(404).send({ error: 'not found' });
-  if (t.kind !== 'label')
-    return reply.code(400).send({
-      error: 'the Professor, Manager and Inventory tags give access and cannot be deleted (rename them if you like)',
-    });
+  // any tag can be deleted (0.38): what it gave goes with it
   db.prepare('DELETE FROM tags WHERE id=?').run(+req.params.id);
   return { ok: true };
 });
@@ -412,6 +429,7 @@ registerComparisons(app, auth, bad);
 registerEvents(app, auth);
 registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);
+registerEquipment(app, auth, bad);
 registerCalendar(app, auth, bad);
 registerDashboard(app, auth);
 
@@ -598,12 +616,27 @@ app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
     name: r.name,
     ...JSON.parse(r.data),
   }));
+  // batches are started by name; the code is the next free number of the day (trashed batches keep theirs)
+  let code = p.data.code.trim();
+  if (!code) {
+    const t = new Date(),
+      day = `B-${String(t.getFullYear()).slice(2)}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}-`,
+      taken = new Set(
+        (db.prepare('SELECT code FROM batches WHERE code LIKE ?').all(day + '%') as { code: string }[]).map(
+          (r) => r.code,
+        ),
+      );
+    let n = 1;
+    while (taken.has(day + n)) n++;
+    code = day + n;
+  }
+  if (!p.data.name.trim() && !p.data.code.trim()) return reply.code(400).send({ error: 'give the batch a name' });
   try {
     const r = db
       .prepare('INSERT INTO batches(owner_id,code,name,visibility,snapshot) VALUES(?,?,?,?,?)')
       .run(
         req.user.id,
-        p.data.code,
+        code,
         p.data.name,
         p.data.visibility,
         JSON.stringify({ stack: p.data.stack, resolved, chems, coreVersion: CORE_VERSION, source: p.data.source }),
@@ -611,7 +644,7 @@ app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
     return { id: r.lastInsertRowid };
   } catch {
     return reply.code(409).send({
-      error: (db.prepare('SELECT deleted_at FROM batches WHERE code=?').get(p.data.code) as any)?.deleted_at
+      error: (db.prepare('SELECT deleted_at FROM batches WHERE code=?').get(code) as any)?.deleted_at
         ? 'a batch with this code is in the trash: restore it or empty it from the trash first'
         : 'batch code already exists',
     });

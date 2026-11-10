@@ -1,3 +1,4 @@
+import { covers } from '@psc/core';
 import type { StackD } from '../stacks/model';
 
 export type Role = 'prep' | 'scale' | 'spinner' | 'organic' | 'metal';
@@ -9,7 +10,17 @@ export type Role = 'prep' | 'scale' | 'spinner' | 'organic' | 'metal';
  */
 export type Bundle = {
   key: string;
-  role: Role;
+  role: Role | '';
+  /**
+   * The recipe steps the block needs its equipment to do (0.38): the scheduler picks equipment that can do all of them,
+   * a glovebox counting what is inside it.
+   */
+  needs: string[];
+  /**
+   * A step that is done in the same place by default but can be done elsewhere (annealing outside the spin coater's
+   * glovebox): then it becomes a block of its own.
+   */
+  extra?: { step: string; minutes: number };
   step: string;
   layers: string[];
   minutes: number;
@@ -18,7 +29,7 @@ export type Bundle = {
   noRuns?: boolean;
 };
 /** The recipes the batch was started with, per layer (the batch snapshot's `resolved`). */
-type Resolved = Record<number, { a?: { data: any } | null } | undefined>;
+type Resolved = Record<number, { a?: { data: any } | null; b?: { data: any } | null } | undefined>;
 export const ROLE_NAME: Record<Role, string> = {
   prep: 'Substrate preparation',
   scale: 'Solution preparation',
@@ -27,6 +38,7 @@ export const ROLE_NAME: Record<Role, string> = {
   metal: 'Metal evaporation',
 };
 
+const SURF_STEP: Record<string, string> = { 'UV-ozone': 'uvozone', 'O2 plasma': 'plasma' };
 const roleOf = (m: string): Role | null =>
   m === 'Spin' ? 'spinner' : m === 'Organic evap' ? 'organic' : m === 'Metal evap' ? 'metal' : null;
 
@@ -42,7 +54,7 @@ const up5 = (m: number) => Math.ceil(m / 5) * 5;
  * Durations are starting points (20 min per solution, 40 min per spin-coated layer, 60 min per organic layer with at least
  * 90, 150 min per metal run); a booking can be stretched in the calendar.
  */
-export function bundlesOf(st: StackD, resolved?: Resolved): Bundle[] {
+export function bundlesOf(st: StackD, resolved?: Resolved, split: readonly string[] = []): Bundle[] {
   const out: Bundle[] = [],
     spins = st.sl.filter((s) => s.m === 'Spin').map((s) => s.n);
   // cleaning and surface treatment of the substrates (UV-ozone and the like), first, when the stack has a substrate recipe
@@ -58,6 +70,7 @@ export function bundlesOf(st: StackD, resolved?: Resolved): Bundle[] {
     out.push({
       key: 'prep',
       role: 'prep',
+      needs: ['sonication', ...(dry.length ? ['n2dry'] : [])],
       layers: [sub.n],
       step: `Substrate preparation: ${sub.n}`,
       minutes: clean,
@@ -69,6 +82,7 @@ export function bundlesOf(st: StackD, resolved?: Resolved): Bundle[] {
       out.push({
         key: 'prep-surface',
         role: 'prep',
+        needs: [...new Set(surface.map((x) => SURF_STEP[x.s] ?? 'uvozone'))],
         layers: [sub.n],
         step: `Surface treatment: ${sub.n}`,
         minutes: up5(mins(surface)),
@@ -80,53 +94,97 @@ export function bundlesOf(st: StackD, resolved?: Resolved): Bundle[] {
     out.push({
       key: 'scale',
       role: 'scale',
+      needs: ['weighing', 'dissolving'],
       layers: spins,
       step: `Solutions: ${spins.join(', ')}`,
       minutes: Math.max(30, 20 * spins.length),
     });
-  let run: { role: Role; layers: string[] } | null = null;
+  let run: { role: Role; layers: string[]; anneal: number } | null = null;
   const flush = () => {
     if (!run) return;
     const n = run.layers.length,
       min = run.role === 'spinner' ? 40 * n : run.role === 'organic' ? Math.max(90, 60 * n) : 150 * n;
+    const key = `${run.role}-${out.length}`,
+      main = run.role === 'spinner' ? 'spin' : run.role;
+    // annealing after spin coating: in the same glovebox unless the batch moves it elsewhere (its own block, then)
+    const anneal =
+      run.role === 'spinner' && run.anneal > 0 ? { step: 'annealing', minutes: up5(run.anneal) } : undefined;
+    const apart = !!anneal && split.includes(key);
     out.push({
-      key: `${run.role}-${out.length}`,
+      key,
       role: run.role,
+      needs: anneal && !apart ? [main, 'annealing'] : [main],
+      extra: anneal,
       layers: run.layers,
       step: run.layers.join(' + '),
       minutes: min,
     });
+    if (anneal && apart)
+      out.push({
+        key: key + '-anneal',
+        role: '',
+        needs: ['annealing'],
+        layers: run.layers,
+        step: `Annealing: ${run.layers.join(' + ')}`,
+        minutes: anneal.minutes,
+        what: `${run.layers.join(', ')}: annealing`,
+      });
     run = null;
   };
-  for (const s of st.sl) {
+  st.sl.forEach((s, i) => {
     const r = roleOf(s.m);
     if (!r) {
       flush();
-      continue;
+      return;
     } // a manual or substrate step in between breaks the session
-    if (run && run.role === r) run.layers.push(s.n);
-    else {
+    const sp = resolved?.[i]?.b?.data;
+    const an = r === 'spinner' && sp?.an ? +sp.aM || 0 : 0;
+    if (run && run.role === r) {
+      run.layers.push(s.n);
+      run.anneal += an;
+    } else {
       flush();
-      run = { role: r, layers: [s.n] };
+      run = { role: r, layers: [s.n], anneal: an };
     }
-  }
+  });
   flush();
   return out;
 }
 
-const SURFACE_EQ = /uv|ozone|plasma/i;
+type EqLike = {
+  id: number;
+  role: string;
+  name: string;
+  art?: string | null;
+  steps?: string[];
+  parent_id?: number | null;
+  booked?: boolean;
+  active?: boolean | number;
+};
 /**
- * The equipment for a block: the first one set up for its procedure. With two for substrate preparation, surface treatment
- * goes to the UV-ozone or plasma one (by name or drawing) and cleaning to the other.
+ * The equipment that can take a block: active, booked by itself, and able to do every step it needs (with what is inside it).
+ * Those the person is trained on come first; for surface treatment, one named for it (UV-ozone, plasma) before others.
  */
-export function eqFor<E extends { role: string; name: string; art?: string | null }>(
-  b: Bundle,
-  eqs: E[],
-): E | undefined {
-  const all = eqs.filter((e) => e.role === b.role);
-  if (b.role !== 'prep' || all.length < 2) return all[0];
-  const surf = (e: E) => SURFACE_EQ.test(e.name) || e.art === 'uvozone';
-  return (b.part === 'surface' ? all.find(surf) : all.find((e) => !surf(e))) ?? all[0];
+export function eqCandidates<E extends EqLike>(b: Bundle, eqs: E[], trained?: number[]): E[] {
+  const ok = eqs.filter((e) => e.active !== false && e.active !== 0 && e.booked !== false && covers(e, eqs, b.needs));
+  const score = (e: E) =>
+    (trained && !trained.includes(e.id) ? 2 : 0) +
+    (b.part === 'surface' && !(SURFACE_EQ.test(e.name) || e.art === 'uvozone') ? 1 : 0);
+  return [...ok].sort((x, y) => score(x) - score(y));
+}
+
+const SURFACE_EQ = /uv|ozone|plasma/i;
+/** The equipment a block goes to unless the person picks another: the first of `eqCandidates`. */
+export const eqFor = <E extends EqLike>(b: Bundle, eqs: E[], trained?: number[]): E | undefined =>
+  eqCandidates(b, eqs, trained)[0];
+/**
+ * Blocks whose extra step (annealing) must go elsewhere because no equipment does both: added to the batch's own choice.
+ */
+export function autoSplit<E extends EqLike>(st: StackD, resolved: Resolved | undefined, eqs: E[], split: string[]) {
+  const out = [...split];
+  for (const b of bundlesOf(st, resolved, split))
+    if (b.extra && !out.includes(b.key) && !eqCandidates(b, eqs).length) out.push(b.key);
+  return out;
 }
 
 /** Placed: a booking of the batch with this step that is not waiting to be rebooked (postponed with no newer booking). */

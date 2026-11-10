@@ -61,7 +61,7 @@ async function fromDrop(dt: DataTransfer) {
 
 type Draft = {
   key: string;
-  system: 'padrao' | 'sun';
+  system: 'csv' | 'txt';
   date: string;
   name: string;
   curves: IvCurve[];
@@ -119,7 +119,7 @@ export default function ImportIv({
         runs = parseLifetime(files);
       if (!r.curves.length && !runs.length) {
         setErr(
-          `No J–V curves found in ${files.length} file${files.length === 1 ? '' : 's'}. Supported: the 8-pixel system's "J-V Data.csv" exports and the 1.5 × 2.5 system's "-JV-…-Sun-….txt" files.`,
+          `No J–V curves found in ${files.length} file${files.length === 1 ? '' : 's'}. Supported: multi-pixel "J-V Data.csv" exports and per-curve "-JV-…-Sun-….txt" files.`,
         );
         setBusy(false);
         return;
@@ -132,7 +132,7 @@ export default function ImportIv({
             key,
             system: c.system,
             date: c.date,
-            name: `${fdate(c.date)} · ${c.system === 'padrao' ? 'Padrão' : '1.5 × 2.5'}`,
+            name: `${fdate(c.date)} · ${c.system === 'csv' ? 'multi-pixel' : 'per-curve'}`,
             curves: [],
             links: {},
             devices: {},
@@ -145,7 +145,7 @@ export default function ImportIv({
       }
       const lifeDrafts: Draft[] = runs.map((run) => ({
         key: 'life|' + run.folder + '|' + run.run,
-        system: 'padrao',
+        system: 'csv',
         date: run.date,
         name: `${fdate(run.date)} · Lifetime · ${run.run.replace(/_/g, ' ')}`,
         curves: run.curves,
@@ -182,7 +182,7 @@ export default function ImportIv({
           const r = await api<{ id: number }>('/iv', 'POST', {
             name: d.name,
             date: d.date,
-            system: 'padrao',
+            system: 'csv',
             visibility: vis,
             kind: 'lifetime',
             links: { [smp]: d.links[d.life.run] ?? null },
@@ -278,9 +278,9 @@ export default function ImportIv({
               }
             />
             <span className="mut small">
-              8-pixel system (Padrão): the folder with "… J-V Data.csv", "… Metrics.csv" and the Settings folder, or a
-              lifetime run's folder (its "J-V Data" and Settings folders). 1.5 × 2.5 system: the day folder with
-              "…-JV-Backward-Sun-A1.txt" and "…-Parameters.txt".
+              Multi-pixel CSV systems (such as Ossila's): the folder with "… J-V Data.csv", "… Metrics.csv" and the
+              Settings folder, or a lifetime run's folder (its "J-V Data" and Settings folders). Per-curve text systems:
+              the day folder with "…-JV-Backward-Sun-A1.txt" and "…-Parameters.txt".
             </span>
           </div>
         ) : (
@@ -489,7 +489,7 @@ function LifeCard({ d, targets, up }: { d: Draft; targets: Targets; up: (p: Part
           aria-label="Name"
           onChange={(e) => up({ name: e.target.value })}
         />
-        <span className="mut small">Lifetime run · {SYSTEM.padrao}</span>
+        <span className="mut small">Lifetime run · {SYSTEM.csv}</span>
       </div>
       <p className="small">
         <b>{run.run.replace(/_/g, ' ')}</b>: {run.points} readings of {pixels} pixel{pixels === 1 ? '' : 's'} over{' '}

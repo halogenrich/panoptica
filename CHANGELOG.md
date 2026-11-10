@@ -2,6 +2,20 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.38.0 (2026-11-10)
+
+- **Equipment** (side menu, under Lab): the lab's places and its equipment, with equipment that holds other equipment (a glovebox with a spin coater and a hotplate inside). Each equipment says what it can do (the recipe steps), whether it is booked (equipment inside another is booked with it), its shortest booking, cleanup and drawing, and whether it records its atmosphere. **Move** keeps a history of where it was. **Responsible people** train others, edit, move and set it out of service.
+- **Training**: booking equipment needs training on it (admins are exempt; people who had booked equipment before count as trained). The person's details list their training.
+- **Out of service**: periods when equipment cannot be booked, hatched in the calendar; people with bookings then are told.
+- **Atmosphere**: concluding a step in equipment that records its atmosphere asks for O₂ and H₂O in ppm.
+- **Scheduler by steps**: each block goes to equipment that can do its steps, chosen per block among those you are trained on. **Anneal elsewhere** moves a spin-coating run's annealing to a block of its own.
+- **Tags give permissions**: Private comments, Lab overview, Inventory management, Equipment management, Equipment training. Tags are a list; a tag opens in a window with what it gives and who has it. A person opens in a window with their details and equipment training.
+- **Overview for everyone**: your own work; your students' (as supervisor or co-supervisor); with Lab overview, the lab and anyone.
+- **Print run sheet** sits left of **Start batch** on a stack and left of **Schedule equipment** on a batch, with the same name on both. The notes boxes are gone.
+- **Start batch** asks only for a name; the app numbers the batch by date (B-yymmdd-n).
+- **A clean install has no lab content**: no equipment, substrate designs or tags are created, recipes and designs start empty (no spin program, composition, solvents, materials or cleaning steps), the spiro-OMeTAD template is gone, and placeholders, examples and documents name no lab or institution. J–V systems are named by their export format (multi-pixel CSV, per-curve TXT). The data package asks for the funding agency and grant number. The common-chemicals list stays, for the solution calculator.
+- The tests use synthetic J–V files made by the tests; no measured data is kept in the repository.
+
 ## 0.37.1 (2026-11-10)
 
 - **Logo only**: slides no longer write the lab name next to the logo (plots already did not).
@@ -21,7 +35,7 @@ Each section becomes the notes of its GitHub release (the release workflow takes
 - **Shorted pixels**: a pixel that shorts in one direction and works in the other is a shorted pixel; neither scan counts in best values, statistics, comparisons or records. Existing measurements are checked once on start. The import preview counts the same way.
 - **Pixel map, both directions**: backward / forward PCE on one line under the pixel number ("22.9 / 23.0"), sized to fit; a pixel dead or shorted both ways shows the word once.
 - **Bookings outside batches**: choose **No batch** and say what the booking is for. **J–V measurement** is a new procedure for equipment (the solar simulator, set by its name once): it takes a finished (Done) batch, locked ones included, or no batch with the reason. Such bookings ask no outcome and do not count in a batch's progress.
-- **Full words**: Substrate preparation, Organic evaporation, Metal evaporation, Evaporated perovskite in the side menu, recipes and stacks; layer methods written out (Spin coating, Organic evaporation…); forward and backward instead of fwd and bwd; standard deviation, interquartile range, minimum and maximum; "for example" instead of e.g.; day and month names in full (chart axes use dd/mm and mm/yyyy). GB: stays.
+- **Full words**: Substrate preparation, Organic evaporation, Metal evaporation, Evaporated perovskite in the side menu, recipes and stacks; layer methods written out (Spin coating, Organic evaporation…); forward and backward instead of fwd and bwd; standard deviation, interquartile range, minimum and maximum; "for example" instead of e.g.; day and month names in full (chart axes use dd/mm and mm/yyyy).
 - Colour pickers are circles everywhere. Dialogs keep their rounded corners when they scroll (slim scrollbar inside the corners instead of the square Windows one).
 
 ## 0.36.2 (2026-11-09)
@@ -63,7 +77,7 @@ Perovskite Lab is now **PANOPTICA**, shown as PANOPTICA · lab name everywhere. 
 
 ## 0.35.0 (2026-11-07)
 
-- **Lifetime runs** of the 8-pixel system (Ossila lifetime test): import the run's folder or .zip like any measurement. The app picks the copy of the run whose files match (an aborted attempt leaves header-only files), shows the run before saving and asks for the sample and substrate, which the files do not name. The first reading counts in the statistics; the later ones are the ageing and stay out of them. The **Lifetime** tab plots PCE, Voc, Jsc, FF, Rs or Rsh of every pixel against time (backward, forward or both), normalised or absolute, with T90 and T80; a table with first and latest values, ratio, T90 and T80; one pixel's J–V curves over the run from light to dark; PNG, SVG and a CSV of every reading with the instrument software's PCE alongside. Light and temperature readings are kept when those sensors were connected. A run that stopped before its planned length says so.
+- **Lifetime runs** of multi-pixel CSV systems (Ossila lifetime test): import the run's folder or .zip like any measurement. The app picks the copy of the run whose files match (an aborted attempt leaves header-only files), shows the run before saving and asks for the sample and substrate, which the files do not name. The first reading counts in the statistics; the later ones are the ageing and stay out of them. The **Lifetime** tab plots PCE, Voc, Jsc, FF, Rs or Rsh of every pixel against time (backward, forward or both), normalised or absolute, with T90 and T80; a table with first and latest values, ratio, T90 and T80; one pixel's J–V curves over the run from light to dark; PNG, SVG and a CSV of every reading with the instrument software's PCE alongside. Light and temperature readings are kept when those sensors were connected. A run that stopped before its planned length says so.
 - Readings whose J–V curve crosses zero twice are drawn hollow and left out of T90, T80 and the latest value, with a note on why the instrument software's value differs. Points with a current of exactly 0 (readings the instrument missed) are left out on import.
 - Data package: J–V curves of lifetime runs carry their time (`time_s`).
 
@@ -80,10 +94,10 @@ Perovskite Lab is now **PANOPTICA**, shown as PANOPTICA · lab name everywhere. 
 Sharing, and the major library updates.
 
 - **A link to everything**: every page and item has its own address (`#/batches/12`, `#/iv/5`, `#/cmp/3`, `#/s1/7`, `#/chem/9`). **Copy link** in the header of batches, measurements, comparisons, recipes, designs and containers; Back and Forward move between what was opened; a link opens the item after signing in. Copying works on plain-HTTP lab addresses too.
-- **Data package** for a data repository (FAPESP data management plans): choose batches, measurements and comparisons (with what they are linked to), describe them (title, description, authors, affiliation, FAPESP process, licence, keywords) and download one .zip with a README (what, who, when, folder layout, units, methods), metadata.json with the fields of a REDU / Dataverse deposit, CSV and JSON for every item, one CSV per J–V curve, and SHA-256 checksums of every file. Made in the browser; nothing leaves the computer. From a batch's or comparison's **Export**, a measurement's header, or the Batches and Electric measurements lists.
+- **Data package** for a data repository (data management plans): choose batches, measurements and comparisons (with what they are linked to), describe them (title, description, authors, affiliation, grant, licence, keywords) and download one .zip with a README (what, who, when, folder layout, units, methods), metadata.json with the fields of a Dataverse deposit, CSV and JSON for every item, one CSV per J–V curve, and SHA-256 checksums of every file. Made in the browser; nothing leaves the computer. From a batch's or comparison's **Export**, a measurement's header, or the Batches and Electric measurements lists.
 - **Equipment drawings**: line drawings of the equipment (balance, spin coater, small and thermal evaporator, UV-ozone cleaner, hotplate, glovebox, solar simulator, profilometer, ultrasonic bath, other), the working part in the equipment's colour, in the Day view's columns, the booking form, the hover card and the Overview's equipment use (the dot there is gone). Chosen from use and name; admins pick another under Equipment.
 - Batch page: **Export** menu (report PDF, spreadsheet, data package) instead of separate buttons.
-- Fixes: a measurement day was shown as the day before in some lists (dates without a time are now that calendar day); file names from .zip archives without the UTF-8 flag ("PadraÌo") are read as UTF-8 on import.
+- Fixes: a measurement day was shown as the day before in some lists (dates without a time are now that calendar day); file names from .zip archives without the UTF-8 flag (accented names shown garbled) are read as UTF-8 on import.
 - **Library updates**, each tested on its own before joining: React 19, Vite 8 (with @vitejs/plugin-react 6; builds in under a second), TypeScript 6.0, three.js 0.187, emoji-picker-element 1.29, GitHub actions checkout and setup-node v7. TypeScript 7 waits until typescript-eslint supports it.
 
 ## 0.33.0 (2026-11-06)
@@ -116,7 +130,7 @@ Consistency release: the same patterns everywhere, and the batch record taken fr
 
 ## 0.31.0 (2026-11-06)
 
-- **Glovebox cleanup**: each booking of glovebox equipment (GB:) is followed by 20 minutes of cleanup, shown hatched in the calendar. The equipment stays taken, so nobody can start right after someone else; a booking whose own cleanup would run into the next one is refused too. Per equipment, set by admins under Equipment (Cleanup after).
+- **Glovebox cleanup**: each booking of glovebox equipment is followed by 20 minutes of cleanup, shown hatched in the calendar. The equipment stays taken, so nobody can start right after someone else; a booking whose own cleanup would run into the next one is refused too. Per equipment, set by admins under Equipment (Cleanup after).
 - **Bookings are at least 1 hour** (calendar, batch scheduler, resizing; an older shorter booking becomes an hour when moved).
 - **Comparisons**:
   - Box plots of the parameters you choose, now including R<sub>S</sub> and R<sub>SH</sub> (log axis); the choice is saved with the comparison. Each plot has its own PNG and SVG.
@@ -128,7 +142,7 @@ Consistency release: the same patterns everywhere, and the batch record taken fr
 ## 0.30.0 (2026-11-06)
 
 - **Comparisons** (sidebar › Measurements): groups of devices from any measurements side by side, private until you share them. Pick devices from a list of every measurement (filter by text, measurement, person, dates); group them by name (`batch_mod`: one group per modification, "Padrão"/"ref"/"control" as the reference) with likely typos flagged, or put them in a group yourself. Box plots, the J–V curve of each group's best pixel, a table with medians and the change against the reference, values **relative to the reference of the same measurement**, and **what changed** between the groups' batches (recipes per layer, from the batch snapshots). Export a 16:9 slide, the figures (PNG, SVG) or an Excel file.
-- **Check sweeps**: the quick exploratory scan before the real measurement (8-pixel system: 0.05 V, forward only, then 0.02 V with both directions) is recognised from its voltage step and directions, shown greyed with a "check sweep" label and never counted: not as best pixel, best device, record, in the statistics, the Overview or comparisons. Include it by hand in the pixel's table if needed. Existing measurements are checked when the update starts.
+- **Check sweeps**: the quick exploratory scan before the real measurement (for example 0.05 V, forward only, then 0.02 V with both directions) is recognised from its voltage step and directions, shown greyed with a "check sweep" label and never counted: not as best pixel, best device, record, in the statistics, the Overview or comparisons. Include it by hand in the pixel's table if needed. Existing measurements are checked when the update starts.
 - **Best scan, not latest**: when a pixel was measured more than once, the pixel map, the box plots and the statistics use its best scan (highest PCE) in each direction.
 - **Show outliers** (box plots): untick it when one far-off value squeezes the boxes. The axis then fits the boxes and whiskers; points beyond it become an arrow at the edge with their number (still counted; exported figures keep the arrows). Remembered, and used in the batch report, comparisons and the presentation export too.
 - Import preview: check sweeps counted apart and left out of the best PCE.

@@ -1,14 +1,15 @@
 # PANOPTICA: security and data management
 
-For the LNES group and for the university's IT. It describes what the app stores, who can see what, how the data is protected, backed up and recovered, what the app needs from a host, and what is not covered yet. Version 0.26.
+For a research group that uses PANOPTICA and for its institution's IT. It describes what the app stores, who can see what, how the data is protected, backed up and recovered, what the app needs from a host, and what is not covered yet. Version 0.38.
 
 ## 1. What the app is
 
 A web app for one research group: recipes and designs for perovskite solar cell fabrication, device stacks, batches and their run data, an equipment calendar, an inventory of chemicals, and J–V measurements with statistics.
 
-- **Users**: the group's members (tens of people). No public access, no self-registration: an admin creates every account.
+- **Users**: the group's members (tens of people). No public access: people ask for access with an email of the institution's domains, and an admin accepts or declines each request; admins add visitors themselves, with a last day.
+- **Deployment**: one server per lab, so each lab's data sits apart from every other lab's.
 - **Software**: Node.js 22 (LTS), Fastify web server, SQLite database built into Node, React web interface. One process, one database file. No external services are called, except GitHub when an admin checks for updates.
-- **Source**: GitHub repository `halogenrich/panoptica`, public (open source code; no data, passwords or keys are in it: those exist only on the lab computer). Every change is checked automatically (types, tests, security checks, build, known-vulnerability scan) before a release is published.
+- **Source**: a private GitHub repository (code only; no data, passwords or keys are in it: those exist only on the lab's server). Every change is checked automatically (types, tests, security checks, build, known-vulnerability scan) before a release is published.
 
 ## 2. What is stored
 
@@ -17,10 +18,10 @@ A web app for one research group: recipes and designs for perovskite solar cell 
 | Research records | recipes, stacks, batches, run data, J–V curves, comments | Unpublished research: confidential to the group |
 | Inventory | chemicals, containers, amounts, places | Internal |
 | Calendar | equipment bookings and their outcome | Internal |
-| Accounts | username, display name, optional photo, role and tags, password hash | Personal data (LGPD) |
-| Usage | last time seen online, activity log (who changed what, when, from which network address) | Personal data (LGPD) |
+| Accounts | username, names, institutional email, birth date, department, supervisors, photo, tags, equipment training, password hash | Personal data |
+| Usage | last time seen online, activity log (who changed what, when, from which network address) | Personal data |
 
-**Not stored**: CPF, email addresses, phone numbers, health data or any other sensitive personal data (LGPD art. 5 II). Passwords are never stored, only a salted hash.
+**Not stored**: national ID numbers, phone numbers, health data or any other sensitive personal data. Passwords are never stored, only a salted hash.
 
 **Where**: one SQLite file (`apps/server/data.db`) on the computer that runs the app. Backups in `backups/` there, and optionally an encrypted second copy in a folder off that computer. Secrets of that computer (backup key, an update token if one is used) are in `config/`, never in the database, the backups or the repository.
 
@@ -28,15 +29,19 @@ A web app for one research group: recipes and designs for perovskite solar cell 
 
 Permissions are checked on the server for every request; hiding a button in the interface is never the only protection.
 
-| Role or tag | Can |
+Admins make tags; a tag can give permissions:
+
+| Role or permission | Can |
 |---|---|
-| Member | Create and edit their own work; read work others marked **Shared**; book equipment |
-| **Inventory** tag | Edit the chemicals and the inventory |
-| **Manager** tag | Open the Overview (lab activity, people's pages, equipment use) |
-| **Professor** tag | Read everything, including private work; comment privately to an owner |
+| Member | Create and edit their own work; read work others marked **Shared**; book equipment they are trained on; open their own overview (and their students', for supervisors) |
+| **Inventory management** | Edit the chemicals and the inventory |
+| **Equipment management** | Add, arrange and move places and equipment |
+| **Equipment training** | Record who is trained on which equipment |
+| **Lab overview** | Open the lab's overview and anyone's (activity, people's pages, equipment use) |
+| **Private comments** | Read everything, including private work; comment privately to an owner |
 | Admin | Everything above, plus accounts, backups, the activity log, updates and app settings |
 
-Private work is visible only to its owner, the Professor and admins. Deleting an account blocks sign-in at once and keeps the person's work under "username (former)".
+Private work is visible only to its owner, people with Private comments and admins. Deleting an account blocks sign-in at once and keeps the person's work under "username (former)".
 
 ## 4. Protection
 
@@ -88,18 +93,18 @@ The app supports HTTPS in two ways (section 7). **Without HTTPS, passwords and d
 - Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `panoptica.zip` and its SHA-256.
 - The app downloads a release only when an admin asks, verifies the SHA-256, backs up the database, and replaces only program files; the data, backups and `config/` are never touched.
 - Dependabot opens weekly pull requests for library updates; each runs the same checks.
-- The repository is public, so the app reads the releases without any credential. If it is made private, the app needs a fine-grained token limited to reading this one repository, kept in `config/update.json` on the lab computer; it is never sent to browsers and never stored in the database or backups.
-- A public repository means anyone can read the code, never the data: the database, backups, `config/` (backup key, any token) and uploaded files stay on the lab computer, and `.gitignore` keeps them out of commits. Releases can only be published by the repository's owner, through the checked workflow.
+- The repository is private: the app reads the releases with a fine-grained token limited to reading this one repository, kept in `config/update.json` on the server; it is never sent to browsers and never stored in the database or backups.
+- The repository holds code only, never data: the database, backups, `config/` (backup key, token) and uploaded files stay on the server, and `.gitignore` keeps them out of commits. Tests use synthetic data made by the tests themselves. Releases can only be published by the repository's owner, through the checked workflow.
 - Dependencies are few: Fastify (with its cookie and static-file plugins), zod, React, three.js, and small libraries for geometry, zip, QR codes and the emoji picker; all are bundled with the app, nothing loads from other sites at run time. The database engine is part of Node itself (no native modules).
 
 ## 7. Hosting: what the app needs
 
-**Recommended for the university**: a virtual machine or a computer in the department's network, managed by IT.
+**Recommended**: one virtual machine per lab, run by the PANOPTICA team, with access arranged with the institution's IT.
 
 - Node.js 22 LTS (or newer) and outbound HTTPS to `registry.npmjs.org` (install/update) and `api.github.com` (update check).
 - The app on `127.0.0.1:3000`, behind the department's web server (nginx, Apache or Caddy) with the institution's TLS certificate, forwarding `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`. Start the app with `TRUST_PROXY=1 SECURE_COOKIES=1`.
   Alternatively the app serves HTTPS itself with `TLS_CERT` and `TLS_KEY` (PEM files).
-- Reachable from the university network or its VPN only; not from the internet.
+- Reachable from the institution's network or its VPN only; not from the internet.
 - Disk encryption on the host (BitLocker, LUKS, FileVault) protects the database and local backups if the disk is stolen.
 - A network share for the encrypted second copy of the backups.
 - Optional: a way to run it as a service (Linux: `./install-shortcut.sh --service`, a systemd user service; Windows: NSSM or a scheduled task at boot).
@@ -109,7 +114,7 @@ Example nginx site:
 ```nginx
 server {
   listen 443 ssl;
-  server_name panoptica.example.unicamp.br;
+  server_name panoptica.example.edu;
   ssl_certificate     /etc/ssl/certs/institution.pem;
   ssl_certificate_key /etc/ssl/private/institution.key;
   client_max_body_size 60m;
@@ -122,25 +127,25 @@ server {
 }
 ```
 
-## 8. Personal data (LGPD, Lei 13.709/2018)
+## 8. Personal data (LGPD, GDPR and similar laws)
 
-This section describes the facts; the legal assessment belongs to UNICAMP's data protection officer (Encarregado).
+This section describes the facts; the legal assessment belongs to the institution's data protection officer.
 
 - **Data subjects**: members of the group with an account.
-- **Data**: username, display name, optional photo, role and tags, last time online, activity log entries (time, action, network address). No sensitive personal data.
+- **Data**: username, names, institutional email, birth date (to confirm a password reset; the birthday shows in the calendar only if the person allows it), department, supervisors, photo, tags, equipment training, last time online, activity log entries (time, action, network address). No sensitive personal data.
 - **Purpose**: running the group's research records (who prepared what, equipment use, responsibility for changes) and protecting them (the activity log).
-- **Minimisation**: no email, phone or ID numbers; the photo is optional; the log stores actions, not content.
-- **Access**: admins and the Professor (section 3). The Overview shows activity per person to the Professor and Managers.
+- **Minimisation**: no phone or ID numbers; the log stores actions, not content.
+- **Access**: section 3. Each person sees their own overview; supervisors see their students'; people with Lab overview see everyone's.
 - **Retention**: activity log two years; accounts until deleted by an admin (the work stays under "username (former)"; the photo and preferences are removed). Backups age out as in section 5.
 - **Rights** (access, correction, deletion): a member sees and edits their name and photo in Edit profile; an admin exports a person's activity (Activity log › filter by person › Export CSV) or deletes the account.
 - **Data packages** (for depositing research data): built in the browser from what the person can already see, and downloaded to their computer; the app sends nothing anywhere. A package names the authors typed in its dialog and the owners of its items (display names only, no usernames, addresses or log entries). Depositing it in a repository is the authors' decision and follows the repository's terms.
-- **Security incidents**: the activity log, refused requests and failed sign-ins support the investigation; the response follows the university's procedure.
+- **Security incidents**: the activity log, refused requests and failed sign-ins support the investigation; the response follows the institution's procedure.
 
 ## 9. What is not covered yet
 
 | Gap | Risk | Plan |
 |---|---|---|
-| No single sign-on or second factor | A stolen password opens that account | University SSO (if IT offers OIDC or SAML), or a second factor for admins |
+| No single sign-on or second factor | A stolen password opens that account | Institutional SSO (if IT offers OIDC or SAML), or a second factor for admins |
 | Database not encrypted by the app | A stolen disk exposes the data | Host disk encryption (section 7) |
 | No independent security review | Unknown issues | Review or penetration test by IT before wider use |
 | One server, no automatic failover | Down while the host is down | Acceptable for a group tool; backups bound the data loss |
