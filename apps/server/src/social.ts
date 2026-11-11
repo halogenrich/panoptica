@@ -149,6 +149,7 @@ function purgeOne(kind: TrashKind, id: number) {
       db.prepare('DELETE FROM presets WHERE id=?').run(id);
     } else if (kind === 'batch') {
       db.prepare("DELETE FROM comments WHERE target='batch' AND target_id=?").run(id);
+      db.prepare("DELETE FROM bookings WHERE subject='batch' AND subject_id=?").run(id); // (0.41: no foreign key to cascade)
       db.prepare('DELETE FROM batches WHERE id=?').run(id);
     } else if (kind === 'cmp') db.prepare('DELETE FROM comparisons WHERE id=?').run(id);
     else db.prepare('DELETE FROM iv_sets WHERE id=?').run(id);

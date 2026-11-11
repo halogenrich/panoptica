@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { STEP_KINDS, abilities, stepLabel } from '@psc/core';
+import { abilities } from '@psc/core';
+import type { StepDef } from './Calendar';
 import { api } from '../api';
 import { MeCtx } from '../ctx';
 import Avatar from '../lib/Avatar';
@@ -29,7 +30,14 @@ export type EqRow = {
   trainedCount: number;
 };
 type Place = { id: number; name: string; pos: number };
-type Data = { places: Place[]; equipment: EqRow[]; trained: number[]; can: { manage: boolean } };
+type Data = {
+  /** the steps equipment can do, from the modules (0.41) */
+  steps: StepDef[];
+  places: Place[];
+  equipment: EqRow[];
+  trained: number[];
+  can: { manage: boolean };
+};
 type Person = { id: number; name: string; username: string; photoV?: number };
 type Detail = EqRow & {
   trained: { id: number; name: string; photoV?: number; at: string; note: string; by: string | null }[];
@@ -40,11 +48,10 @@ type Detail = EqRow & {
 
 const hmin = (m: number) =>
   m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} hour${m === 60 ? '' : 's'}`;
-/** Steps grouped as the recipes group them, for the toggles. */
-const GROUPS = [...new Set(STEP_KINDS.map((s) => s.group))].map((g) => ({
-  g,
-  steps: STEP_KINDS.filter((s) => s.group === g),
-}));
+/** Steps grouped as their module groups them, for the toggles. */
+const groupsOf = (defs: StepDef[]) =>
+  [...new Set(defs.map((s) => s.group))].map((g) => ({ g, steps: defs.filter((s) => s.group === g) }));
+const labelOf = (defs: StepDef[]) => (k: string) => defs.find((s) => s.key === k)?.label ?? k;
 
 /**
  * Lab › Equipment: the lab's places and what is in them. Each equipment says what it can do (recipe steps), whether it is
@@ -109,7 +116,7 @@ export default function EquipmentPage({
             <span className="eq-text">
               <b className="eq-name">{e.name}</b>
               <span className="mut small">
-                {can.size ? [...can].map(stepLabel).join(' · ') : 'Nothing set up for the recipes'}
+                {can.size ? [...can].map(labelOf(d.steps)).join(' · ') : 'Nothing set up for the recipes'}
               </span>
             </span>
           </button>
@@ -311,10 +318,20 @@ function WhereSelect({
   );
 }
 
-function StepToggles({ value, on, disabled }: { value: string[]; on: (v: string[]) => void; disabled?: boolean }) {
+function StepToggles({
+  defs,
+  value,
+  on,
+  disabled,
+}: {
+  defs: StepDef[];
+  value: string[];
+  on: (v: string[]) => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="step-groups">
-      {GROUPS.map(({ g, steps }) => (
+      {groupsOf(defs).map(({ g, steps }) => (
         <div key={g} className="step-group">
           <span className="mut small">{g}</span>
           <div className="chips" role="group" aria-label={g}>
@@ -384,7 +401,7 @@ function NewEquipment({ data, onClose, onDone }: { data: Data; onClose: () => vo
           ) : null}
           <div className="fld">
             <span>What it can do</span>
-            <StepToggles value={steps} on={setSteps} />
+            <StepToggles defs={data.steps} value={steps} on={setSteps} />
             <span className="mut small">
               A glovebox can stay empty here: what it can do comes from the equipment you put inside it.
             </span>
@@ -486,11 +503,11 @@ function EquipmentSheet({ id, data, onClose }: { id: number; data: Data; onClose
         {err && <p className="err">{err}</p>}
         <section className="group">
           <h3>What it can do</h3>
-          <StepToggles value={e.steps} on={(steps) => patch({ steps })} disabled={!ed} />
+          <StepToggles defs={data.steps} value={e.steps} on={(steps) => patch({ steps })} disabled={!ed} />
           {inside.length > 0 && (
             <p className="small">
               Inside it: {inside.map((x) => x.name).join(', ')}. With them it can do:{' '}
-              {[...can].map(stepLabel).join(', ') || 'nothing yet'}.
+              {[...can].map(labelOf(data.steps)).join(', ') || 'nothing yet'}.
             </p>
           )}
         </section>

@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.41.0 (2026-11-11)
+
+- **Bookings are for a subject a module defines**, not for a batch: the calendar no longer reads batches itself. Who owns a batch, whether it can be booked for, whether it is locked, whether an outcome is asked and what happens after it (Running, Done) now come from the Electronic Devices module. Existing bookings carry over unchanged (checked booking by booking on an older lab database).
+- **The steps equipment can do come from the modules**: the Equipment page and the checks use the list the modules give, not a fixed one.
+- **A test module** with its own thing to book equipment for, its own steps and its own database change is checked next to Electronic Devices before every release, so the core cannot quietly depend on batches or photovoltaics again.
+- Nothing changes for people using the app.
+
 ## 0.40.0 (2026-11-11)
 
 - **Database changes in order**: every change to the database is now one numbered entry in a single list, run once in order and recorded in the database, instead of checks spread over the program. Each entry says whether it belongs to the core or to the Electronic Devices module, which the module split will follow. Databases from every earlier version come out the same as before (checked column by column against 0.39.1, on an old lab database and on a new one).

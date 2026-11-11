@@ -46,7 +46,9 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | `presets.ts` | Recipes, designs and stacks ("presets"): versions, sharing, run data, trash. |
 | `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs; `stability_of` (stability series) is kept in the data but no longer in the interface since 0.37.1. |
 | `comparisons.ts` | Comparisons: saved groups of devices (references to measurement, sample and substrate), private by default; the device list for picking. |
-| `calendar.ts` | Equipment, bookings, outcomes, batch scheduling; moves batches to Running and Done. |
+| `modules.ts` | The module registry (0.41): what bookings can be for (subjects) and the steps equipment can do, each from a module. The core knows them only through it. |
+| `calendar.ts` | Core calendar: bookings, outcomes, atmosphere, clashes and cleanup, off-hours. A booking is for a subject (`bookings.subject`, `subject_id`) or a stated purpose; everything about the subject (owner, lock, whether an outcome is asked, what happens after it) comes from its module. |
+| `devices.ts` | The Electronic Devices module's calendar part: batches as a subject (Running and Done follow their bookings), the photovoltaics steps, and the batch scheduler's routes. |
 | `batchlock.ts` | Finished batches lock 14 days after Done (423 on changes); admins unlock for 7 days. |
 | `inventory.ts` | Storage areas and types, shelves, containers, CSV import. |
 | `social.ts` | Comments, reactions, notifications, lab records. |
@@ -144,5 +146,5 @@ Honest list of what a reviewer will notice, roughly in the order worth fixing:
 - **`any` in the server**: request handlers type `req` and database rows as `any`. Typed route schemas (Fastify generics, or zod-derived types for params and rows) would catch mistakes at compile time.
 - **Large files**: some screens are 1 000–1 700 lines (`Inventory.tsx`, `Overview.tsx`, `Calendar.tsx`) and `styles.css` holds every style. Splitting them by sub-screen would make reviews easier.
 - **Tests**: core logic has unit tests and the server has end-to-end security checks, and the main workflows have browser tests, but there are no per-route server tests (permissions per endpoint, calendar rules).
-- **Navigation without URLs**: screens are not addressable by link (no router), so a browser reload returns to the start screen.
+- **Module split in progress** (0.41–0.43): bookings and equipment steps go through the module registry, and a test module (`tools/fake-module.ts`) is checked next to Electronic Devices. Still woven in: the equipment `role` column (derived from the photovoltaics steps, used by the batch scheduler and the drawings), item types in comments, trash and search, the side menu and the Overview's batch and J–V numbers (0.42), and the code layout (0.43).
 - **History**: the repository starts at version 0.25 as one import commit; the reasons behind earlier choices are in the code comments and the changelog, not in commit history.

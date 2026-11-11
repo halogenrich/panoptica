@@ -8,7 +8,6 @@ import { RunForm } from './Library';
 import { stepCaptures, type StepPreset } from './stepRuns';
 
 type Pending = Booking & {
-  batch_name: string;
   /** the equipment records its atmosphere: O₂ and H₂O (ppm) are written down at the end */
   atmosphere?: number;
   /** only the atmosphere is asked (a booking outside a batch, or a step already answered) */
@@ -69,7 +68,7 @@ export default function Outcomes() {
             )}
           </div>
           <p className="mut small">
-            {capture.k.batch_code}, {it.layer}. The step is concluded; write down what the run actually was. If the
+            {capture.k.subject_code}, {it.layer}. The step is concluded; write down what the run actually was. If the
             notebook is not at hand, choose Add it later: the batch page keeps asking for it and you get a reminder.
           </p>
           <RunForm
@@ -78,7 +77,7 @@ export default function Outcomes() {
             ctx={snapCtx(capture.b)}
             d={d}
             presetId={+it.id}
-            batch={capture.k.batch_code}
+            batch={capture.k.subject_code}
             required
             onCancel={next}
             onDone={() => {
@@ -118,8 +117,9 @@ export default function Outcomes() {
         setErr('');
         setList((l) => l.filter((x) => x.id !== b.id));
         window.dispatchEvent(new Event('psc-batches'));
-        if (outcome === 'done')
-          return api<Batch>('/batches/' + b.batch_id).then((bt) => {
+        // run data is asked for batch steps (other modules' subjects have none here yet)
+        if (outcome === 'done' && b.subject === 'batch')
+          return api<Batch>('/batches/' + b.subject_id).then((bt) => {
             const items = stepCaptures(bt, b.step);
             if (items.length) setCapture({ k: b, b: bt, items, at: 0 });
           });
@@ -172,7 +172,7 @@ export default function Outcomes() {
                   <div>
                     <b>{b.equipment}</b>
                     <i className="cbar" />
-                    <span>{b.batch_id ? `${b.batch_code}${b.step ? ` (${b.step})` : ''}` : b.purpose}</span>
+                    <span>{b.subject ? `${b.subject_code}${b.step ? ` (${b.step})` : ''}` : b.purpose}</span>
                     <span className="mut small">{when(b)}</span>
                   </div>
                 </div>
@@ -192,7 +192,7 @@ export default function Outcomes() {
                   <b>{b.equipment}</b>
                   <i className="cbar" />
                   <span>
-                    {b.batch_code}
+                    {b.subject_code}
                     {b.step ? ` (${b.step})` : ''}
                   </span>
                   <span className="mut small">{when(b)}</span>

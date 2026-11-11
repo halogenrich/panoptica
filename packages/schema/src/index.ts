@@ -488,18 +488,28 @@ const iso = z
   .string()
   .refine((v) => !Number.isNaN(Date.parse(v)), 'a date and time')
   .transform((v) => new Date(v).toISOString());
-export const BookingIn = z.object({
-  equipment_id: z.number().int(),
-  /** null: a booking outside any batch, which then needs `purpose` */
-  batch_id: z.number().int().nullable().optional(),
-  /** what a booking outside a batch is for (for the J–V measurement equipment: why it is booked without a finished batch) */
-  purpose: z.string().trim().max(200).optional(),
-  step: z.string().max(120).optional(),
-  note: z.string().max(500).optional(),
-  start: iso,
-  end: iso,
-  /** Admin only: book even if it overlaps another booking. */ force: z.boolean().optional(),
-});
+export const BookingIn = z.preprocess(
+  // before 0.41 a booking named its batch (batch_id); it now names a subject a module defines
+  (v: any) =>
+    v && typeof v === 'object' && 'batch_id' in v && !('subject' in v)
+      ? { ...v, subject: v.batch_id ? 'batch' : '', subject_id: v.batch_id ?? null }
+      : v,
+  z
+    .object({
+      equipment_id: z.number().int(),
+      /** what the booking is for: a subject a module defines ('batch'), or '' for a booking outside one, which then needs `purpose` */
+      subject: z.string().max(40).optional(),
+      subject_id: z.number().int().nullable().optional(),
+      /** what a booking outside a batch is for (for the J–V measurement equipment: why it is booked without a finished batch) */
+      purpose: z.string().trim().max(200).optional(),
+      step: z.string().max(120).optional(),
+      note: z.string().max(500).optional(),
+      start: iso,
+      end: iso,
+      /** Admin only: book even if it overlaps another booking. */ force: z.boolean().optional(),
+    })
+    .refine((b) => !b.subject || !!b.subject_id, { message: 'choose what the booking is for', path: ['subject_id'] }),
+);
 export const EquipmentRole = z.enum(['', 'prep', 'scale', 'spinner', 'organic', 'metal', 'measure']);
 export const EquipmentIn = z.object({
   name: z.string().trim().min(1, 'name the equipment').max(80),

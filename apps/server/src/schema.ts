@@ -16,7 +16,8 @@ import { classifySet, markShortsInSet } from './ivdata.js';
 type Db = DatabaseSync;
 export type Migration = {
   id: number;
-  owner: 'core' | 'devices';
+  /** 'core', 'devices' (Electronic Devices), or another module's id (a test module's changes are numbered from 10000) */
+  owner: string;
   name: string;
   up: (db: Db) => void;
   /** runs outside a transaction (it manages its own: SQLite ignores PRAGMA foreign_keys inside one) */
@@ -512,18 +513,55 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
         );
     },
   },
+  {
+    id: 34,
+    owner: 'core',
+    name: 'a booking is for a subject a module defines (a batch, …), not a batch: bookings.subject and subject_id (0.41)',
+    noTx: true,
+    up: (db) => {
+      // SQLite cannot drop a column that has a foreign key: the table is copied into one without batch_id. Deleting a batch
+      // for good now removes its bookings in the module's code, where the cascade used to do it.
+      const keep =
+        'id,equipment_id,user_id,step,note,start,end,forced,created_at,outcome,reason,outcome_at,outcome_by,purpose,atmo';
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        db.exec('BEGIN');
+        try {
+          db.exec(`CREATE TABLE bookings_new(
+  id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+  subject TEXT NOT NULL DEFAULT '', subject_id INTEGER,
+  user_id INTEGER NOT NULL REFERENCES users(id), step TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+  start TEXT NOT NULL, end TEXT NOT NULL, forced INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  outcome TEXT, reason TEXT NOT NULL DEFAULT '', outcome_at TEXT, outcome_by INTEGER REFERENCES users(id),
+  purpose TEXT NOT NULL DEFAULT '', atmo TEXT NOT NULL DEFAULT '')`);
+          db.exec(`INSERT INTO bookings_new(${keep},subject,subject_id)
+  SELECT ${keep}, CASE WHEN batch_id IS NULL THEN '' ELSE 'batch' END, batch_id FROM bookings`);
+          db.exec('DROP TABLE bookings');
+          db.exec('ALTER TABLE bookings_new RENAME TO bookings');
+          db.exec('CREATE INDEX bookings_time ON bookings(start, end)');
+          db.exec('CREATE INDEX bookings_subject ON bookings(subject, subject_id)');
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+    },
+  },
 ];
 
 /**
  * Brings the database up to date: runs the changes it has not had yet, in order, each in its own transaction (a change that
  * fails leaves the database as it was before that change, and the app does not start).
  */
-export function migrate(db: Db) {
+export function migrate(db: Db, list: Migration[] = MIGRATIONS) {
   db.exec(`CREATE TABLE IF NOT EXISTS migrations(
   id INTEGER PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, at TEXT NOT NULL)`);
   const done = new Set((db.prepare('SELECT id FROM migrations').all() as { id: number }[]).map((r) => r.id));
   const rec = db.prepare('INSERT INTO migrations(id,owner,name,at) VALUES(?,?,?,?)');
-  for (const m of MIGRATIONS) {
+  for (const m of list) {
     if (done.has(m.id)) continue;
     if (m.noTx) {
       m.up(db);

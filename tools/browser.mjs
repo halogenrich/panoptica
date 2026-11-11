@@ -239,6 +239,27 @@ try {
     await page.keyboard.press('Shift');
   });
 
+  await step('equipment is booked for the batch from the Calendar', async () => {
+    await nav('Calendar');
+    await page.getByRole('button', { name: 'New booking' }).click();
+    const dlg = page.getByRole('dialog', { name: 'New booking' });
+    await dlg.getByRole('radio', { name: /Spin coater A/ }).click();
+    // the open batch is offered first, as "subject:id"
+    const sel = dlg.locator('select').first();
+    expect((await sel.locator('option:checked').textContent())?.includes('Browser batch'), 'the batch is not offered');
+    const day = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+    await dlg.locator('input[type=date]').fill(day);
+    await dlg.locator('input[type=time]').nth(0).fill('14:00');
+    await dlg.locator('input[type=time]').nth(1).fill('15:00');
+    await dlg.getByRole('button', { name: /^(Book|Save)/ }).click();
+    await dlg.waitFor({ state: 'detached' });
+    const bk = (await api('GET', `/calendar?from=${day}T00:00:00.000Z&to=${day}T23:59:59.000Z`)).j.bookings;
+    expect(
+      bk.some((b) => b.subject === 'batch' && b.subject_name === 'Browser batch'),
+      'the booking is not for the batch',
+    );
+  });
+
   await step('J–V files are imported and their parameters shown', async () => {
     await nav('J–V curves');
     await page.getByRole('button', { name: 'Import measurements' }).first().click();

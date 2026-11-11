@@ -13,7 +13,7 @@
     "build": "npm run build -w @psc/web",
     "start": "npm run start -w @psc/server",
     "test": "npm run test -w @psc/core",
-    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web --noEmit",
+    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web --noEmit && tsc -p tools",
     "test:server": "node --no-warnings tools/smoke.mjs",
     "test:browser": "node --import tsx tools/browser.mjs --built",
     "lint": "eslint .",
@@ -34,5 +34,5 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1"
   },
-  "version": "0.40.0"
+  "version": "0.41.0"
 }

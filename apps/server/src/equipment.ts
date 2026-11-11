@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { EquipmentIn, EquipmentRole } from '@psc/schema';
-import { STEP_KEYS, roleFromSteps, stepsFromRole, wouldLoop } from '@psc/core';
+import { roleFromSteps, stepsFromRole, wouldLoop } from '@psc/core';
+import { stepDefs, stepKeys } from './modules.js';
 import { db, tx } from './db.js';
 import { notify } from './social.js';
 
@@ -57,7 +58,11 @@ export function bookingRefusal(u: U, eq: number): string | null {
   return null;
 }
 
-const Steps = z.array(z.enum(STEP_KEYS as [string, ...string[]])).max(STEP_KEYS.length);
+/** Steps the modules define (0.41: a registry, not a fixed list). Checked when a request arrives, after the modules registered. */
+const Steps = z
+  .array(z.string())
+  .max(100)
+  .refine((l) => l.every((k) => stepKeys().includes(k)), { message: 'a step no module defines' });
 const EqPatch = z.object({
   name: z.string().trim().min(1, 'name the equipment').max(80).optional(),
   color: z
@@ -120,6 +125,8 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
     reply.code(403).send({ error: what });
 
   app.get('/api/equipment', { preHandler: auth() }, async (req: any) => ({
+    // the steps equipment can do, from the modules (key, label, group, measures)
+    steps: stepDefs(),
     places: db.prepare('SELECT * FROM places ORDER BY pos, name').all(),
     equipment: equipmentList(),
     trained: (
