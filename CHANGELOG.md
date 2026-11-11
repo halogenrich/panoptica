@@ -2,6 +2,11 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.39.0 (2026-11-11)
+
+- **Built packages**: a release is now the app already built, with no source code. Installing or updating downloads and builds nothing on the lab's computer (only Node.js is needed), so it starts in seconds and works without internet once the package is there. The first start after this update clears the source files and libraries the earlier versions left behind.
+- **Signed releases**: every release carries PANOPTICA's signature. The app and the update scripts install a package only when the signature is PANOPTICA's; an unsigned package, or one signed by anyone else, is refused. To update by hand, keep `panoptica.zip.sig` next to `panoptica.zip`.
+
 ## 0.38.1 (2026-11-10)
 
 - Fix: **Print run sheet** printed the page instead of the run sheet in browsers whose print dialog does not hold the page (Safari). The sheet now stays ready to print until you are back in the app.

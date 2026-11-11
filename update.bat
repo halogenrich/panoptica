@@ -36,6 +36,10 @@ if errorlevel 1 (
 for /f %%v in ('node -p "require('./package.json').version"') do set OLD=%%v
 call :log Current version: %OLD%
 call :log Update file: %ZIP%
+rem only packages signed by PANOPTICA are installed: the signature file sits next to the zip
+node tools\verify-package.cjs "%ZIP%"
+if errorlevel 1 ( call :log The update is not signed by PANOPTICA. Nothing was changed. & pause & exit /b 1 )
+call :log Signature checked.
 
 if exist apps\server\data.db (
   if exist apps\server\db-tools.cjs (
@@ -60,8 +64,8 @@ if not defined SRC ( call :log This zip is not a PANOPTICA update. & pause & exi
 
 robocopy "%SRC%" "%CD%" /E /XD node_modules backups config updates /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 ( call :log Copy failed. & pause & exit /b 1 )
-rem source folders are mirrored so files removed in a release are removed here too
-for %%d in (apps\web\src apps\server\src packages\core\src packages\schema\src) do robocopy "%SRC%\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
+rem the built folders are mirrored so files removed in a release are removed here too
+for %%d in (apps\web\dist apps\server\dist) do if exist "%SRC%\%%d" robocopy "%SRC%\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
 rmdir /s /q "%TMPD%"
 
 for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v

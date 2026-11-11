@@ -1,7 +1,7 @@
 // Security and data-safety checks against a real server with a throw-away database. Run: npm run test:server
 // Starts a fake GitHub API too, to test the update download and its checksum.
 import { spawn, execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
@@ -29,10 +29,14 @@ const ok = (cond, what) => {
   if (!cond) failed++;
 };
 
-// ---- fake GitHub: one release with a zip and its checksum (and a wrong checksum on demand)
+// ---- fake GitHub: one release with a zip, its checksum and its signature (and a wrong checksum or signature on demand)
 const zip = Buffer.from('PK fake zip for the update test'),
   good = createHash('sha256').update(zip).digest('hex');
 let sum = good;
+// releases are signed; the test signs with a key of its own and gives the server its public half
+const testKey = generateKeyPairSync('ed25519'),
+  goodSig = sign(null, zip, testKey.privateKey).toString('base64');
+let sig = goodSig; // null: a release with no signature
 const gh = createServer((req, res) => {
   if (req.headers.authorization !== 'Bearer test-token') {
     res.writeHead(404);
@@ -50,6 +54,7 @@ const gh = createServer((req, res) => {
         assets: [
           { id: 1, name: 'perovskite-lab.zip', size: zip.length },
           { id: 2, name: 'perovskite-lab.zip.sha256', size: 64 },
+          ...(sig ? [{ id: 3, name: 'panoptica.zip.sig', size: 89 }] : []),
         ],
       }),
     );
@@ -61,6 +66,10 @@ const gh = createServer((req, res) => {
   if (req.url === '/repos/lab/app/releases/assets/2') {
     res.writeHead(200);
     return res.end(`${sum}  perovskite-lab.zip\n`);
+  }
+  if (req.url === '/repos/lab/app/releases/assets/3' && sig) {
+    res.writeHead(200);
+    return res.end(sig + '\n');
   }
   res.writeHead(404);
   res.end('{}');
@@ -78,9 +87,15 @@ const env = {
   ADMIN_PASSWORD: PW,
   UPDATE_API: `http://127.0.0.1:${GH}`,
   UPDATE_REPO: 'lab/app',
+  PANOPTICA_TEST: '1',
+  UPDATE_PUBLIC_KEY: testKey.publicKey.export({ type: 'spki', format: 'pem' }),
 };
-const srv = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
-  cwd: join(root, 'apps/server'),
+// --built: the same checks against the packaged server (out/panoptica, made by tools/package.mjs), the file labs run
+const BUILT = process.argv.includes('--built'),
+  serverCwd = BUILT ? join(root, 'out/panoptica/apps/server') : join(root, 'apps/server'),
+  serverArgs = BUILT ? ['--no-warnings', 'dist/server.mjs'] : ['--import', 'tsx', 'src/index.ts'];
+const srv = spawn(process.execPath, serverArgs, {
+  cwd: serverCwd,
   env,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -801,8 +816,25 @@ ok(!readFileSync(env.DB_PATH).includes(Buffer.from('test-token')), 'token not st
 sum = 'f'.repeat(64);
 ok((await call('POST', '/api/updates/download')).s === 400, 'download with a wrong checksum refused');
 sum = good;
+sig = null;
+await call('PUT', '/api/updates/settings', {}); // reads the release again, without telling the admins
+const unsigned = await call('POST', '/api/updates/download');
+ok(unsigned.s === 400 && /not signed/.test(unsigned.j.error), 'a release with no signature is refused');
+sig = sign(null, zip, generateKeyPairSync('ed25519').privateKey).toString('base64');
+await call('PUT', '/api/updates/settings', {}); // reads the release again, without telling the admins
+const forged = await call('POST', '/api/updates/download');
+ok(forged.s === 400 && /signature/.test(forged.j.error), 'a release signed with another key is refused');
+sig = goodSig;
+await call('PUT', '/api/updates/settings', {}); // reads the release again, without telling the admins
 const d = await call('POST', '/api/updates/download');
-ok(d.s === 200 && d.j.downloaded?.version === '99.0.0', 'download checked against its checksum');
+ok(d.s === 200 && d.j.downloaded?.version === '99.0.0', 'download checked against its checksum and signature');
+ok(
+  readFileSync(join(root, 'release.pub'), 'utf8').replace(/\s/g, '') ===
+    readFileSync(join(root, 'apps/server/src/signature.ts'), 'utf8')
+      .match(/-----BEGIN PUBLIC KEY-----[\s\S]*?-----END PUBLIC KEY-----/)[0]
+      .replace(/\s/g, ''),
+  'the key in release.pub (update scripts) is the key built into the app',
+);
 ok(
   db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='update'").get().n === 0,
   'no notification for a version found while saving settings',
@@ -813,8 +845,8 @@ console.log('First setup (a fresh install)');
   const port2 = await freePort(),
     base2 = `http://127.0.0.1:${port2}`;
   const env2 = { ...env, PORT: String(port2), DB_PATH: join(tmp, 'fresh.db'), ADMIN_PASSWORD: '' };
-  const s2 = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
-    cwd: join(root, 'apps/server'),
+  const s2 = spawn(process.execPath, serverArgs, {
+    cwd: serverCwd,
     env: env2,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -90,10 +90,11 @@ The app supports HTTPS in two ways (section 7). **Without HTTPS, passwords and d
 
 ## 6. Updates and the software supply chain
 
-- Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `panoptica.zip` and its SHA-256.
-- The app downloads a release only when an admin asks, verifies the SHA-256, backs up the database, and replaces only program files; the data, backups and `config/` are never touched.
+- Releases are built by GitHub Actions from the repository: typecheck, unit tests, the server security checks (`npm run test:server`), production build and `npm audit` must pass, or no release is published. The release carries `panoptica.zip`, its SHA-256 and PANOPTICA's signature of it (Ed25519).
+- The package is the app already built: no source code, and nothing is downloaded or built on the lab's server when it is installed or updated (only Node.js is needed there).
+- The app downloads a release only when an admin asks, verifies the SHA-256 (a damaged download) and the signature (who made it: the public key is built into the app, the private key is held only by PANOPTICA), backs up the database, and replaces only program files; the data, backups and `config/` are never touched. The update script checks the signature again before it replaces anything. A package that is unsigned, or signed by anyone else, is refused.
 - Dependabot opens weekly pull requests for library updates; each runs the same checks.
-- The repository is private: the app reads the releases with a fine-grained token limited to reading this one repository, kept in `config/update.json` on the server; it is never sent to browsers and never stored in the database or backups.
+- The repository is private: the app reads the releases with a fine-grained token limited to reading this one repository, kept in `config/update.json` on the server; it is never sent to browsers and never stored in the database or backups. That token can still read the source code; releases will move to a place of their own so that lab servers hold no such token.
 - The repository holds code only, never data: the database, backups, `config/` (backup key, token) and uploaded files stay on the server, and `.gitignore` keeps them out of commits. Tests use synthetic data made by the tests themselves. Releases can only be published by the repository's owner, through the checked workflow.
 - Dependencies are few: Fastify (with its cookie and static-file plugins), zod, React, three.js, and small libraries for geometry, zip, QR codes and the emoji picker; all are bundled with the app, nothing loads from other sites at run time. The database engine is part of Node itself (no native modules).
 

@@ -17,12 +17,14 @@ import { UpdateSettingsIn } from '@psc/schema';
 import { db } from './db.js';
 import { ROOT, readConfig, writeConfig } from './config.js';
 import { backupNow } from './backup.js';
+import { signedByPanoptica } from './signature.js';
 
 /**
- * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip and its
- * SHA-256. Once a day the app asks GitHub for the latest release; when it is newer, admins get a notification. In Admin settings ›
- * Updates an admin downloads it (checked against its SHA-256) and installs it: the app backs up the database, stops, and the
- * update script replaces the program files (never the data) and starts it again.
+ * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (the app
+ * built, with no source code), its SHA-256 and PANOPTICA's signature of it. Once a day the app asks GitHub for the latest
+ * release; when it is newer, admins get a notification. In Admin settings › Updates an admin downloads it (checked against its
+ * SHA-256, and installed only when the signature is PANOPTICA's) and installs it: the app backs up the database, stops, and
+ * the update script replaces the program files (never the data) and starts it again.
  * A public repository needs no token. A private one needs a read-only GitHub token (fine-grained, this repository, Contents:
  * read), kept in config/update.json on this computer, never in the database, backups or the repository.
  */
@@ -36,6 +38,7 @@ type Release = {
   url: string;
   zip?: { id: number; size: number };
   sha?: { id: number };
+  sig?: { id: number };
 };
 type State = {
   checkedAt?: string;
@@ -115,6 +118,7 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       sha: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')) && {
         id: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')).id,
       },
+      sig: asset('panoptica.zip.sig') && { id: asset('panoptica.zip.sig').id },
     };
     const fresh = notify && newer(latest.version, current) && st.notified !== latest.version;
     putState({
@@ -157,9 +161,14 @@ async function download(): Promise<State> {
   const got = createHash('sha256').update(zip).digest('hex');
   if (!/^[0-9a-f]{64}$/.test(sum) || got !== sum)
     throw new Error('the downloaded file does not match its checksum; nothing was installed');
+  // the checksum catches a damaged download; the signature says who made the package
+  if (!rel.sig) throw new Error('this release is not signed by PANOPTICA; nothing was installed');
+  const sig = await (await gh(`/repos/${s.repo}/releases/assets/${rel.sig.id}`, 'application/octet-stream')).text();
+  if (!signedByPanoptica(zip, sig))
+    throw new Error('the signature of this release is not PANOPTICA’s; nothing was installed');
   mkdirSync(DIR, { recursive: true });
   for (const f of readdirSync(DIR))
-    if (/^(panoptica|perovskite-lab)-.*\.zip$/.test(f))
+    if (/^(panoptica|perovskite-lab)-.*\.zip(\.sig)?$/.test(f))
       try {
         unlinkSync(join(DIR, f));
       } catch {
@@ -167,6 +176,7 @@ async function download(): Promise<State> {
       }
   const file = join(DIR, `panoptica-${rel.version}.zip`);
   writeFileSync(file, zip);
+  writeFileSync(file + '.sig', sig.trim() + '\n'); // the update script checks it again before replacing anything
   putState({ ...st, downloaded: { version: rel.version, file } });
   return getState();
 }

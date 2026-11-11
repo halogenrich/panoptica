@@ -14,7 +14,8 @@ const PORT = 3000,
   base = `http://127.0.0.1:${PORT}`,
   PW = 'e2e admin password 26';
 const zip = readFileSync(zipPath),
-  sum = createHash('sha256').update(zip).digest('hex');
+  sum = createHash('sha256').update(zip).digest('hex'),
+  sig = existsSync(zipPath + '.sig') ? readFileSync(zipPath + '.sig', 'utf8') : null; // PANOPTICA's signature (a test key here)
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -31,11 +32,13 @@ createServer((q, r) => {
         assets: [
           { id: 1, name: 'panoptica.zip', size: zip.length },
           { id: 2, name: 'panoptica.zip.sha256', size: 90 },
+          ...(sig ? [{ id: 3, name: 'panoptica.zip.sig', size: 90 }] : []),
         ],
       }),
     );
   if (q.url.endsWith('/assets/1')) return r.writeHead(200).end(zip);
   if (q.url.endsWith('/assets/2')) return r.writeHead(200).end(`${sum}  panoptica.zip\n`);
+  if (sig && q.url.endsWith('/assets/3')) return r.writeHead(200).end(sig);
   r.writeHead(404).end('{}');
 }).listen(GH);
 
@@ -47,6 +50,10 @@ const env = {
   ADMIN_PASSWORD: PW,
   UPDATE_API: `http://127.0.0.1:${GH}`,
   UPDATE_REPO: 'lab/app',
+  // the test release is signed with a test key (tools/test-sign.mjs); the app is told its public half
+  ...(existsSync(zipPath + '.pub')
+    ? { PANOPTICA_TEST: '1', UPDATE_PUBLIC_KEY: readFileSync(zipPath + '.pub', 'utf8') }
+    : {}),
 };
 log('starting', app);
 if (process.platform === 'win32')

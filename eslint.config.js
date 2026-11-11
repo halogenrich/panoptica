@@ -7,14 +7,7 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      'backups/**',
-      'config/**',
-      'updates/**',
-      'packages/core/test-data/**',
-    ],
+    ignores: ['**/node_modules/**', '**/dist/**', 'backups/**', 'config/**', 'updates/**', 'out/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

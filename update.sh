@@ -15,13 +15,15 @@ PORT=${PORT:-3000} node -e "require('net').createServer().once('error',()=>proce
   || fail "The app is running. Stop it first (Ctrl+C in its window, or: systemctl --user stop perovskite-lab), then run the update again."
 OLD=$(node -p "require('./package.json').version")
 echo "Current version: $OLD"; echo "Update file:     $ZIP"
+# only packages signed by PANOPTICA are installed (the signature file sits next to the zip)
+node tools/verify-package.cjs "$ZIP" || fail "Nothing was changed."
 if [ -f apps/server/data.db ]; then (cd apps/server && node db-tools.cjs backup update) || fail "Backup failed; nothing was changed."; fi
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 if command -v unzip >/dev/null; then unzip -q "$ZIP" -d "$TMP"; else python3 -m zipfile -e "$ZIP" "$TMP"; fi || fail "Could not read the zip."
 NEW="$TMP/panoptica"; [ -d "$NEW" ] || NEW="$TMP/perovskite-lab"; [ -f "$NEW/package.json" ] || fail "This zip is not a PANOPTICA update."
 rm -rf "$NEW/node_modules" "$NEW/backups" "$NEW"/apps/server/data.db*                 # never overwrite data
-# source folders are mirrored (files removed in a release go too); the old ones are kept aside until the copy succeeds
-SRC="apps/web/src apps/server/src packages/core/src packages/schema/src"
+# the built folders are mirrored (files removed in a release go too); the old ones are kept aside until the copy succeeds
+SRC="apps/web/dist apps/server/dist"
 for d in $SRC; do [ -d "$d" ] && mkdir -p "$TMP/old/$(dirname "$d")" && mv "$d" "$TMP/old/$d"; done
 if ! cp -a "$NEW/." ./; then
   for d in $SRC; do [ -d "$TMP/old/$d" ] && rm -rf "./$d" && mv "$TMP/old/$d" "./$d"; done
