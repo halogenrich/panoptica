@@ -88,6 +88,8 @@ const env = {
   UPDATE_API: `http://127.0.0.1:${GH}`,
   UPDATE_REPO: 'lab/app',
   PANOPTICA_TEST: '1',
+  // a module that exists only in the tests, next to Electronic Devices (0.41); the packaged server runs without it
+  ...(process.argv.includes('--built') ? {} : { PANOPTICA_TEST_MODULE: join(root, 'tools/fake-module.ts') }),
   UPDATE_PUBLIC_KEY: testKey.publicKey.export({ type: 'spki', format: 'pem' }),
 };
 // --built: the same checks against the packaged server (out/panoptica, made by tools/package.mjs), the file labs run
@@ -612,7 +614,7 @@ console.log('Calendar: shortest booking and cleanup');
     const me0 = (await call('GET', '/api/me')).j.id;
     const kid = db
       .prepare(
-        "INSERT INTO bookings(equipment_id,batch_id,user_id,step,start,end) VALUES(?,?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
+        "INSERT INTO bookings(equipment_id,subject,subject_id,user_id,step,start,end) VALUES(?,'batch',?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
       )
       .run(plain.j.id, pb.j.id, me0).lastInsertRowid;
     ok((await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done' })).s === 200, 'one step concluded');
@@ -637,7 +639,9 @@ console.log('Calendar: shortest booking and cleanup');
   ok(fr.s === 200, 'with a purpose it is booked');
   const listed = (await call('GET', `/api/calendar?from=${at(13, 0)}&to=${at(14, 0)}`)).j.bookings;
   ok(
-    listed.some((k) => k.id === fr.j.id && k.batch_id === null && k.purpose === 'Testing a new holder'),
+    listed.some(
+      (k) => k.id === fr.j.id && k.subject === '' && k.subject_id === null && k.purpose === 'Testing a new holder',
+    ),
     'and listed with it',
   );
   // the solar simulator (J–V measurement): a finished batch or a reason
@@ -657,7 +661,7 @@ console.log('Calendar: shortest booking and cleanup');
   });
   ok(simDone.s === 200, 'a finished (even locked) batch can be measured');
   ok(
-    (await call('GET', '/api/bookings/pending')).j.every((k) => k.batch_id && k.equipment_id !== sim.j.id),
+    (await call('GET', '/api/bookings/pending')).j.every((k) => k.subject === 'batch' && k.equipment_id !== sim.j.id),
     'no outcome is asked for bookings outside a batch nor for measurements',
   );
   const bl2 = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id);
@@ -781,7 +785,7 @@ console.log('Batches by name, equipment, training, atmosphere and overviews (0.3
   // atmosphere: a step done in the glovebox asks for its O₂ and H₂O
   const kid = db
     .prepare(
-      "INSERT INTO bookings(equipment_id,batch_id,user_id,step,start,end) VALUES(?,?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
+      "INSERT INTO bookings(equipment_id,subject,subject_id,user_id,step,start,end) VALUES(?,'batch',?,?,'Spin','2026-01-05T09:00:00.000Z','2026-01-05T10:00:00.000Z')",
     )
     .run(gb.j.id, n2.j.id, (await call('GET', '/api/me')).j.id).lastInsertRowid;
   ok((await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done' })).s === 400, 'done needs the atmosphere');
@@ -846,12 +850,86 @@ console.log('Database changes in order (0.40)');
   const src = readFileSync(join(root, 'apps/server/src/schema.ts'), 'utf8');
   const ids = [...src.matchAll(/^ {4}id: (\d+),$/gm)].map((m) => +m[1]);
   ok(ids.length > 30 && ids.every((n, i) => n === i + 1), `changes numbered 1…${ids.length} in order`);
-  const rec = db.prepare('SELECT id, owner FROM migrations ORDER BY id').all();
+  const rec = db.prepare('SELECT id, owner FROM migrations WHERE id < 10000 ORDER BY id').all();
   ok(rec.length === ids.length && rec.every((r, i) => r.id === ids[i]), 'every change recorded once in the database');
   ok(
     rec.every((r) => r.owner === 'core' || r.owner === 'devices'),
     'each change belongs to the core or the Electronic Devices module',
   );
+}
+
+if (!BUILT) {
+  console.log('A second module next to Electronic Devices (a test module, 0.41)');
+  const eqs = (await call('GET', '/api/equipment')).j;
+  ok(
+    eqs.steps.some((x) => x.key === 'fake-mix' && x.module === 'fake') &&
+      eqs.steps.some((x) => x.key === 'spin' && x.module === 'devices'),
+    'equipment steps come from every module',
+  );
+  ok(
+    (await call('POST', '/api/equipment', { name: 'Fake nothing', steps: ['no-such-step'] })).s === 400,
+    'a step no module defines is refused',
+  );
+  const mix = await call('POST', '/api/equipment', { name: 'Fake mixer', steps: ['fake-mix'] }),
+    reader = await call('POST', '/api/equipment', { name: 'Fake reader', steps: ['fake-read'] });
+  ok(mix.s === 200 && reader.s === 200, 'equipment that does the test module’s steps');
+  const smp = await call('POST', '/api/m/fake/samples', { name: 'First sample' });
+  ok(smp.s === 200 && smp.j.code === 'S-1', 'the test module’s own route and table');
+  ok(
+    db.prepare("SELECT 1 FROM migrations WHERE id=10001 AND owner='fake'").get(),
+    'its database change is recorded under its own name',
+  );
+  const cal = (await call('GET', '/api/calendar?from=2031-02-01T00:00:00.000Z&to=2031-02-08T00:00:00.000Z')).j;
+  ok(
+    cal.open.some((c) => c.subject === 'sample' && c.id === smp.j.id && c.noun === 'sample') &&
+      cal.open.some((c) => c.subject === 'batch'),
+    'the booking form offers batches and samples',
+  );
+  const t = (d, h) => new Date(Date.UTC(2031, 1, d, h)).toISOString();
+  const bk = (eq, d, h, extra) =>
+    call('POST', '/api/bookings', { equipment_id: eq, start: t(d, h), end: t(d, h + 1), ...extra });
+  const one = await bk(mix.j.id, 3, 9, { subject: 'sample', subject_id: smp.j.id });
+  ok(one.s === 200, 'equipment is booked for a sample');
+  const shown = (await call('GET', '/api/calendar?from=2031-02-01T00:00:00.000Z&to=2031-02-08T00:00:00.000Z')).j
+    .bookings;
+  ok(
+    shown.some(
+      (k) => k.id === one.j.id && k.subject === 'sample' && k.subject_code === 'S-1' && k.subject_noun === 'sample',
+    ),
+    'the calendar shows it as sample S-1',
+  );
+  const over = await bk(mix.j.id, 3, 9, { purpose: 'something else' });
+  ok(over.s === 409 && /for sample S-1/.test(over.j.error), 'an overlap names the sample');
+  ok(
+    (await bk(reader.j.id, 4, 9, { subject: 'sample', subject_id: smp.j.id })).j.error === 'read finished samples only',
+    'measuring equipment of the test module takes finished samples only',
+  );
+  ok(
+    (await bk(mix.j.id, 5, 9, { subject: 'sample', subject_id: 999 })).s === 400 &&
+      (await bk(mix.j.id, 5, 9, { subject: 'nothing', subject_id: 1 })).s === 400,
+    'an unknown sample or kind of subject is refused',
+  );
+  // an ended step of the sample: its owner gives the outcome, and the module hears of it
+  const me = (await call('GET', '/api/me')).j.id;
+  const kid = db
+    .prepare(
+      "INSERT INTO bookings(equipment_id,subject,subject_id,user_id,step,start,end) VALUES(?,'sample',?,?,'Mix','2026-01-06T09:00:00.000Z','2026-01-06T10:00:00.000Z')",
+    )
+    .run(mix.j.id, smp.j.id, me).lastInsertRowid;
+  ok(
+    (await call('GET', '/api/bookings/pending')).j.some((k) => k.id === Number(kid) && !k.atmoOnly),
+    'the ended sample step asks its outcome',
+  );
+  ok((await call('POST', `/api/bookings/${kid}/outcome`, { outcome: 'done' })).s === 200, 'outcome given');
+  ok(
+    db.prepare('SELECT status FROM fake_samples WHERE id=?').get(smp.j.id).status === 'finished',
+    'the test module was told (its sample is finished)',
+  );
+  ok((await bk(reader.j.id, 6, 9, { subject: 'sample', subject_id: smp.j.id })).s === 200, 'then the reader takes it');
+  await call('DELETE', '/api/m/fake/samples/' + smp.j.id);
+  const after = (await call('GET', '/api/calendar?from=2031-02-01T00:00:00.000Z&to=2031-02-08T00:00:00.000Z')).j
+    .bookings;
+  ok(!after.some((k) => k.subject === 'sample'), 'bookings of a deleted sample are hidden');
 }
 
 console.log('First setup (a fresh install)');

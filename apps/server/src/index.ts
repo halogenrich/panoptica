@@ -31,6 +31,8 @@ import { registerComparisons } from './comparisons.js';
 import { registerSocial } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
+import './devices.js'; // the Electronic Devices module (0.41: its calendar part)
+import { modules } from './modules.js';
 import { registerEquipment } from './equipment.js';
 import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
 import { registerDashboard } from './dashboard.js';
@@ -424,8 +426,12 @@ registerComparisons(app, auth, bad);
 registerEvents(app, auth);
 registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);
+// a test module (tests only): the core must work with whatever modules register, not just Electronic Devices
+if (process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TEST_MODULE)
+  await import(/* @vite-ignore */ process.env.PANOPTICA_TEST_MODULE);
 registerEquipment(app, auth, bad);
 registerCalendar(app, auth, bad);
+for (const m of modules()) m.register?.(app, auth, bad);
 registerDashboard(app, auth);
 
 // ---- chemicals: everyone reads, admin edits ----
@@ -542,8 +548,8 @@ app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
       `SELECT b.id,b.code,b.name,b.status,b.visibility,(b.owner_id=@uid) AS mine,u.name AS owner,b.created_at,b.updated_at,b.record,
     json_extract(b.snapshot,'$.stack.arch') AS arch, b.variants, b.done_at, b.unlocked_until, json_array_length(b.snapshot,'$.stack.sl') AS total, json_extract(b.snapshot,'$.stack.thumb') AS thumb,
     (SELECT COUNT(*) FROM run_data r WHERE r.batch=b.code) AS runs,
-    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.batch_id=b.id AND e.role<>'measure' AND COALESCE(k.outcome,'')<>'canceled') AS steps,
-    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.batch_id=b.id AND e.role<>'measure' AND k.outcome='done') AS concluded
+    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.subject='batch' AND k.subject_id=b.id AND e.role<>'measure' AND COALESCE(k.outcome,'')<>'canceled') AS steps,
+    (SELECT COUNT(*) FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.subject='batch' AND k.subject_id=b.id AND e.role<>'measure' AND k.outcome='done') AS concluded
     FROM batches b JOIN users u ON u.id=b.owner_id
     WHERE b.deleted_at IS NULL AND (b.owner_id=@uid OR b.visibility='shared' OR @all=1) ORDER BY b.id DESC`,
     )
