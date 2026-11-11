@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static';
 import { randomBytes } from 'node:crypto';
 import { hostname, networkInterfaces } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   Login,
   UserPatch,
@@ -428,7 +428,7 @@ registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);
 // a test module (tests only): the core must work with whatever modules register, not just Electronic Devices
 if (process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TEST_MODULE)
-  await import(/* @vite-ignore */ process.env.PANOPTICA_TEST_MODULE);
+  await import(pathToFileURL(process.env.PANOPTICA_TEST_MODULE).href); // a file URL: Windows paths (D:\…) are not URLs
 registerEquipment(app, auth, bad);
 registerCalendar(app, auth, bad);
 for (const m of modules()) m.register?.(app, auth, bad);
