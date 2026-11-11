@@ -1,0 +1,543 @@
+import type { DatabaseSync } from 'node:sqlite';
+import { stepsFromRole } from '@psc/core';
+import { classifySet, markShortsInSet } from './ivdata.js';
+
+/**
+ * Every change to the database, in order (0.40). Each runs once, in a transaction, and is recorded in the `migrations` table with
+ * its number; a new release adds changes at the end and never edits or reorders the ones before.
+ *
+ * `owner` says which part of PANOPTICA the change belongs to: 'core' (accounts, lab, equipment, calendar, inventory, comments)
+ * or 'devices' (the Electronic Devices module: recipes, stacks, batches, J–V). It is what the module split will follow.
+ *
+ * Changes 1–33 existed before this list did: they were run piecemeal by each file at start-up, guarded by "is this column there
+ * yet". They keep those guards, so a database from any earlier version (where some or all of them already happened) and a new
+ * one both end up the same, and the first start of 0.40 just records them. Changes after 33 need no guard.
+ */
+type Db = DatabaseSync;
+export type Migration = {
+  id: number;
+  owner: 'core' | 'devices';
+  name: string;
+  up: (db: Db) => void;
+  /** runs outside a transaction (it manages its own: SQLite ignores PRAGMA foreign_keys inside one) */
+  noTx?: boolean;
+};
+
+const has = (db: Db, table: string, col: string) =>
+  (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
+const meta = (db: Db, key: string) => !!db.prepare('SELECT 1 FROM meta WHERE key=?').get(key);
+const mark = (db: Db, key: string, value = new Date().toISOString()) =>
+  db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run(key, value);
+const add = (db: Db, table: string, col: string, def: string) => {
+  if (!has(db, table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+};
+
+export const MIGRATIONS: Migration[] = [
+  {
+    id: 1,
+    owner: 'core',
+    name: 'accounts, sessions, chemicals, preferences',
+    up: (db) =>
+      db.exec(`
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin','member')), hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS sessions(
+  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chemicals(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_prefs(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL DEFAULT '{}');`),
+  },
+  {
+    id: 2,
+    owner: 'devices',
+    name: 'presets (recipes, designs, stacks), batches, run data',
+    up: (db) =>
+      db.exec(`
+CREATE TABLE IF NOT EXISTS presets(
+  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), segment TEXT NOT NULL, name TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')), data TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS batches(
+  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), code TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','running','done')),
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')),
+  snapshot TEXT NOT NULL, record TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS run_data(
+  id INTEGER PRIMARY KEY, preset_id INTEGER NOT NULL REFERENCES presets(id) ON DELETE CASCADE,
+  owner_id INTEGER NOT NULL REFERENCES users(id), batch TEXT NOT NULL DEFAULT '', data TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`),
+  },
+  {
+    id: 3,
+    owner: 'devices',
+    name: 'preset versions (parent)',
+    up: (db) => add(db, 'presets', 'parent_id', 'INTEGER REFERENCES presets(id) ON DELETE SET NULL'),
+  },
+  {
+    id: 4,
+    owner: 'core',
+    name: 'deleted users stay as rows, shown as "username (former)"; forced password change',
+    up: (db) => {
+      add(db, 'users', 'deleted', 'INTEGER NOT NULL DEFAULT 0');
+      add(db, 'users', 'must_change', 'INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+  {
+    id: 5,
+    owner: 'devices',
+    name: 'trash for presets and batches (0.18)',
+    up: (db) => {
+      add(db, 'presets', 'deleted_at', 'TEXT');
+      add(db, 'batches', 'deleted_at', 'TEXT');
+    },
+  },
+  {
+    id: 6,
+    owner: 'core',
+    name: 'app settings, comments with reactions, notifications (0.18)',
+    up: (db) =>
+      db.exec(`
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS comments(
+  id INTEGER PRIMARY KEY, target TEXT NOT NULL, target_id INTEGER NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id),
+  parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE, text TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, edited_at TEXT);
+CREATE INDEX IF NOT EXISTS comments_target ON comments(target, target_id);
+CREATE TABLE IF NOT EXISTS reactions(comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), emoji TEXT NOT NULL,
+  PRIMARY KEY(comment_id, user_id, emoji));
+CREATE TABLE IF NOT EXISTS notifications(
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind TEXT NOT NULL, text TEXT NOT NULL,
+  link TEXT NOT NULL DEFAULT '{}', actor TEXT NOT NULL DEFAULT '', read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, read);`),
+  },
+  {
+    id: 7,
+    owner: 'core',
+    name: 'profile photo, presence, private comments, tags (0.20)',
+    up: (db) => {
+      add(db, 'users', 'photo', 'TEXT');
+      add(db, 'users', 'photo_v', 'INTEGER NOT NULL DEFAULT 0');
+      add(db, 'users', 'last_seen', 'TEXT');
+      add(db, 'users', 'online_since', 'TEXT');
+      add(db, 'comments', 'private', 'INTEGER NOT NULL DEFAULT 0');
+      db.exec(`
+CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, color TEXT NOT NULL DEFAULT '#6b7280',
+  kind TEXT NOT NULL DEFAULT 'label' CHECK(kind IN ('label','professor','manager','inventory')), pos INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS user_tags(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY(user_id, tag_id));`);
+    },
+  },
+  {
+    id: 8,
+    owner: 'devices',
+    name: 'J–V measurements; device groups and devices left out of the plots (0.17)',
+    up: (db) => {
+      db.exec(`
+CREATE TABLE IF NOT EXISTS iv_sets(
+  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, date TEXT NOT NULL DEFAULT '', system TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'shared' CHECK(visibility IN ('private','shared')), links TEXT NOT NULL DEFAULT '{}', notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS iv_curves(
+  id INTEGER PRIMARY KEY, set_id INTEGER NOT NULL REFERENCES iv_sets(id) ON DELETE CASCADE,
+  sample TEXT NOT NULL, substrate TEXT NOT NULL, scan TEXT NOT NULL, pixel TEXT NOT NULL, dir TEXT NOT NULL, file TEXT NOT NULL,
+  area REAL NOT NULL, pin REAL NOT NULL, data TEXT NOT NULL, metrics TEXT NOT NULL, inst TEXT, use INTEGER);
+CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
+      add(db, 'iv_sets', 'devices', "TEXT NOT NULL DEFAULT '{}'");
+      add(db, 'iv_sets', 'deleted_at', 'TEXT');
+    },
+  },
+  {
+    id: 9,
+    owner: 'core',
+    name: 'inventory: storage, shelves, containers, storage types (0.21)',
+    up: (db) => {
+      db.exec(`
+CREATE TABLE IF NOT EXISTS storage_areas(id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'cabinet', place TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '', pos INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS shelves(id INTEGER PRIMARY KEY, area_id INTEGER NOT NULL REFERENCES storage_areas(id) ON DELETE CASCADE, name TEXT NOT NULL, pos INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS containers(
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, chem_id INTEGER REFERENCES chemicals(id) ON DELETE SET NULL, cas TEXT NOT NULL DEFAULT '',
+  amount REAL, size REAL, unit TEXT NOT NULL DEFAULT 'g', status TEXT NOT NULL DEFAULT 'in use',
+  area_id INTEGER REFERENCES storage_areas(id) ON DELETE SET NULL, shelf_id INTEGER REFERENCES shelves(id) ON DELETE SET NULL,
+  supplier TEXT NOT NULL DEFAULT '', lot TEXT NOT NULL DEFAULT '', purity REAL, expires TEXT, opened TEXT, notes TEXT NOT NULL DEFAULT '',
+  added_by INTEGER REFERENCES users(id), added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_by INTEGER REFERENCES users(id), updated_at TEXT);
+CREATE INDEX IF NOT EXISTS containers_area ON containers(area_id);
+CREATE TABLE IF NOT EXISTS storage_types(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, icon TEXT NOT NULL DEFAULT 'cabinet', pos INTEGER NOT NULL DEFAULT 0);`);
+      // storage types are a list the Inventory people edit; the first run makes the usual ones and links existing areas by kind
+      if (!db.prepare('SELECT 1 FROM storage_types LIMIT 1').get()) {
+        const ins = db.prepare('INSERT INTO storage_types(name,icon,pos) VALUES(?,?,?)');
+        [
+          ['Cabinet', 'cabinet'],
+          ['Desiccator', 'desiccator'],
+          ['Glovebox', 'glovebox'],
+          ['Fridge', 'fridge'],
+          ['Freezer', 'freezer'],
+          ['Open shelf', 'shelf'],
+        ].forEach(([n, i], k) => ins.run(n, i, k));
+      }
+      if (!has(db, 'storage_areas', 'type_id')) {
+        db.exec('ALTER TABLE storage_areas ADD COLUMN type_id INTEGER REFERENCES storage_types(id) ON DELETE SET NULL');
+        db.exec('UPDATE storage_areas SET type_id=(SELECT id FROM storage_types t WHERE t.icon=storage_areas.kind)');
+      }
+    },
+  },
+  {
+    id: 10,
+    owner: 'core',
+    name: 'equipment and bookings (0.22)',
+    up: (db) =>
+      db.exec(`
+CREATE TABLE IF NOT EXISTS equipment(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, color TEXT NOT NULL DEFAULT '#2563eb',
+  place TEXT NOT NULL DEFAULT '', pos INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS bookings(
+  id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE, batch_id INTEGER REFERENCES batches(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id), step TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+  start TEXT NOT NULL, end TEXT NOT NULL, forced INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end);`),
+  },
+  {
+    id: 11,
+    owner: 'core',
+    name: 'what each equipment is used for; the outcome of each booking once it has ended (0.22.1)',
+    up: (db) => {
+      add(db, 'equipment', 'role', "TEXT NOT NULL DEFAULT ''");
+      if (!has(db, 'bookings', 'outcome')) {
+        db.exec('ALTER TABLE bookings ADD COLUMN outcome TEXT');
+        db.exec("ALTER TABLE bookings ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
+        db.exec('ALTER TABLE bookings ADD COLUMN outcome_at TEXT');
+        db.exec('ALTER TABLE bookings ADD COLUMN outcome_by INTEGER REFERENCES users(id)');
+      }
+    },
+  },
+  {
+    id: 12,
+    owner: 'devices',
+    name: 'stability follow-ups (0.23)',
+    up: (db) => {
+      if (!has(db, 'iv_sets', 'stability_of')) {
+        db.exec('ALTER TABLE iv_sets ADD COLUMN stability_of INTEGER REFERENCES iv_sets(id) ON DELETE SET NULL');
+        db.exec('ALTER TABLE iv_sets ADD COLUMN measured_at TEXT');
+      }
+    },
+  },
+  {
+    id: 13,
+    owner: 'core',
+    name: 'activity log with a hash chain (0.26)',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS audit(
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL, user_id INTEGER, username TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', status INTEGER NOT NULL DEFAULT 200, prev TEXT NOT NULL, hash TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS audit_at ON audit(at); CREATE INDEX IF NOT EXISTS audit_user ON audit(user_id);`),
+  },
+  {
+    id: 14,
+    owner: 'core',
+    name: 'sessions stored hashed: older plain ones are dropped, everyone signs in once more (0.26)',
+    up: (db) => {
+      if (!meta(db, 'sessions_hashed')) {
+        db.prepare('DELETE FROM sessions').run();
+        mark(db, 'sessions_hashed', '1');
+      }
+    },
+  },
+  {
+    id: 15,
+    owner: 'devices',
+    name: 'comparisons (0.30)',
+    up: (db) =>
+      db.exec(`
+CREATE TABLE IF NOT EXISTS comparisons(
+  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')), notes TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT);`),
+  },
+  {
+    id: 16,
+    owner: 'core',
+    name: 'cleanup minutes after each booking (0.31)',
+    up: (db) => {
+      if (!has(db, 'equipment', 'cleanup')) {
+        db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
+        db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'"); // equipment named before 0.38's clean install
+      }
+    },
+  },
+  {
+    id: 17,
+    owner: 'core',
+    name: 'the UV-ozone cleaner prepares substrates in the scheduler, found by its name once (0.32)',
+    up: (db) => {
+      if (!meta(db, 'prep-equipment')) {
+        db.exec(
+          "UPDATE equipment SET role='prep' WHERE role='' AND (name LIKE '%UV-ozone%' OR name LIKE '%UV ozone%' OR name LIKE '%UVO%')",
+        );
+        mark(db, 'prep-equipment');
+      }
+    },
+  },
+  {
+    id: 18,
+    owner: 'devices',
+    name: 'finished batches lock; variants (0.33)',
+    up: (db) => {
+      if (!has(db, 'batches', 'done_at')) {
+        db.exec('ALTER TABLE batches ADD COLUMN done_at TEXT');
+        db.exec('ALTER TABLE batches ADD COLUMN unlocked_until TEXT');
+        // batches finished before 0.33: their last change is the best guess of when they finished
+        db.exec("UPDATE batches SET done_at=updated_at WHERE status='done'");
+      }
+      add(db, 'batches', 'variants', `TEXT NOT NULL DEFAULT '{"control":"","list":[]}'`);
+    },
+  },
+  {
+    id: 19,
+    owner: 'core',
+    name: 'equipment drawings (0.34)',
+    up: (db) => add(db, 'equipment', 'art', "TEXT NOT NULL DEFAULT ''"),
+  },
+  {
+    id: 20,
+    owner: 'devices',
+    name: 'lifetime runs: set kind and run details, each curve’s time (0.35); check sweeps classified (0.30)',
+    up: (db) => {
+      if (!has(db, 'iv_sets', 'kind')) {
+        db.exec("ALTER TABLE iv_sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'jv'");
+        db.exec('ALTER TABLE iv_sets ADD COLUMN life TEXT');
+        db.exec('ALTER TABLE iv_curves ADD COLUMN t REAL');
+      }
+      if (!has(db, 'iv_curves', 'kind')) {
+        db.exec('ALTER TABLE iv_curves ADD COLUMN kind TEXT');
+        for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) classifySet(db, r.id);
+      }
+    },
+  },
+  {
+    id: 21,
+    owner: 'core',
+    name: 'people’s details and access requests (0.36)',
+    up: (db) => {
+      for (const [c, def] of [
+        ['first_names', "TEXT NOT NULL DEFAULT ''"],
+        ['surnames', "TEXT NOT NULL DEFAULT ''"],
+        ['email', "TEXT NOT NULL DEFAULT ''"],
+        ['birth_date', "TEXT NOT NULL DEFAULT ''"],
+        ['department', "TEXT NOT NULL DEFAULT ''"],
+        ['supervisor', "TEXT NOT NULL DEFAULT ''"],
+        ['cosupervisor', "TEXT NOT NULL DEFAULT ''"],
+        ['visitor_until', 'TEXT'],
+        ['show_birthday', 'INTEGER NOT NULL DEFAULT 1'],
+      ] as const)
+        add(db, 'users', c, def);
+      db.exec(`
+CREATE TABLE IF NOT EXISTS access_requests(
+  id INTEGER PRIMARY KEY, username TEXT NOT NULL, first_names TEXT NOT NULL, surnames TEXT NOT NULL, email TEXT NOT NULL,
+  birth_date TEXT NOT NULL, department TEXT NOT NULL, supervisor TEXT NOT NULL, cosupervisor TEXT NOT NULL DEFAULT '',
+  photo TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','declined')), reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, decided_at TEXT, decided_by TEXT);`);
+    },
+  },
+  {
+    id: 22,
+    owner: 'core',
+    name: 'bookings outside batches say what they are for (0.37)',
+    up: (db) => add(db, 'bookings', 'purpose', "TEXT NOT NULL DEFAULT ''"),
+  },
+  {
+    id: 23,
+    owner: 'core',
+    name: 'bookings without a batch: batch_id may be empty (0.37)',
+    noTx: true,
+    up: (db) => {
+      const col = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string; notnull: number }[]).find(
+        (c) => c.name === 'batch_id',
+      );
+      if (!col?.notnull) return;
+      // SQLite cannot drop NOT NULL from a column: copy the table into one without it
+      const cols = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string }[]).map((c) => c.name).join(',');
+      const sql = (
+        db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bookings'").get() as { sql: string }
+      ).sql;
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        db.exec('BEGIN');
+        try {
+          db.exec(
+            sql
+              .replace(/CREATE TABLE (IF NOT EXISTS )?"?bookings"?/i, 'CREATE TABLE bookings_new')
+              .replace(/batch_id INTEGER NOT NULL/i, 'batch_id INTEGER'),
+          );
+          db.exec(`INSERT INTO bookings_new(${cols}) SELECT ${cols} FROM bookings`);
+          db.exec('DROP TABLE bookings');
+          db.exec('ALTER TABLE bookings_new RENAME TO bookings');
+          db.exec('CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end)');
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+    },
+  },
+  {
+    id: 24,
+    owner: 'core',
+    name: 'the solar simulator measures finished devices, found by its name once (0.37)',
+    up: (db) => {
+      if (!meta(db, 'measure-equipment')) {
+        db.exec(
+          "UPDATE equipment SET role='measure' WHERE role='' AND (name LIKE '%solar sim%' OR name LIKE '%simulator%' OR name LIKE '%J-V%' OR name LIKE '%J–V%')",
+        );
+        mark(db, 'measure-equipment');
+      }
+    },
+  },
+  {
+    id: 25,
+    owner: 'devices',
+    name: 'a pixel that shorted in one scan is shorted in all of them (0.37)',
+    up: (db) => {
+      if (!meta(db, 'short-pixels')) {
+        for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) markShortsInSet(db, r.id);
+        mark(db, 'short-pixels', '1');
+      }
+    },
+  },
+  {
+    id: 26,
+    owner: 'core',
+    name: 'a removed photo kept its version number, so the app asked for an image that was gone (0.37.1)',
+    up: (db) => db.exec('UPDATE users SET photo_v=0 WHERE photo IS NULL AND photo_v<>0'),
+  },
+  {
+    id: 27,
+    owner: 'devices',
+    name: 'the scheduler’s blocks of a batch, so a batch is not Done while some are not placed (0.37.1)',
+    up: (db) => add(db, 'batches', 'plan_steps', "TEXT NOT NULL DEFAULT '[]'"),
+  },
+  {
+    id: 28,
+    owner: 'core',
+    name: 'tags give permissions instead of three built-in kinds (0.38)',
+    up: (db) => {
+      if (!has(db, 'tags', 'perms')) {
+        db.exec("ALTER TABLE tags ADD COLUMN perms TEXT NOT NULL DEFAULT '[]'");
+        db.exec(`UPDATE tags SET perms='["comments","overview"]' WHERE kind='professor'`); // the Professor saw the overview too
+        db.exec(`UPDATE tags SET perms='["overview"]' WHERE kind='manager'`);
+        db.exec(`UPDATE tags SET perms='["inventory"]' WHERE kind='inventory'`);
+      }
+    },
+  },
+  {
+    id: 29,
+    owner: 'core',
+    name: 'equipment: places, equipment inside equipment, steps, responsible people, training, moves, out of service (0.38)',
+    up: (db) => {
+      db.exec(`
+CREATE TABLE IF NOT EXISTS places(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, pos INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS equipment_people(equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY(equipment_id, user_id));
+CREATE TABLE IF NOT EXISTS equipment_training(equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, by_id INTEGER REFERENCES users(id), at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '', PRIMARY KEY(equipment_id, user_id));
+CREATE TABLE IF NOT EXISTS equipment_moves(id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+  place_id INTEGER, parent_id INTEGER, at TEXT NOT NULL, by_id INTEGER REFERENCES users(id));
+CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+  start TEXT NOT NULL, end TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', by_id INTEGER REFERENCES users(id));`);
+      if (has(db, 'equipment', 'steps')) return;
+      db.exec("ALTER TABLE equipment ADD COLUMN steps TEXT NOT NULL DEFAULT '[]'");
+      db.exec('ALTER TABLE equipment ADD COLUMN parent_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL');
+      db.exec('ALTER TABLE equipment ADD COLUMN place_id INTEGER REFERENCES places(id) ON DELETE SET NULL');
+      db.exec('ALTER TABLE equipment ADD COLUMN booked INTEGER NOT NULL DEFAULT 1');
+      db.exec('ALTER TABLE equipment ADD COLUMN min_booking INTEGER NOT NULL DEFAULT 60');
+      db.exec('ALTER TABLE equipment ADD COLUMN atmosphere INTEGER NOT NULL DEFAULT 0');
+      // what each equipment did (its one procedure) becomes the steps it can do; gloveboxes record their atmosphere
+      for (const e of db.prepare('SELECT id,name,role,place FROM equipment').all() as any[]) {
+        db.prepare('UPDATE equipment SET steps=?, atmosphere=? WHERE id=?').run(
+          JSON.stringify(stepsFromRole(e.role, e.name)),
+          /^GB:/i.test(e.name) ? 1 : 0,
+          e.id,
+        );
+        if (e.place?.trim()) {
+          db.prepare('INSERT OR IGNORE INTO places(name) VALUES(?)').run(e.place.trim());
+          const pl = db.prepare('SELECT id FROM places WHERE name=?').get(e.place.trim()) as { id: number };
+          db.prepare('UPDATE equipment SET place_id=? WHERE id=?').run(pl.id, e.id);
+        }
+      }
+      // whoever booked an equipment before training existed counts as trained on it
+      db.prepare(
+        `INSERT OR IGNORE INTO equipment_training(equipment_id,user_id,by_id,at,note)
+         SELECT DISTINCT equipment_id, user_id, NULL, ?, 'booked it before training was recorded' FROM bookings`,
+      ).run(new Date().toISOString());
+    },
+  },
+  {
+    id: 30,
+    owner: 'core',
+    name: 'the glovebox atmosphere at the end of a booking (0.38)',
+    up: (db) => add(db, 'bookings', 'atmo', "TEXT NOT NULL DEFAULT ''"),
+  },
+  {
+    id: 31,
+    owner: 'devices',
+    name: 'runs whose annealing is booked elsewhere (0.38)',
+    up: (db) => add(db, 'batches', 'plan_split', "TEXT NOT NULL DEFAULT '[]'"),
+  },
+  {
+    id: 32,
+    owner: 'devices',
+    name: 'J–V systems named by their export format (0.38)',
+    up: (db) =>
+      db.exec(
+        "UPDATE iv_sets SET system='csv' WHERE system='padrao'; UPDATE iv_sets SET system='txt' WHERE system='sun'",
+      ),
+  },
+  {
+    id: 33,
+    owner: 'core',
+    name: 'booking times stored as UTC ISO text (…Z), so they compare as text',
+    up: (db) => {
+      for (const r of db
+        .prepare("SELECT id,start,end FROM bookings WHERE start NOT LIKE '%Z' OR end NOT LIKE '%Z'")
+        .all() as any[])
+        db.prepare('UPDATE bookings SET start=?, end=? WHERE id=?').run(
+          new Date(r.start).toISOString(),
+          new Date(r.end).toISOString(),
+          r.id,
+        );
+    },
+  },
+];
+
+/**
+ * Brings the database up to date: runs the changes it has not had yet, in order, each in its own transaction (a change that
+ * fails leaves the database as it was before that change, and the app does not start).
+ */
+export function migrate(db: Db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS migrations(
+  id INTEGER PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, at TEXT NOT NULL)`);
+  const done = new Set((db.prepare('SELECT id FROM migrations').all() as { id: number }[]).map((r) => r.id));
+  const rec = db.prepare('INSERT INTO migrations(id,owner,name,at) VALUES(?,?,?,?)');
+  for (const m of MIGRATIONS) {
+    if (done.has(m.id)) continue;
+    if (m.noTx) {
+      m.up(db);
+      rec.run(m.id, m.owner, m.name, new Date().toISOString());
+      continue;
+    }
+    db.exec('BEGIN');
+    try {
+      m.up(db);
+      rec.run(m.id, m.owner, m.name, new Date().toISOString());
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw new Error(`database change ${m.id} (${m.name}) failed: ${(e as Error).message}`);
+    }
+  }
+}

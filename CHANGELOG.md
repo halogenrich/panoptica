@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.40.0 (2026-11-11)
+
+- **Database changes in order**: every change to the database is now one numbered entry in a single list, run once in order and recorded in the database, instead of checks spread over the program. Each entry says whether it belongs to the core or to the Electronic Devices module, which the module split will follow. Databases from every earlier version come out the same as before (checked column by column against 0.39.1, on an old lab database and on a new one).
+- **Browser tests**: the main flows are clicked through in a real browser before each release: first setup, signing out and in, adding equipment, a booking, a stack's and a batch's run sheet (that the sheet, not the page, is printed, also in the way Safari prints), starting a batch by name, and a J–V import.
+- Nothing changes for people using the app.
+
 ## 0.39.1 (2026-11-11)
 
 - Fix: in the first setup, the **sign-in screen preview** was squeezed, down to nothing on a short window, once the page had more than fit the window. The page now scrolls and the preview keeps its shape. Its text also showed small, grey and cut off, from a style meant for another part of the app.

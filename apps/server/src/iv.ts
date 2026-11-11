@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { checkSweeps, ivMetrics, shortedPixels } from '@psc/core';
+import { ivMetrics } from '@psc/core';
+import { classifySet, markShortsInSet } from './ivdata.js';
 import { IvCurvePatch, IvSetIn, IvSetPatch } from '@psc/schema';
 import { db, tx } from './db.js';
 import { checkRecord } from './social.js';
@@ -44,82 +45,8 @@ export function linkNames(links: Record<string, Link>) {
 }
 
 export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any, bad: (reply: any, p: any) => any) {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS iv_sets(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, date TEXT NOT NULL DEFAULT '', system TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'shared' CHECK(visibility IN ('private','shared')), links TEXT NOT NULL DEFAULT '{}', notes TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS iv_curves(
-  id INTEGER PRIMARY KEY, set_id INTEGER NOT NULL REFERENCES iv_sets(id) ON DELETE CASCADE,
-  sample TEXT NOT NULL, substrate TEXT NOT NULL, scan TEXT NOT NULL, pixel TEXT NOT NULL, dir TEXT NOT NULL, file TEXT NOT NULL,
-  area REAL NOT NULL, pin REAL NOT NULL, data TEXT NOT NULL, metrics TEXT NOT NULL, inst TEXT, use INTEGER);
-CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
-  // device groups and devices left out of the plots (added in 0.17)
-  if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'devices'))
-    db.exec("ALTER TABLE iv_sets ADD COLUMN devices TEXT NOT NULL DEFAULT '{}'");
-  if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'deleted_at'))
-    db.exec('ALTER TABLE iv_sets ADD COLUMN deleted_at TEXT');
-  // 0.38: J–V systems are named by their export format (CSV with a column pair per pixel; one text file per curve)
-  db.exec("UPDATE iv_sets SET system='csv' WHERE system='padrao'; UPDATE iv_sets SET system='txt' WHERE system='sun'");
-  // 0.23: stability tests. A follow-up measurement points at the first one of the series; measured_at is when it was measured
-  if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'stability_of')) {
-    db.exec('ALTER TABLE iv_sets ADD COLUMN stability_of INTEGER REFERENCES iv_sets(id) ON DELETE SET NULL');
-    db.exec('ALTER TABLE iv_sets ADD COLUMN measured_at TEXT');
-  }
-  /**
-   * 0.30: check sweeps. kind = 'check' marks a quick exploratory scan (e.g. 0.05 V, forward only) run before the real measurement
-   * of the same pixel; it is shown but never counted (best, statistics, records, comparisons) unless someone ticks it in by hand.
-   */
-  const classify = (setId: number) => {
-    const rows = db
-      .prepare('SELECT id,sample,substrate,pixel,scan,dir,data FROM iv_curves WHERE set_id=?')
-      .all(setId) as any[];
-    const cs = rows.map((r) => ({ ...r, V: (JSON.parse(r.data) as { V: number[] }).V }));
-    const chk = checkSweeps(cs);
-    const up = db.prepare('UPDATE iv_curves SET kind=? WHERE id=?');
-    for (const c of cs) up.run(chk.has(`${c.sample}|${c.substrate}|${c.pixel}|${c.scan}`) ? 'check' : null, c.id);
-  };
-  /**
-   * 0.37: a pixel that shorted in one regular scan counts as shorted in all of them (forward working but backward shorted is a
-   * shorted pixel). The scan that worked keeps its numbers, with status 'short' and shortBy 'pixel'; a scan that no longer shares a
-   * pixel with a shorted one (after a check sweep is reclassified, say) gets its own status back.
-   */
-  const markShorts = (setId: number) => {
-    const rows = (
-      db.prepare('SELECT id,sample,substrate,pixel,kind,metrics FROM iv_curves WHERE set_id=?').all(setId) as any[]
-    ).map((r) => ({ ...r, m: JSON.parse(r.metrics) }));
-    const own = (r: any) => (r.m.shortBy === 'pixel' ? 'ok' : r.m.status);
-    const short = shortedPixels(rows.map((r) => ({ ...r, status: own(r) })));
-    const up = db.prepare('UPDATE iv_curves SET metrics=? WHERE id=?');
-    for (const r of rows) {
-      const want = !r.kind && own(r) === 'ok' && short.has(`${r.sample}|${r.substrate}|${r.pixel}`);
-      if (want === (r.m.shortBy === 'pixel')) continue;
-      const m = { ...r.m };
-      if (want) Object.assign(m, { status: 'short', shortBy: 'pixel' });
-      else {
-        m.status = 'ok';
-        delete m.shortBy;
-      }
-      up.run(JSON.stringify(m), r.id);
-    }
-  };
-  // 0.35: lifetime runs (the same pixels scanned over time): the set's kind and run details, each curve's time since the start
-  if (!(db.prepare('PRAGMA table_info(iv_sets)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
-    db.exec("ALTER TABLE iv_sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'jv'");
-    db.exec('ALTER TABLE iv_sets ADD COLUMN life TEXT');
-    db.exec('ALTER TABLE iv_curves ADD COLUMN t REAL');
-  }
-  if (!(db.prepare('PRAGMA table_info(iv_curves)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
-    db.exec('ALTER TABLE iv_curves ADD COLUMN kind TEXT');
-    tx(() => {
-      for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) classify(r.id); // existing data
-    });
-  }
-  if (!db.prepare("SELECT 1 FROM meta WHERE key='short-pixels'").get())
-    tx(() => {
-      for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) markShorts(r.id); // existing data
-      db.prepare("INSERT INTO meta(key,value) VALUES('short-pixels','1')").run();
-    });
+  const classify = (setId: number) => classifySet(db, setId);
+  const markShorts = (setId: number) => markShortsInSet(db, setId);
   /** The first measurement of a series (follow-ups may point at another follow-up). */
   const baseOf = (id: number) => {
     let cur = id;

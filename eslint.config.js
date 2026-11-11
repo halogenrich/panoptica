@@ -34,6 +34,11 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
+    // browser tests: code passed to page.evaluate runs in the page
+    files: ['tools/browser.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     files: ['**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' },
     rules: { '@typescript-eslint/no-require-imports': 'off' },

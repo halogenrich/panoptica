@@ -18,13 +18,6 @@ export function registerComparisons(
   auth: (admin?: boolean) => any,
   bad: (reply: any, p: any) => any,
 ) {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS comparisons(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')), notes TEXT NOT NULL DEFAULT '',
-  data TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at TEXT);`);
-
   const row = (id: number) =>
     db
       .prepare(

@@ -14,27 +14,6 @@ import { audit, ipOf } from './audit.js';
  * sign-in screen tells each person where they are (password, set a password, waiting, declined).
  */
 
-const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
-for (const [c, def] of [
-  ['first_names', "TEXT NOT NULL DEFAULT ''"],
-  ['surnames', "TEXT NOT NULL DEFAULT ''"],
-  ['email', "TEXT NOT NULL DEFAULT ''"],
-  ['birth_date', "TEXT NOT NULL DEFAULT ''"],
-  ['department', "TEXT NOT NULL DEFAULT ''"],
-  ['supervisor', "TEXT NOT NULL DEFAULT ''"],
-  ['cosupervisor', "TEXT NOT NULL DEFAULT ''"],
-  ['visitor_until', 'TEXT'],
-  ['show_birthday', 'INTEGER NOT NULL DEFAULT 1'],
-] as const)
-  if (!cols('users').includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${def}`);
-db.exec(`
-CREATE TABLE IF NOT EXISTS access_requests(
-  id INTEGER PRIMARY KEY, username TEXT NOT NULL, first_names TEXT NOT NULL, surnames TEXT NOT NULL, email TEXT NOT NULL,
-  birth_date TEXT NOT NULL, department TEXT NOT NULL, supervisor TEXT NOT NULL, cosupervisor TEXT NOT NULL DEFAULT '',
-  photo TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','declined')), reason TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, decided_at TEXT, decided_by TEXT);
-`);
-
 const getMeta = (k: string) =>
   (db.prepare('SELECT value FROM meta WHERE key=?').get(k) as { value: string } | undefined)?.value;
 const setMeta = (k: string, v: unknown) =>

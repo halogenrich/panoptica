@@ -6,35 +6,6 @@ import { db, tx } from './db.js';
  * Inventory: storage areas (cabinets, desiccators, gloveboxes, fridges…) with shelves, and the containers on them.
  * Everyone reads; admins and users with the Inventory tag edit. Containers record who added and last changed them, and when.
  */
-db.exec(`
-CREATE TABLE IF NOT EXISTS storage_areas(id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'cabinet', place TEXT NOT NULL DEFAULT '',
-  notes TEXT NOT NULL DEFAULT '', pos INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS shelves(id INTEGER PRIMARY KEY, area_id INTEGER NOT NULL REFERENCES storage_areas(id) ON DELETE CASCADE, name TEXT NOT NULL, pos INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS containers(
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL, chem_id INTEGER REFERENCES chemicals(id) ON DELETE SET NULL, cas TEXT NOT NULL DEFAULT '',
-  amount REAL, size REAL, unit TEXT NOT NULL DEFAULT 'g', status TEXT NOT NULL DEFAULT 'in use',
-  area_id INTEGER REFERENCES storage_areas(id) ON DELETE SET NULL, shelf_id INTEGER REFERENCES shelves(id) ON DELETE SET NULL,
-  supplier TEXT NOT NULL DEFAULT '', lot TEXT NOT NULL DEFAULT '', purity REAL, expires TEXT, opened TEXT, notes TEXT NOT NULL DEFAULT '',
-  added_by INTEGER REFERENCES users(id), added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_by INTEGER REFERENCES users(id), updated_at TEXT);
-CREATE INDEX IF NOT EXISTS containers_area ON containers(area_id);
-CREATE TABLE IF NOT EXISTS storage_types(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, icon TEXT NOT NULL DEFAULT 'cabinet', pos INTEGER NOT NULL DEFAULT 0);
-`);
-// storage types are a list the Inventory people edit; the first run makes the usual ones and links existing areas by kind
-if (!db.prepare('SELECT 1 FROM storage_types LIMIT 1').get()) {
-  const ins = db.prepare('INSERT INTO storage_types(name,icon,pos) VALUES(?,?,?)');
-  [
-    ['Cabinet', 'cabinet'],
-    ['Desiccator', 'desiccator'],
-    ['Glovebox', 'glovebox'],
-    ['Fridge', 'fridge'],
-    ['Freezer', 'freezer'],
-    ['Open shelf', 'shelf'],
-  ].forEach(([n, i], k) => ins.run(n, i, k));
-}
-if (!(db.prepare('PRAGMA table_info(storage_areas)').all() as { name: string }[]).some((c) => c.name === 'type_id')) {
-  db.exec('ALTER TABLE storage_areas ADD COLUMN type_id INTEGER REFERENCES storage_types(id) ON DELETE SET NULL');
-  db.exec('UPDATE storage_areas SET type_id=(SELECT id FROM storage_types t WHERE t.icon=storage_areas.kind)');
-}
 
 type U = { id: number; role: string; all?: boolean; inventory?: boolean; manager?: boolean };
 const cols = [
