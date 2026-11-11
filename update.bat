@@ -38,7 +38,7 @@ call :log Current version: %OLD%
 call :log Update file: %ZIP%
 rem only packages signed by PANOPTICA are installed: the signature file sits next to the zip
 node tools\verify-package.cjs "%ZIP%"
-if errorlevel 1 ( call :log The update is not signed by PANOPTICA. Nothing was changed. & pause & exit /b 1 )
+if errorlevel 1 goto unsigned
 call :log Signature checked.
 
 if exist apps\server\data.db (
@@ -74,6 +74,18 @@ if exist updates\restarting del updates\restarting
 call :log Starting the app...
 call start.bat %NET%
 goto :eof
+
+:unsigned
+call :log The update is not signed by PANOPTICA. Nothing was changed.
+rem the app stopped for this update: it runs again, on the version it had
+if /i "%MODE%"=="restart" (
+  if exist updates\restarting del updates\restarting
+  call :log Starting the app again...
+  call start.bat %NET%
+  goto :eof
+)
+pause
+exit /b 1
 
 :log
 echo %*

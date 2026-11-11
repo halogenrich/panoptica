@@ -227,8 +227,26 @@ function install(lan: boolean) {
   } else {
     const log = openSync(join(DIR, 'update.log'), 'a');
     // under systemd the updater must run outside the service, or stopping the service would stop it too
+    // (a unit starts with a clean environment: it is given the app folder, the log to write to, and a test's signing key)
+    const pass = ['PANOPTICA_TEST', 'UPDATE_PUBLIC_KEY'].flatMap((k) =>
+      process.env[k] ? [`--setenv=${k}=${process.env[k]}`] : [],
+    );
     const [cmd, a] = process.env.INVOCATION_ID
-      ? ['systemd-run', ['--user', '--collect', `--setenv=PSC_ROOT=${ROOT}`, 'bash', run, ...args]]
+      ? [
+          'systemd-run',
+          [
+            '--user',
+            '--collect',
+            `--setenv=PSC_ROOT=${ROOT}`,
+            `--setenv=PSC_LOG=${join(DIR, 'update.log')}`,
+            ...pass,
+            'bash',
+            '-c',
+            'exec bash "$0" "$@" >>"$PSC_LOG" 2>&1',
+            run,
+            ...args,
+          ],
+        ]
       : ['bash', [run, ...args]];
     spawn(cmd, a as string[], { cwd: ROOT, env, detached: true, stdio: ['ignore', log, log] }).unref();
   }
