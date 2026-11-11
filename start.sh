@@ -12,16 +12,22 @@ if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.
 On Fedora 40:  sudo dnf install nodejs22 nodejs22-npm   (other systems: https://nodejs.org)"
 fi
 echo "PANOPTICA $(node -p "require('./package.json').version")"
-for f in Substrate SolutionPrep Spin OrganicEvap MetalEvap Stack Stack3D; do rm -f "apps/web/src/views/$f.tsx"; done  # removed in 0.3.0
 
-# 1) dependencies: first run, or after an update changed a package.json
-if ! node tools/stamp.cjs check install; then
+# A built package (0.39 and later; built.json marks it) runs as it is: nothing is installed or built on this computer.
+BUILT=0; [ -f built.json ] && [ -f apps/server/dist/server.mjs ] && BUILT=1
+if [ $BUILT = 1 ] && [ ! -e .git ]; then
+  # what an install from source (before 0.39) left behind
+  rm -rf node_modules packages apps/web/src apps/web/public apps/web/node_modules apps/web/index.html apps/web/vite.config.ts apps/web/tsconfig.json apps/web/package.json apps/server/src apps/server/node_modules apps/server/package.json apps/server/tsconfig.json tools/smoke.mjs tools/update-e2e.mjs tools/notes.mjs tools/stamp.cjs tools/package.mjs tools/sign-package.mjs docs/architecture.md package-lock.json tsconfig.base.json eslint.config.js .prettierrc.json .prettierignore .editorconfig .git-blame-ignore-revs 2>/dev/null
+fi
+
+# 1) dependencies (from source only): first run, or after an update changed a package.json
+if [ $BUILT = 0 ] && ! node tools/stamp.cjs check install; then
   echo "Installing dependencies (first run or after an update; needs internet)..."
   npm install || fail "Install failed. Check the internet connection and try again."
   node tools/stamp.cjs save install
 fi
 # 2) web app: only when it was never built or its source changed
-if ! node tools/stamp.cjs check build; then
+if [ $BUILT = 0 ] && ! node tools/stamp.cjs check build; then
   echo "Building the web app..."
   npm run build || fail "Build failed."
   node tools/stamp.cjs save build
@@ -47,4 +53,5 @@ echo
 if [ "${OPEN_BROWSER:-1}" != 0 ] && command -v xdg-open >/dev/null && [ -n "$DISPLAY$WAYLAND_DISPLAY" ]; then
   (sleep 4; xdg-open "http://localhost:$PORT" >/dev/null 2>&1) &
 fi
+if [ $BUILT = 1 ]; then cd apps/server && exec node --no-warnings dist/server.mjs; fi
 exec npm start

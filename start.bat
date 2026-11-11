@@ -16,8 +16,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem files removed in 0.3.0 (older update scripts did not delete them)
-for %%f in (Substrate SolutionPrep Spin OrganicEvap MetalEvap Stack Stack3D) do if exist apps\web\src\views\%%f.tsx del apps\web\src\views\%%f.tsx
+rem A built package (0.39 and later; built.json marks it) runs as it is: nothing is installed or built on this computer.
+set BUILT=0
+if exist built.json if exist apps\server\dist\server.mjs set BUILT=1
+rem a built package clears what an install from source, before 0.39, left behind
+if "%BUILT%"=="1" if not exist .git (
+  for %%d in (node_modules packages apps\web\src apps\web\public apps\web\node_modules apps\server\src apps\server\node_modules) do if exist %%d rmdir /s /q %%d
+  for %%f in (apps\web\index.html apps\web\vite.config.ts apps\web\tsconfig.json apps\web\package.json apps\server\package.json apps\server\tsconfig.json tools\smoke.mjs tools\update-e2e.mjs tools\notes.mjs tools\stamp.cjs tools\package.mjs tools\sign-package.mjs docs\architecture.md package-lock.json tsconfig.base.json eslint.config.js .prettierrc.json .prettierignore .editorconfig .git-blame-ignore-revs) do if exist %%f del /q %%f
+)
+if "%BUILT%"=="1" goto run
 
 rem 1) Dependencies: only on the first run, or when a package.json changed (after an update)
 node tools\stamp.cjs check install
@@ -37,6 +44,7 @@ if errorlevel 1 (
   node tools\stamp.cjs save build
 )
 
+:run
 if "%PORT%"=="" set PORT=3000
 set HOST=127.0.0.1
 if /i "%~1"=="lan" set HOST=0.0.0.0
@@ -51,7 +59,13 @@ if /i "%~1"=="lan" (
 )
 echo.
 if not "%OPEN_BROWSER%"=="0" start "" /min cmd /c "timeout /t 4 >nul & start http://localhost:%PORT%"
-call npm.cmd start
+if "%BUILT%"=="1" (
+  pushd apps\server
+  node --no-warnings dist\server.mjs
+  popd
+) else (
+  call npm.cmd start
+)
 rem stopped by Admin settings > Updates: the update window takes over
 if exist updates\restarting (del updates\restarting & exit)
 pause

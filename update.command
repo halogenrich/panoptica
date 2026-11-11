@@ -8,6 +8,16 @@ if [ "$MODE" = restart ]; then for _ in $(seq 60); do lsof -iTCP:3000 -sTCP:LIST
 if lsof -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then echo "The app is running. Close its window first, then run the update again."; read -p "Press Enter"; exit 1; fi
 OLD=$(node -p "require('./package.json').version")
 echo "Current version: $OLD"; echo "Update file:     $ZIP"
+# only packages signed by PANOPTICA are installed (the signature file sits next to the zip)
+if ! node tools/verify-package.cjs "$ZIP"; then
+  echo "Nothing was changed."
+  if [ "$MODE" = restart ]; then  # the app stopped for this update: it runs again, on the version it had
+    rm -f updates/restarting
+    if [ "$NET" = lan ] && [ -x ./start-network.command ]; then exec ./start-network.command; fi
+    exec ./start.command
+  fi
+  read -p "Press Enter"; exit 1
+fi
 if [ -f apps/server/data.db ]; then
   if [ -f apps/server/db-tools.cjs ]; then (cd apps/server && node db-tools.cjs backup update)
   else mkdir -p backups && cp apps/server/data.db "backups/data-$(date +%Y%m%d-%H%M%S)-update.db" && echo "Database backed up in the backups folder."; fi
@@ -18,7 +28,7 @@ unzip -q "$ZIP" -d "$TMP" || { echo "Could not read the zip."; read -p "Press En
 NEW="$TMP/panoptica"; [ -d "$NEW" ] || NEW="$TMP/perovskite-lab"
 [ -d "$NEW" ] || { echo "This zip is not a PANOPTICA update."; read -p "Press Enter"; exit 1; }
 rsync -a --exclude node_modules --exclude backups --exclude config --exclude updates --exclude 'data.db*' "$NEW/" ./
-for d in apps/web/src apps/server/src packages/core/src packages/schema/src; do rsync -a --delete "$NEW/$d/" "./$d/"; done
+for d in apps/web/dist apps/server/dist; do [ -d "$NEW/$d" ] && rsync -a --delete "$NEW/$d/" "./$d/"; done  # files removed in a release go too
 rm -rf "$TMP"
 chmod +x ./*.command
 echo "Updated: $OLD -> $(node -p "require('./package.json').version")"

@@ -1,6 +1,8 @@
 name: Update end-to-end
-# Installs the app from this commit, starts it with its own start script, and updates it from the app
-# (Admin settings › Updates) to a newer test release served by a fake GitHub: download, checksum, install, restart.
+# Installs the app, starts it with its own start script, and updates it from the app (Admin settings › Updates) to a newer test
+# release served by a fake GitHub: download, checksum, signature, install, restart.
+#   from source: the app as it is on main, installed from source (how labs ran it before 0.39), updated to a built package
+#   from built:  the built package of this commit, updated to a newer built package
 # Runs on Windows (the lab computers) and Linux, for pull requests that touch the update path, and on demand.
 on:
   workflow_dispatch:
@@ -9,9 +11,13 @@ on:
       - 'update.*'
       - 'start.*'
       - 'apps/server/src/updates.ts'
+      - 'apps/server/src/signature.ts'
       - 'apps/server/src/backup.ts'
       - 'apps/server/db-tools.cjs'
       - 'tools/stamp.cjs'
+      - 'tools/package.mjs'
+      - 'tools/verify-package.cjs'
+      - 'tools/test-sign.mjs'
       - 'tools/update-e2e.mjs'
       - '.github/workflows/update-e2e.yml'
 permissions:
@@ -22,22 +28,40 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
+        from: [source, built]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Installed copy and a newer release zip
+          cache: npm
+      - run: npm ci
+      - name: Installed copy and a newer signed release
         shell: bash
         run: |
           T="$RUNNER_TEMP"
-          git archive --format=zip --prefix=panoptica/ -o "$T/base.zip" HEAD
-          mkdir -p "$T/inst" "$T/new" "$T/out"
-          (cd "$T/inst" && unzip -q ../base.zip)
-          (cd "$T/new" && unzip -q ../base.zip && node -e "const f='panoptica/package.json',p=require('fs');const j=JSON.parse(p.readFileSync(f,'utf8'));j.version='99.0.0';p.writeFileSync(f,JSON.stringify(j,null,2)+'\n')")
+          mkdir -p "$T/inst" "$T/out"
+          if [ "${{ matrix.from }}" = source ]; then
+            git archive --format=zip --prefix=panoptica/ -o "$T/base.zip" origin/main
+            (cd "$T/inst" && unzip -q ../base.zip)
+          else
+            node tools/package.mjs "$T/inst"
+          fi
+          node tools/package.mjs "$T/new" --version 99.0.0
           (cd "$T/new" && 7z a -tzip -bso0 "$T/out/panoptica.zip" panoptica || zip -qr "$T/out/panoptica.zip" panoptica)
+          node tools/test-sign.mjs "$T/out/panoptica.zip"
       - name: Update from the app
         shell: bash
         run: node tools/update-e2e.mjs "$RUNNER_TEMP/inst/panoptica" "$RUNNER_TEMP/out/panoptica.zip" 99.0.0
+      - name: No source code left on the lab computer
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/inst/panoptica"
+          for p in node_modules packages apps/web/src apps/server/src package-lock.json; do
+            if [ -e "$p" ]; then echo "left behind: $p"; exit 1; fi
+          done
+          test -f apps/server/dist/server.mjs

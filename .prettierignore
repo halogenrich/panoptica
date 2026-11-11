@@ -6,4 +6,4 @@ package-lock.json
 backups
 config
 updates
-packages/core/test-data
+out
