@@ -71,11 +71,6 @@ const WEEK = 7 * 864e5,
   byAddress = new Limiter(30, 10 * 60e3);
 const DUMMY = hash(randomBytes(12).toString('hex')); // unknown usernames take as long as wrong passwords
 db.prepare('DELETE FROM sessions WHERE expires<?').run(new Date().toISOString());
-if (!db.prepare("SELECT 1 FROM meta WHERE key='sessions_hashed'").get()) {
-  // 0.26: sessions are stored hashed; older plain ones are dropped (everyone signs in once more)
-  db.prepare('DELETE FROM sessions').run();
-  db.prepare("INSERT INTO meta(key,value) VALUES('sessions_hashed','1')").run();
-}
 setInterval(() => db.prepare('DELETE FROM sessions WHERE expires<?').run(new Date().toISOString()), 3600e3).unref();
 
 /**
@@ -434,7 +429,6 @@ registerCalendar(app, auth, bad);
 registerDashboard(app, auth);
 
 // ---- chemicals: everyone reads, admin edits ----
-db.exec('CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
 {
   const ins = db.prepare('INSERT OR IGNORE INTO chemicals(name,data) VALUES(?,?)'),
     seen = db.prepare('SELECT 1 FROM meta WHERE key = ?'),
@@ -490,9 +484,6 @@ app.delete('/api/chemicals/:id', { preHandler: auth('inventory') }, async (req: 
 });
 
 // ---- batches: a stack frozen at run start + the values recorded during the run ----
-// 0.33: variants (other stacks or changes from the default device, with their recipes frozen when saved)
-if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'variants'))
-  db.exec(`ALTER TABLE batches ADD COLUMN variants TEXT NOT NULL DEFAULT '{"control":"","list":[]}'`);
 const preset = (u: User, id: string) => {
   if (!id) return null;
   const r = db.prepare('SELECT name,data,owner_id,visibility FROM presets WHERE id=?').get(+id) as any;

@@ -38,7 +38,8 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | File | Responsibility |
 |---|---|
 | `index.ts` | Starts Fastify (HTTP or HTTPS), registers everything below, sign-in and sessions, users, tags, chemicals, batches, preferences, search, backups API, serving the built web app. The place to read first. |
-| `db.ts` | Opens the SQLite database, creates the core tables, runs migrations (see below), `tx()` for transactions, `perms()` and `tagsOf()` for access tags. |
+| `db.ts` | Opens the SQLite database and brings it up to date (`schema.ts`, see Migrations), `tx()` for transactions, `perms()` and `tagsOf()` for access tags. |
+| `schema.ts` | Every change to the database, numbered and in order, each marked core or Electronic Devices (`owner`). |
 | `security.ts` | Security headers, the cross-site (Origin) check, session token hashing, the sign-in limiter, the password policy. |
 | `audit.ts` | Activity log: the `audit` table, the hooks that record changes, the hash chain and its check, the admin endpoints. |
 | `auth.ts` | Password hashing (scrypt) and verification. |
@@ -99,7 +100,7 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 
 **Why JSON columns**: recipes, designs and stacks change shape as the lab's methods change; storing them as JSON documents (validated by zod on the way in, normalised with defaults on the way out by the web app's `norm()`) keeps old records readable without a migration for every new field.
 
-**Migrations**: there is no migration framework. Each module creates its tables with `CREATE TABLE IF NOT EXISTS` and adds new columns with a guarded `ALTER TABLE` (`if (!cols('users').includes('photo')) db.exec('ALTER TABLE ...')`), and one-time data changes are guarded by a flag in `meta`. They run at every start and are idempotent, so any older database is brought up to date when the new version starts; the update script makes a backup first. Rules: only add (never rename or drop a column in place), give new columns a default, and keep each step safe to run twice.
+**Migrations** (0.40): every change to the database is an entry in `apps/server/src/schema.ts`, numbered and in order, marked `core` or `devices` (the module it belongs to). When the database opens (`db.ts`), the entries it has not had yet run, each in a transaction, and are recorded in the `migrations` table; a failed one leaves the database as it was before it and stops the start (the update script made a backup first). No other file creates or alters tables. Rules: add new entries at the end, never edit or reorder old ones; only add (never rename or drop a column in place) and give new columns a default. Entries 1–33 come from before the list existed and keep their "is this column there yet" guards, so databases from any earlier version end up the same as new ones (checked by comparing both, column by column).
 
 ## Web app (`apps/web/src`)
 
@@ -125,14 +126,14 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | Task | Where |
 |---|---|
 | New API endpoint | The module of its area (or a new `registerX(app, auth, bad)` registered in `index.ts`); body schema in `packages/schema`; permission via `auth(...)`; a readable activity-log label in `audit.ts` (`LABEL`) |
-| New column | Guarded `ALTER TABLE` next to the table's creation (see Migrations) |
+| New table or column | A new entry at the end of `schema.ts` (see Migrations) |
 | New calculation | `packages/core`, with a unit test |
 | New screen | `apps/web/src/views`, wired in `Shell.tsx` |
 | Release | Bump `version` in `package.json`, add a section to `CHANGELOG.md`, merge to `main` (CI publishes the release) |
 
 ## Quality checks
 
-`npm run check` runs, in order: Prettier formatting check, ESLint, TypeScript (strict) for all packages, the core unit tests (vitest), the server security checks (`tools/smoke.mjs`: a real server on a temporary database, 38 checks of sign-in, permissions, headers, backups, encryption, activity log and updates), and the production build. CI runs it on Windows and Linux for every push and pull request, plus `npm audit`.
+`npm run check` runs, in order: Prettier formatting check, ESLint, TypeScript (strict) for all packages, the core unit tests (vitest), the server security checks (`tools/smoke.mjs`: a real server on a temporary database, 38 checks of sign-in, permissions, headers, backups, encryption, activity log and updates), the production build, packaging the app (`tools/package.mjs`) and running the server checks again on the packaged server. CI runs it on Windows and Linux for every push and pull request, plus `npm audit`. `npm run test:browser` (`tools/browser.mjs`, Playwright with Chromium) clicks through the main flows on the packaged app with a new database: first setup, signing out and in, adding equipment, a booking, a stack's and a batch's run sheet (checking that the sheet, not the page, is what prints, also when the browser prints after `print()` returns, as Safari does), starting a batch by name, and a J–V import of synthetic files. CI runs it on Linux, and every release runs it before publishing.
 
 Format before committing with `npm run format`. Formatting-only commits are listed in `.git-blame-ignore-revs`.
 
@@ -142,7 +143,6 @@ Honest list of what a reviewer will notice, roughly in the order worth fixing:
 
 - **`any` in the server**: request handlers type `req` and database rows as `any`. Typed route schemas (Fastify generics, or zod-derived types for params and rows) would catch mistakes at compile time.
 - **Large files**: some screens are 1 000–1 700 lines (`Inventory.tsx`, `Overview.tsx`, `Calendar.tsx`) and `styles.css` holds every style. Splitting them by sub-screen would make reviews easier.
-- **Tests**: core logic has unit tests and the server has end-to-end security checks, but there are no per-route server tests (permissions per endpoint, calendar rules) and no browser tests of the main workflows.
+- **Tests**: core logic has unit tests and the server has end-to-end security checks, and the main workflows have browser tests, but there are no per-route server tests (permissions per endpoint, calendar rules).
 - **Navigation without URLs**: screens are not addressable by link (no router), so a browser reload returns to the start screen.
-- **No migration history**: migrations are idempotent guards rather than numbered steps; fine at this size, but a numbered migration table would make the database version explicit.
 - **History**: the repository starts at version 0.25 as one import commit; the reasons behind earlier choices are in the code comments and the changelog, not in commit history.

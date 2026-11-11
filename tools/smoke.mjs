@@ -840,6 +840,20 @@ ok(
   'no notification for a version found while saving settings',
 );
 
+console.log('Database changes in order (0.40)');
+{
+  // the list in schema.ts: numbered 1, 2, 3… with no gaps or repeats, and every change recorded once in this database
+  const src = readFileSync(join(root, 'apps/server/src/schema.ts'), 'utf8');
+  const ids = [...src.matchAll(/^ {4}id: (\d+),$/gm)].map((m) => +m[1]);
+  ok(ids.length > 30 && ids.every((n, i) => n === i + 1), `changes numbered 1…${ids.length} in order`);
+  const rec = db.prepare('SELECT id, owner FROM migrations ORDER BY id').all();
+  ok(rec.length === ids.length && rec.every((r, i) => r.id === ids[i]), 'every change recorded once in the database');
+  ok(
+    rec.every((r) => r.owner === 'core' || r.owner === 'devices'),
+    'each change belongs to the core or the Electronic Devices module',
+  );
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

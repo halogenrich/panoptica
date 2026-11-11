@@ -8,13 +8,6 @@ import { db } from './db.js';
 export const LOCK_DAYS = 14;
 export const UNLOCK_DAYS = 7;
 
-if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'done_at')) {
-  db.exec('ALTER TABLE batches ADD COLUMN done_at TEXT');
-  db.exec('ALTER TABLE batches ADD COLUMN unlocked_until TEXT');
-  // batches finished before 0.33: their last change is the best guess of when they finished
-  db.exec("UPDATE batches SET done_at=updated_at WHERE status='done'");
-}
-
 type B = { code: string; status: string; done_at: string | null; unlocked_until: string | null };
 const iso = (s: string) => (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + 'Z');
 

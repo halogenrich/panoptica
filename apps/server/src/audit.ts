@@ -9,10 +9,6 @@ import { db } from './db.js';
  * breaks the chain from that row on, and the check in Admin settings › Security shows where.
  * Rows older than two years are removed once a day; the hash the oldest kept row links to is kept, so the check still works.
  */
-db.exec(`CREATE TABLE IF NOT EXISTS audit(
-  id INTEGER PRIMARY KEY, at TEXT NOT NULL, user_id INTEGER, username TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '',
-  action TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', status INTEGER NOT NULL DEFAULT 200, prev TEXT NOT NULL, hash TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS audit_at ON audit(at); CREATE INDEX IF NOT EXISTS audit_user ON audit(user_id);`);
 
 export type AuditRow = {
   id: number;

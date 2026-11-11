@@ -121,7 +121,8 @@ npm install
 npm run dev      # API on :3000, web with hot reload on :5173
 npm run format   # Prettier over the code
 npm run lint     # ESLint
-npm run check    # format check + lint + typecheck + unit tests + server security checks + production build
+npm run check    # format check + lint + typecheck + unit tests + server security checks + production build + package
+npm run test:browser  # the main flows in Chromium, on the packaged app (after npm run check; npx playwright install chromium once)
 ```
 
 GitHub: every push and pull request runs `npm run check`. A push to `main` whose `package.json` version has no release yet builds `panoptica.zip` (the app built, with no source code: `npm run package`), its SHA-256 and its signature (repository secret `SIGNING_KEY`; the public half is `release.pub`) and publishes the release `v<version>`, with the notes of that version from [CHANGELOG.md](CHANGELOG.md). So a release is: bump the version, add its CHANGELOG section, merge to `main`.

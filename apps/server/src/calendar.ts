@@ -55,81 +55,6 @@ function offHours(
  * first booked step of a batch starts, the batch switches to Running by itself. Bookings of the same equipment cannot overlap,
  * unless an admin books anyway.
  */
-db.exec(`
-CREATE TABLE IF NOT EXISTS equipment(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, color TEXT NOT NULL DEFAULT '#2563eb',
-  place TEXT NOT NULL DEFAULT '', pos INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
-CREATE TABLE IF NOT EXISTS bookings(
-  id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE, batch_id INTEGER REFERENCES batches(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id), step TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
-  start TEXT NOT NULL, end TEXT NOT NULL, forced INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end);
-`);
-// 0.22.1: what each equipment is used for (the batch scheduler picks by this), and the outcome of each booking once it has ended
-const ecols = (db.prepare('PRAGMA table_info(equipment)').all() as { name: string }[]).map((c) => c.name);
-if (!ecols.includes('role')) db.exec("ALTER TABLE equipment ADD COLUMN role TEXT NOT NULL DEFAULT ''");
-const bcols = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string }[]).map((c) => c.name);
-if (!bcols.includes('outcome')) {
-  db.exec('ALTER TABLE bookings ADD COLUMN outcome TEXT');
-  db.exec("ALTER TABLE bookings ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
-  db.exec('ALTER TABLE bookings ADD COLUMN outcome_at TEXT');
-  db.exec('ALTER TABLE bookings ADD COLUMN outcome_by INTEGER REFERENCES users(id)');
-}
-// 0.37.1: the scheduler's blocks of a batch (step names), so a batch is not Done while some blocks are not placed yet
-if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'plan_steps'))
-  db.exec("ALTER TABLE batches ADD COLUMN plan_steps TEXT NOT NULL DEFAULT '[]'");
-// 0.38: the runs whose annealing is booked elsewhere (the scheduler's "Anneal elsewhere")
-if (!(db.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).some((c) => c.name === 'plan_split'))
-  db.exec("ALTER TABLE batches ADD COLUMN plan_split TEXT NOT NULL DEFAULT '[]'");
-// 0.37: bookings outside batches (no batch_id) say what they are for
-if (!bcols.includes('purpose')) db.exec("ALTER TABLE bookings ADD COLUMN purpose TEXT NOT NULL DEFAULT ''");
-if (
-  (db.prepare('PRAGMA table_info(bookings)').all() as { name: string; notnull: number }[]).find(
-    (c) => c.name === 'batch_id',
-  )?.notnull
-) {
-  // SQLite cannot drop NOT NULL from a column: copy the table into one without it
-  const cols = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string }[]).map((c) => c.name).join(',');
-  const sql = (
-    db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bookings'").get() as { sql: string }
-  ).sql;
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    tx(() => {
-      db.exec(
-        sql
-          .replace(/CREATE TABLE (IF NOT EXISTS )?"?bookings"?/i, 'CREATE TABLE bookings_new')
-          .replace(/batch_id INTEGER NOT NULL/i, 'batch_id INTEGER'),
-      );
-      db.exec(`INSERT INTO bookings_new(${cols}) SELECT ${cols} FROM bookings`);
-      db.exec('DROP TABLE bookings');
-      db.exec('ALTER TABLE bookings_new RENAME TO bookings');
-      db.exec('CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end)');
-    });
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
-  }
-}
-// 0.31: minutes the equipment is blocked after each booking to clean it, so the next person finds it clean
-if (!ecols.includes('cleanup')) {
-  db.exec('ALTER TABLE equipment ADD COLUMN cleanup INTEGER NOT NULL DEFAULT 0');
-  db.exec("UPDATE equipment SET cleanup=20 WHERE name LIKE 'GB:%'");
-}
-// 0.34: the drawing shown for each equipment ('' = chosen from its use and name)
-if (!ecols.includes('art')) db.exec("ALTER TABLE equipment ADD COLUMN art TEXT NOT NULL DEFAULT ''");
-// 0.32: the UV-ozone cleaner does the substrate preparation in the batch scheduler (once; admins can change it under Equipment)
-if (!db.prepare("SELECT 1 FROM meta WHERE key='prep-equipment'").get()) {
-  db.exec(
-    "UPDATE equipment SET role='prep' WHERE role='' AND (name LIKE '%UV-ozone%' OR name LIKE '%UV ozone%' OR name LIKE '%UVO%')",
-  );
-  db.prepare("INSERT INTO meta(key,value) VALUES('prep-equipment',?)").run(new Date().toISOString());
-}
-// 0.37: the solar simulator measures finished devices (role 'measure'), found by its name once; admins can change it under Equipment
-if (!db.prepare("SELECT 1 FROM meta WHERE key='measure-equipment'").get()) {
-  db.exec(
-    "UPDATE equipment SET role='measure' WHERE role='' AND (name LIKE '%solar sim%' OR name LIKE '%simulator%' OR name LIKE '%J-V%' OR name LIKE '%J–V%')",
-  );
-  db.prepare("INSERT INTO meta(key,value) VALUES('measure-equipment',?)").run(new Date().toISOString());
-}
 const roleOf = (eq: number) =>
   (db.prepare('SELECT role FROM equipment WHERE id=?').get(eq) as { role: string } | undefined)?.role ?? '';
 /** A locked batch's record stays fixed, but measuring it again on the J–V equipment is still allowed. */
@@ -147,15 +72,6 @@ const hm = (m: number) =>
   m === 60 ? '1 hour' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`;
 /** Bookings start from now on: a minute of grace for the time a drop takes. */
 const PAST_GRACE = 60_000;
-// times are compared as text, so every stored time must be UTC ISO (…Z)
-for (const r of db
-  .prepare("SELECT id,start,end FROM bookings WHERE start NOT LIKE '%Z' OR end NOT LIKE '%Z'")
-  .all() as any[])
-  db.prepare('UPDATE bookings SET start=?, end=? WHERE id=?').run(
-    new Date(r.start).toISOString(),
-    new Date(r.end).toISOString(),
-    r.id,
-  );
 
 type U = { id: number; name: string; role: string; manager?: boolean };
 const minutes = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 6e4;

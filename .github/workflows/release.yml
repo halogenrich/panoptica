@@ -28,7 +28,7 @@ jobs:
           node-version: 22
           cache: npm
       - if: steps.v.outputs.exists != '1'
-        run: npm ci && npm run check && npm audit --omit=dev --audit-level=moderate
+        run: npm ci && npm run check && npx playwright install --with-deps chromium && npm run test:browser && npm audit --omit=dev --audit-level=moderate
       - if: steps.v.outputs.exists != '1'
         name: Package and publish
         run: |

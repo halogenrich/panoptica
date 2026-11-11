@@ -15,52 +15,6 @@ import { notify } from './social.js';
  * settings, move it, train people on it and set it out of service; the Equipment training permission trains people on any
  * equipment. Booking needs training on the booked equipment (admins excepted, so the lab is never locked out).
  */
-export function migrateEquipment() {
-  const cols = () => (db.prepare('PRAGMA table_info(equipment)').all() as { name: string }[]).map((c) => c.name);
-  db.exec(`
-CREATE TABLE IF NOT EXISTS places(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, pos INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS equipment_people(equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY(equipment_id, user_id));
-CREATE TABLE IF NOT EXISTS equipment_training(equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, by_id INTEGER REFERENCES users(id), at TEXT NOT NULL,
-  note TEXT NOT NULL DEFAULT '', PRIMARY KEY(equipment_id, user_id));
-CREATE TABLE IF NOT EXISTS equipment_moves(id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
-  place_id INTEGER, parent_id INTEGER, at TEXT NOT NULL, by_id INTEGER REFERENCES users(id));
-CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
-  start TEXT NOT NULL, end TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', by_id INTEGER REFERENCES users(id));
-`);
-  if (!cols().includes('steps')) {
-    db.exec("ALTER TABLE equipment ADD COLUMN steps TEXT NOT NULL DEFAULT '[]'");
-    db.exec('ALTER TABLE equipment ADD COLUMN parent_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL');
-    db.exec('ALTER TABLE equipment ADD COLUMN place_id INTEGER REFERENCES places(id) ON DELETE SET NULL');
-    db.exec('ALTER TABLE equipment ADD COLUMN booked INTEGER NOT NULL DEFAULT 1');
-    db.exec('ALTER TABLE equipment ADD COLUMN min_booking INTEGER NOT NULL DEFAULT 60');
-    db.exec('ALTER TABLE equipment ADD COLUMN atmosphere INTEGER NOT NULL DEFAULT 0');
-    tx(() => {
-      // what each equipment did (its one procedure) becomes the steps it can do; gloveboxes record their atmosphere
-      for (const e of db.prepare('SELECT id,name,role,place FROM equipment').all() as any[]) {
-        db.prepare('UPDATE equipment SET steps=?, atmosphere=? WHERE id=?').run(
-          JSON.stringify(stepsFromRole(e.role, e.name)),
-          /^GB:/i.test(e.name) ? 1 : 0,
-          e.id,
-        );
-        if (e.place?.trim()) {
-          db.prepare('INSERT OR IGNORE INTO places(name) VALUES(?)').run(e.place.trim());
-          const pl = db.prepare('SELECT id FROM places WHERE name=?').get(e.place.trim()) as { id: number };
-          db.prepare('UPDATE equipment SET place_id=? WHERE id=?').run(pl.id, e.id);
-        }
-      }
-      // whoever booked an equipment before training existed counts as trained on it
-      db.prepare(
-        `INSERT OR IGNORE INTO equipment_training(equipment_id,user_id,by_id,at,note)
-         SELECT DISTINCT equipment_id, user_id, NULL, ?, 'booked it before training was recorded' FROM bookings`,
-      ).run(new Date().toISOString());
-    });
-  }
-  const bcols = (db.prepare('PRAGMA table_info(bookings)').all() as { name: string }[]).map((c) => c.name);
-  // the glovebox atmosphere at the end of a booking: {"o2": ppm, "h2o": ppm}
-  if (!bcols.includes('atmo')) db.exec("ALTER TABLE bookings ADD COLUMN atmo TEXT NOT NULL DEFAULT ''");
-}
 
 type U = { id: number; name: string; role: string; equipment?: boolean; training?: boolean };
 const isAdmin = (u: U) => u.role === 'admin';
@@ -161,7 +115,6 @@ function rowOut(e: any) {
 export const equipmentList = () => (db.prepare('SELECT * FROM equipment ORDER BY pos, id').all() as any[]).map(rowOut);
 
 export function registerEquipment(app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) {
-  migrateEquipment();
   const placeOf = (id: number) => db.prepare('SELECT id FROM places WHERE id=?').get(id);
   const deny = (reply: any, what = 'only the equipment’s responsible people, Equipment management or admins') =>
     reply.code(403).send({ error: what });
