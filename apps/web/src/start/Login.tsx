@@ -35,7 +35,7 @@ export function SignInFrame({
     showInst = !!inst && foot !== 'name';
   const Tag = preview ? 'div' : 'main';
   return (
-    <Tag className={'signin' + (wide ? ' wide' : '') + (preview ? ' mini' : '')}>
+    <Tag className={'signin' + (wide ? ' wide' : '') + (preview ? ' in-preview' : '')}>
       <div className={'signin-art' + (bg ? ' photo' : '')}>
         {bg ? <img src={bg} alt="" /> : <Panopticon />}
         {logo && (

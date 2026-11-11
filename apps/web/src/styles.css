@@ -7475,9 +7475,9 @@ body.dragging-block * {
   gap: 12px;
 }
 .signin-foot img {
-  height: 36px;
+  height: 56px;
   width: auto;
-  max-width: 200px;
+  max-width: 240px;
   object-fit: contain;
 }
 .pos-row {
@@ -7675,6 +7675,9 @@ label.btn {
   padding: 56px 56px 24px;
   display: grid;
   align-content: start;
+  /* rows keep their content's height: when the page is taller than the window it scrolls. Without this the rows shrank to fit,
+     and the sign-in preview (which clips its content) was squeezed, down to nothing on a short window. */
+  grid-auto-rows: max-content;
   gap: 16px;
   max-width: 760px;
   width: 100%;
@@ -7734,55 +7737,56 @@ label.btn {
   display: block;
   padding-top: 56.25%;
 }
-.look-preview > .signin.mini {
+.look-preview > .signin.in-preview {
   position: absolute;
   inset: 0;
 }
-.signin.mini {
+.signin.in-preview {
   min-height: 0;
   height: 100%;
   grid-template-columns: minmax(0, 1fr) 34%;
   pointer-events: none;
 }
-.signin.mini .signin-panel {
+.signin.in-preview .signin-panel {
   min-height: 0;
   max-height: none;
   padding: 6cqw 4cqw;
 }
-.signin.mini .wordmark {
+.signin.in-preview .wordmark {
   font-size: 2.2cqw;
 }
-.signin.mini .signin-body {
+.signin.in-preview .signin-body {
   padding: 0;
   gap: 1.6cqw;
 }
-.signin.mini .signin-body h1 {
+.signin.in-preview .signin-body h1 {
   font-size: 3.6cqw;
 }
-.signin.mini .signin-foot {
+.signin.in-preview .signin-foot {
   font-size: 1.8cqw;
   gap: 1cqw;
 }
-.signin.mini .signin-foot img {
-  height: 3.4cqw;
+.signin.in-preview .signin-foot img {
+  height: 5.2cqw;
+  max-width: 22cqw;
 }
-.signin.mini .signin-foot .small {
+.signin.in-preview .signin-foot .small {
   font-size: 1.8cqw;
 }
-.signin.mini .signin-logo.bare {
+.signin.in-preview .signin-logo.bare {
   padding: 0;
 }
-.signin.mini .signin-logo.at-mc img {
+.signin.in-preview .signin-logo.at-mc img {
   height: 9cqw;
   max-height: 11cqw;
   max-width: 30cqw;
 }
-.signin.mini .signin-logo {
+.signin.in-preview .signin-logo {
   --gap: 3cqw;
   padding: 1.2cqw 1.8cqw;
   border-radius: 1.4cqw;
 }
-.signin.mini .signin-logo img {
+.signin.in-preview .signin-logo img {
   height: 5cqw;
   max-height: 6cqw;
   max-width: 20cqw;
@@ -7950,6 +7954,7 @@ label.btn {
 .lab-setup {
   display: grid;
   gap: 14px;
+  grid-auto-rows: max-content;
 }
 .lab-setup .look-preview {
   max-width: 520px;
@@ -8423,4 +8428,64 @@ input[type='color']:focus-visible {
 .ov-scope {
   max-width: 200px;
   margin-right: 8px;
+}
+
+/* 0.39.1: long lab and institution names wrap on the sign-in panel and the setup's rail; they used to run out of their column */
+.signin-panel > .wordmark,
+.setup-rail > .wordmark {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 0.3em;
+  white-space: normal;
+  min-width: 0;
+}
+.signin-panel > .wordmark .wm-app,
+.setup-rail > .wordmark .wm-app,
+.signin-panel > .wordmark .wm-dot,
+.setup-rail > .wordmark .wm-dot {
+  flex: none;
+  white-space: nowrap;
+}
+.signin-panel > .wordmark .wm-lab,
+.setup-rail > .wordmark .wm-lab {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.signin-foot {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.signin-foot img {
+  flex: none;
+}
+.signin-foot span {
+  min-width: 0;
+  flex: 1 1 12ch;
+  overflow-wrap: anywhere;
+}
+.signin.in-preview .signin-panel {
+  padding: 4.5cqw 4cqw;
+  gap: 2.4cqw;
+}
+/* the top bar: a long lab name takes the room it needs (up to 45% of the window, then …) instead of running under the page title */
+.top .brand {
+  width: auto;
+  min-width: 228px;
+  max-width: 45vw;
+  flex: none;
+  overflow: hidden;
+}
+.top .brand .wordmark {
+  display: flex;
+  min-width: 0;
+}
+.top .brand .wm-app,
+.top .brand .wm-dot {
+  flex: none;
+}
+.top .brand .wm-lab {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
