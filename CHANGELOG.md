@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.39.1 (2026-11-11)
+
+- Fix: in the first setup, the **sign-in screen preview** was squeezed, down to nothing on a short window, once the page had more than fit the window. The page now scrolls and the preview keeps its shape. Its text also showed small, grey and cut off, from a style meant for another part of the app.
+- The **institution logo** on the sign-in screen is larger (56 px high, was 36).
+- Long lab and institution names wrap on the sign-in screen and in the setup, and no longer run under the page title in the top bar.
+
 ## 0.39.0 (2026-11-11)
 
 - **Built packages**: a release is now the app already built, with no source code. Installing or updating downloads and builds nothing on the lab's computer (only Node.js is needed), so it starts in seconds and works without internet once the package is there. The first start after this update clears the source files and libraries the earlier versions left behind.
