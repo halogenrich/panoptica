@@ -873,7 +873,7 @@ console.log('Database changes in order (0.40)');
 {
   // the core's list and each module's (0.43): one sequence 1, 2, 3… with no gaps or repeats, each change recorded once here
   const listed = (f, owner) =>
-    [...readFileSync(join(root, f), 'utf8').matchAll(/^ {4}id: (\d+),\n {4}owner: '(\w+)',$/gm)].map((m) => {
+    [...readFileSync(join(root, f), 'utf8').matchAll(/^ {4}id: (\d+),\r?\n {4}owner: '(\w+)',\r?$/gm)].map((m) => {
       if (m[2] !== owner) throw new Error(`${f}: change ${m[1]} is owned by ${m[2]}`);
       return +m[1];
     });
