@@ -6,10 +6,9 @@ import { MeCtx } from '../ctx';
 import { Seg } from '../lib/ui';
 import { showToast, useRefresh } from '../lib/trash';
 import { firstName, mdOf, useBirthdays, useHours } from '../lib/hours';
-import { minutesOf, stepLabel, withinHours, workDayOf, type WorkDay } from '@psc/core';
-import { batchesChanged } from './Batches';
-import { ROLE_NAME, autoSplit, bundlesOf, eqCandidates, placedOf, type Bundle } from '../lib/bundles';
-import type { StackD } from '../stacks/model';
+import { minutesOf, withinHours, workDayOf, type WorkDay } from '@psc/core';
+import { bookingsChanged } from '../lib/live';
+import type { Open, TrayDrag, TrayProps } from '../modules/types';
 
 export type Eq = {
   id: number;
@@ -76,13 +75,17 @@ type Data = {
   trained: number[];
   off: Off[];
   finished: Choice[];
+  /** what bookings can be for, from the modules (0.43) */
+  subjects: Subject[];
 };
+/** A kind of thing bookings are for: its name, the page one opens on, whether it has steps to choose. */
+type Subject = { kind: string; noun: string; plural: string; view: string | null; hint: string; steps: boolean };
 type View = 'day' | 'week' | 'month';
 type Draft = Partial<Booking> & { start: string; end: string };
 
 // ------------------------------------------------------------------ dates (local time)
-const DAY = 864e5,
-  HOUR_PX = 44,
+const DAY = 864e5;
+export const HOUR_PX = 44,
   SNAP = 15,
   /** shortest booking, in minutes (the server refuses shorter ones) */
   MIN_BOOK = 60;
@@ -108,7 +111,7 @@ const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const monday = (d: Date) => addDays(sod(d), -((d.getDay() + 6) % 7));
 const sameDay = (a: Date, b: Date) => sod(a).getTime() === sod(b).getTime();
-const hm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; // 24 h, as on the time axis
+export const hm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; // 24 h, as on the time axis
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -221,7 +224,7 @@ function lanes(list: Booking[]) {
 
 /** Equipment calendar: day (one column per equipment), week and month. Drag across empty time to book. */
 type Drag =
-  | { kind: 'bundle'; bundle: Bundle; eq: number; dur: number; color: string; label: string; grab: number }
+  | ({ kind: 'block'; block: TrayDrag } & Omit<TrayDrag, 'book'>)
   | { kind: 'move'; booking: Booking; eq: number; dur: number; color: string; label: string; grab: number };
 export type Preview = {
   day: string;
@@ -237,17 +240,15 @@ export type Preview = {
 
 /**
  * Equipment calendar: day (one column per equipment), week and month. Drag across empty time to book; drag your own booking to
- * move it. With `scheduling` (a batch id, computer only), a tray under the calendar holds that batch's equipment blocks, to be
- * dragged onto their day and time.
+ * move it. With a module's `tray` (0.43; Electronic Devices: a batch to schedule), the module's blocks sit under the calendar,
+ * to be dragged onto their day and time.
  */
 export default function Calendar({
-  onOpenBatch,
-  scheduling = null,
-  onEndScheduling,
+  open: go,
+  tray = null,
 }: {
-  onOpenBatch?: (id: number) => void;
-  scheduling?: number | null;
-  onEndScheduling?: (backToBatch: boolean) => void;
+  open: Open;
+  tray?: { Tray: React.FC<TrayProps>; id: number } | null;
 }) {
   const { me } = useContext(MeCtx);
   const narrow = typeof window !== 'undefined' && window.innerWidth < 760;
@@ -272,41 +273,11 @@ export default function Calendar({
   const [drag, setDrag] = useState<Drag | null>(null),
     [preview, setPreview] = useState<Preview | null>(null),
     justDragged = useRef(false);
-  const [sb, setSb] = useState<{
-      id: number;
-      code: string;
-      snapshot: { stack: StackD };
-      status: string;
-      plan_split?: string;
-    } | null>(null),
-    [sbBooks, setSbBooks] = useState<Booking[]>([]);
-  const loadSb = () => {
-    if (scheduling) {
-      api<any>('/batches/' + scheduling)
-        .then((b) => {
-          setSb(b);
-          // tell the server the plan's blocks: the batch is not Done until each of them is booked and answered
-          if (b?.status !== 'done') {
-            const split: string[] = JSON.parse(b.plan_split || '[]');
-            api(`/batches/${b.id}/plan`, 'PUT', {
-              steps: bundlesOf(b.snapshot.stack, b.snapshot.resolved, split).map((x) => x.step),
-              split,
-            }).catch(() => {});
-          }
-        })
-        .catch(() => setSb(null));
-      api<Booking[]>(`/batches/${scheduling}/bookings`)
-        .then(setSbBooks)
-        .catch(() => {});
-    } else {
-      setSb(null);
-      setSbBooks([]);
-    }
-  };
-  useEffect(loadSb, [scheduling]);
+  // bookings changed: the tray reads its blocks again
+  const [trayV, setTrayV] = useState(0);
   useEffect(() => {
-    if (scheduling && view === 'month') setView('week');
-  }, [scheduling]);
+    if (tray && view === 'month') setView('week');
+  }, [tray?.id]);
   const [from, to] = range(view, date);
   const load = () =>
     api<Data>(`/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`)
@@ -324,7 +295,7 @@ export default function Calendar({
   });
   useRefresh(() => {
     load();
-    loadSb();
+    setTrayV((v) => v + 1);
   }, ['calendar', 'batches']);
   const pickView = (v: View) => {
     setView(v);
@@ -399,14 +370,8 @@ export default function Calendar({
       const start = at(p.day, '00:00').getTime() + p.start * 6e4,
         body = { start: new Date(start).toISOString(), end: new Date(start + p.dur * 6e4).toISOString() };
       const req =
-        drag.kind === 'bundle'
-          ? api('/bookings', 'POST', {
-              equipment_id: drag.eq,
-              subject: 'batch',
-              subject_id: scheduling,
-              step: drag.bundle.step,
-              ...body,
-            })
+        drag.kind === 'block'
+          ? drag.block.book(body.start, body.end)
           : api('/bookings/' + drag.booking.id, 'PUT', {
               equipment_id: drag.booking.equipment_id,
               subject: drag.booking.subject,
@@ -419,10 +384,10 @@ export default function Calendar({
       req
         .then((r: { offHours?: boolean }) => {
           load();
-          loadSb();
-          batchesChanged();
+          setTrayV((v) => v + 1);
+          bookingsChanged();
           showToast(
-            (drag.kind === 'bundle'
+            (drag.kind === 'block'
               ? `${drag.label} placed, ${hm(new Date(start))}`
               : `Moved to ${hm(new Date(start))}`) + (r?.offHours ? `. ${OFF_HOURS}` : ''),
           );
@@ -507,8 +472,8 @@ export default function Calendar({
       })
         .then((r: { offHours?: boolean }) => {
           load();
-          loadSb();
-          batchesChanged();
+          setTrayV((v) => v + 1);
+          bookingsChanged();
           showToast(
             `${b.equipment}: now ${hm(new Date(s))}–${hm(new Date(e))}` + (r?.offHours ? `. ${OFF_HOURS}` : ''),
           );
@@ -680,38 +645,28 @@ export default function Calendar({
           off={(data.off ?? []).filter((o) => (view === 'day' ? eqs : shown).some((e) => e.id === o.equipment_id))}
         />
       )}
-      {scheduling && !narrow && data && (
-        <Tray
-          batch={sb}
-          books={sbBooks}
+      {tray && data && (
+        <tray.Tray
+          id={tray.id}
           eqs={eqs}
-          trained={data?.trained ?? []}
+          trained={data.trained ?? []}
           isAdmin={me.role === 'admin'}
-          onSplit={(split) =>
-            sb &&
-            api(`/batches/${sb.id}/plan`, 'PUT', {
-              steps: bundlesOf(sb.snapshot.stack, (sb.snapshot as any).resolved, split).map((x) => x.step),
-              split,
-            })
-              .then(loadSb)
-              .catch((e) => showToast(e.message))
-          }
-          onStart={(d) => {
+          narrow={narrow}
+          version={trayV}
+          onDrag={(d) => {
             if (view === 'month') pickView('week');
-            setDrag(d);
+            setDrag({ kind: 'block', block: d, eq: d.eq, dur: d.dur, color: d.color, label: d.label, grab: d.grab });
           }}
-          onEnd={onEndScheduling}
+          close={() => go('cal')}
+          open={go}
         />
       )}
-      {scheduling && narrow && (
+      {data && !data.open.length && data.subjects.some((x) => x.hint) && (
         <p className="mut small cal-hint">
-          Scheduling a batch is done on a computer: open the Calendar there to place its equipment blocks.
-        </p>
-      )}
-      {data && !data.open.length && (
-        <p className="mut small cal-hint">
-          Bookings for a batch need a Planned batch: start one from a stack. Equipment can also be booked outside a
-          batch, saying what for.
+          {data.subjects
+            .map((x) => x.hint)
+            .filter(Boolean)
+            .join(' ')}
         </p>
       )}
       {draft && data && (
@@ -723,9 +678,9 @@ export default function Calendar({
           onSaved={() => {
             setDraft(null);
             load();
-            batchesChanged();
+            bookingsChanged();
           }}
-          onOpenBatch={onOpenBatch}
+          open={go}
         />
       )}
     </div>
@@ -1308,14 +1263,14 @@ function BookingForm({
   isAdmin,
   onClose,
   onSaved,
-  onOpenBatch,
+  open,
 }: {
   draft: Draft;
   data: Data;
   isAdmin: boolean;
   onClose: () => void;
   onSaved: () => void;
-  onOpenBatch?: (id: number) => void;
+  open: Open;
 }) {
   const existing = !!draft.id,
     ro = existing && (!draft.editable || !!draft.outcome); // answered steps are history
@@ -1373,9 +1328,15 @@ function BookingForm({
     picked = choices.find((c) => key(c) === f.sel),
     // what the subjects are called: "batch", or "batch or sample" when another module adds its own
     kinds = [...new Set([...data.open, ...data.finished].map((c) => c.noun))],
-    nounText = kinds.join(' or ') || 'batch',
-    // the batch picked (its steps are offered); other modules' subjects have none here
-    batchId = picked?.subject === 'batch' ? picked.id : 0;
+    // what the modules' subjects are called: "batch", or "batch or sample" when another module adds its own
+    nounText = kinds.join(' or ') || data.subjects.map((x) => x.noun).join(' or '),
+    subjOf = (k?: string | null) => data.subjects.find((x) => x.kind === k),
+    pluralText =
+      kinds.length > 1
+        ? `${nounText} work`
+        : (subjOf([...data.open, ...data.finished][0]?.subject)?.plural ?? data.subjects[0]?.plural ?? ''),
+    // the subject picked, when its module offers its steps (a batch's layers)
+    stepsOf = picked && subjOf(picked.subject)?.steps ? picked : null;
   // another equipment may take other subjects (J–V measurement: finished ones); keep the choice only if it still fits
   const pickEq = (id: number) => {
     const list = choicesFor(id);
@@ -1385,11 +1346,11 @@ function BookingForm({
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!batchId) return setSteps([]);
-    api<any>('/batches/' + batchId)
-      .then((b) => setSteps((b.snapshot?.stack?.sl ?? []).map((x: any) => x.n).filter(Boolean)))
+    if (!stepsOf) return setSteps([]);
+    api<string[]>(`/subjects/${stepsOf.subject}/${stepsOf.id}/steps`)
+      .then(setSteps)
       .catch(() => setSteps([]));
-  }, [batchId]);
+  }, [stepsOf?.subject, stepsOf?.id]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', k);
@@ -1516,25 +1477,27 @@ function BookingForm({
               </div>
             </div>
             <div className="grid2">
-              <label className="fld">
-                <span>{cap(`${measure ? 'finished ' : ''}${nounText}`)}</span>
-                <select value={f.sel} onChange={(e) => setF({ ...f, sel: e.target.value, step: '' })}>
-                  {choices.map((b) => (
-                    <option key={key(b)} value={key(b)}>
-                      {kinds.length > 1 ? `${cap(b.noun)} ` : ''}
-                      {b.code}
-                      {b.name ? ` (${b.name})` : ''}
-                      {b.status === 'running' ? ', running' : ''}
-                    </option>
-                  ))}
-                  <option value="">No {nounText}</option>
-                </select>
-              </label>
-              {picked && (measure || !batchId) ? null : batchId ? (
+              {data.subjects.length > 0 && (
+                <label className="fld">
+                  <span>{cap(`${measure ? 'finished ' : ''}${nounText}`)}</span>
+                  <select value={f.sel} onChange={(e) => setF({ ...f, sel: e.target.value, step: '' })}>
+                    {choices.map((b) => (
+                      <option key={key(b)} value={key(b)}>
+                        {kinds.length > 1 ? `${cap(b.noun)} ` : ''}
+                        {b.code}
+                        {b.name ? ` (${b.name})` : ''}
+                        {b.status === 'running' ? ', running' : ''}
+                      </option>
+                    ))}
+                    <option value="">No {nounText}</option>
+                  </select>
+                </label>
+              )}
+              {picked && (measure || !stepsOf) ? null : stepsOf ? (
                 <label className="fld">
                   <span>Step</span>
                   <select value={f.step} onChange={(e) => setF({ ...f, step: e.target.value })}>
-                    <option value="">Whole batch</option>
+                    <option value="">Whole {subjOf(stepsOf.subject)?.noun}</option>
                     {steps.map((x, i) => (
                       <option key={i} value={x}>
                         {x}
@@ -1556,10 +1519,9 @@ function BookingForm({
                 </label>
               )}
             </div>
-            {measure && !picked && (
+            {measure && !picked && pluralText && (
               <p className="mut small">
-                {eq?.name} measures finished {nounText}
-                {kinds.length > 1 ? ' work' : nounText === 'batch' ? 'es' : 's'}. Without one, say why it is booked.
+                {eq?.name} measures finished {pluralText}. Without one, say why it is booked.
               </p>
             )}
             <div className="grid3 when">
@@ -1635,9 +1597,13 @@ function BookingForm({
                   Remove booking
                 </button>
               )}
-              {existing && onOpenBatch && draft.subject === 'batch' && !!draft.subject_id && (
-                <button type="button" className="link" onClick={() => onOpenBatch(draft.subject_id!)}>
-                  Open batch
+              {existing && !!draft.subject_id && subjOf(draft.subject)?.view && (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => open(subjOf(draft.subject)!.view!, draft.subject_id!)}
+                >
+                  Open {subjOf(draft.subject)!.noun}
                 </button>
               )}
               <div className="grow" />
@@ -1652,149 +1618,5 @@ function BookingForm({
         )}
       </div>
     </div>
-  );
-}
-
-// ------------------------------------------------------------------ batch scheduling tray (computer only)
-function Tray({
-  batch,
-  books,
-  eqs,
-  trained,
-  isAdmin,
-  onStart,
-  onEnd,
-  onSplit,
-}: {
-  batch: {
-    id: number;
-    code: string;
-    snapshot: { stack: StackD; resolved?: Record<number, any> };
-    status: string;
-    plan_split?: string;
-  } | null;
-  books: Booking[];
-  eqs: Eq[];
-  trained: number[];
-  isAdmin: boolean;
-  onStart: (d: Drag) => void;
-  onEnd?: (back: boolean) => void;
-  /** the blocks whose annealing goes elsewhere, chosen for this batch */
-  onSplit: (split: string[]) => void;
-}) {
-  // the equipment picked for a block when more than one can take it
-  const [pick, setPick] = useState<Record<string, number>>({});
-  if (!batch)
-    return (
-      <div className="tray">
-        <p className="mut">Loading the batch…</p>
-      </div>
-    );
-  const chosen: string[] = JSON.parse(batch.plan_split || '[]'),
-    split = autoSplit(batch.snapshot.stack, batch.snapshot.resolved, eqs, chosen),
-    blocks = bundlesOf(batch.snapshot.stack, batch.snapshot.resolved, split),
-    left = blocks.filter((b) => !placedOf(b, books)).length;
-  return (
-    <section className="tray" aria-label={`Equipment blocks for batch ${batch.code}`}>
-      <div className="tray-head">
-        <h3>Schedule {batch.code}</h3>
-        <span className="mut small">
-          {left
-            ? `Drag each block to its day and time. ${left} of ${blocks.length} left.`
-            : 'Every block is placed. Drag a booking to move it, click it to change its length.'}
-        </span>
-        <div className="grow" />
-        <button className="link" onClick={() => onEnd?.(false)}>
-          Close
-        </button>
-        <button className="btn" onClick={() => onEnd?.(true)}>
-          {left ? 'Back to the batch' : 'Done'}
-        </button>
-      </div>
-      <div className="tray-blocks">
-        {blocks.map((b) => {
-          const cands = eqCandidates(b, eqs, trained),
-            eq = cands.find((e) => e.id === pick[b.key]) ?? cands[0],
-            placed = placedOf(b, books),
-            notTrained = !!eq && !isAdmin && !trained.includes(eq.id),
-            least = eq?.min_booking ?? MIN_BOOK,
-            dur = Math.max(least, b.minutes), // what will be booked: the recipe's time, at least the equipment's shortest booking
-            base = b.key.replace(/-anneal$/, ''),
-            movable = !placed && !!b.extra && !(split.includes(b.key) && !chosen.includes(b.key));
-          const usable = !!eq && !placed && !notTrained;
-          return (
-            <div key={b.key} className="tray-cell">
-              <button
-                type="button"
-                className={'tray-block' + (placed ? ' placed' : '') + (usable || placed ? '' : ' missing')}
-                style={
-                  {
-                    '--eq': eq?.color ?? 'var(--sep)',
-                    minHeight: Math.max(52, Math.min(110, (dur / 60) * HOUR_PX)), // grows to show its text
-                  } as React.CSSProperties
-                }
-                disabled={!usable}
-                title={
-                  !eq
-                    ? `No equipment can do ${b.needs.map(stepLabel).join(' and ').toLowerCase()} (set up under Lab › Equipment)`
-                    : placed
-                      ? `Placed: ${new Date(placed.start).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
-                      : notTrained
-                        ? `You are not trained on ${eq.name} yet`
-                        : 'Drag onto the calendar'
-                }
-                onPointerDown={(e) => {
-                  if (!usable || e.button !== 0) return;
-                  e.preventDefault();
-                  onStart({
-                    kind: 'bundle',
-                    bundle: b,
-                    eq: eq!.id,
-                    dur,
-                    color: eq!.color,
-                    label: eq!.name,
-                    grab: Math.min(30, b.minutes / 2),
-                  });
-                }}
-              >
-                <b>{eq?.name ?? (b.role ? ROLE_NAME[b.role] : b.needs.map(stepLabel).join(', '))}</b>
-                <span>{b.what ?? b.layers.join(', ')}</span>
-                <span className="tray-t">
-                  {placed
-                    ? `✓ ${new Date(placed.start).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric' })} ${hm(new Date(placed.start))}`
-                    : notTrained
-                      ? 'Not trained on it'
-                      : `${dur >= 60 ? `${Math.floor(dur / 60)} h${dur % 60 ? ` ${dur % 60}` : ''}` : `${dur} min`}`}
-                </span>
-              </button>
-              {!placed && cands.length > 1 && (
-                <select
-                  className="tray-eq"
-                  aria-label={`Equipment for ${b.step}`}
-                  value={eq?.id}
-                  onChange={(e) => setPick({ ...pick, [b.key]: +e.target.value })}
-                >
-                  {cands.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {!isAdmin && !trained.includes(c.id) ? ' (not trained)' : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {movable && (
-                <button
-                  type="button"
-                  className="link small"
-                  onClick={() => onSplit(chosen.includes(base) ? chosen.filter((k) => k !== base) : [...chosen, base])}
-                >
-                  {chosen.includes(base) ? 'Anneal in the same place' : 'Anneal elsewhere'}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }

@@ -111,10 +111,9 @@ How the code is organised, how a request travels through it, the database and ho
 
 Monorepo (npm workspaces, Node 22+):
 
-- `packages/schema`: validation schemas (zod) shared by server and web
-- `packages/core`: pure domain functions (stoichiometry, spin timeline, deposition, geometry, mask analysis and exports, stack geometry) and their tests
-- `apps/server`: Fastify API, SQLite (built into Node), sessions, presets with versioning, batches, backups, activity log, updates
-- `apps/web`: React UI, Three.js stack viewer
+- The core: `apps/server` (Fastify API, SQLite built into Node, sessions, equipment, calendar, inventory, backups, activity log, updates), `apps/web` (React UI), `packages/core` (pure functions and their tests) and `packages/schema` (validation schemas, zod)
+- Electronic Devices, the first module: `modules/devices/server` (recipes and stacks with versioning, batches, J–V, comparisons), `modules/devices/web` (their screens, the Three.js stack viewer) and `modules/devices/shared` (stoichiometry, spin timeline, deposition, geometry, mask analysis, stack geometry, J–V analysis, and their tests)
+- How they fit together: [docs/architecture.md](docs/architecture.md)
 
 ```
 npm install

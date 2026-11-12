@@ -90,11 +90,19 @@ const env = {
   PANOPTICA_TEST: '1',
   // a module that exists only in the tests, next to Electronic Devices (0.41); the packaged server runs without it
   ...(process.argv.includes('--built') ? {} : { PANOPTICA_TEST_MODULE: join(root, 'tools/fake-module.ts') }),
+  // --core (0.43): the core alone, without Electronic Devices (with the test module when run from source)
+  ...(process.argv.includes('--core') && !process.argv.includes('--built') ? { PANOPTICA_MODULES: 'none' } : {}),
   UPDATE_PUBLIC_KEY: testKey.publicKey.export({ type: 'spki', format: 'pem' }),
 };
-// --built: the same checks against the packaged server (out/panoptica, made by tools/package.mjs), the file labs run
+// --built: the same checks against the packaged server (out/panoptica, made by tools/package.mjs), the file labs run.
+// --core: the core alone (0.43); with --built, the package made with no module (out/core/panoptica).
 const BUILT = process.argv.includes('--built'),
-  serverCwd = BUILT ? join(root, 'out/panoptica/apps/server') : join(root, 'apps/server'),
+  CORE = process.argv.includes('--core'),
+  MODULES = CORE ? [] : ['devices'],
+  DEV = MODULES.includes('devices'),
+  serverCwd = BUILT
+    ? join(root, CORE ? 'out/core/panoptica/apps/server' : 'out/panoptica/apps/server')
+    : join(root, 'apps/server'),
   serverArgs = BUILT ? ['--no-warnings', 'dist/server.mjs'] : ['--import', 'tsx', 'src/index.ts'];
 const srv = spawn(process.execPath, serverArgs, {
   cwd: serverCwd,
@@ -401,8 +409,8 @@ console.log('Live updates');
   ok(anon.status === 401, 'no event stream without signing in');
 }
 
-console.log('Measurements and comparisons');
-{
+if (DEV) {
+  console.log('Measurements and comparisons');
   // a diode-like cell: the quick check sweep (0.05 V, forward only) is better than the real measurement (0.02 V, both ways),
   // so it would be "best" if it were counted
   const cell = (step, jsc, sample = 'Batch_ref') => {
@@ -542,8 +550,8 @@ console.log('Measurements and comparisons');
   ok(lf.measuredAt?.startsWith('2026-11-05'), 'measured when the run started');
 }
 
-console.log('Calendar: shortest booking and cleanup');
-{
+if (DEV) {
+  console.log('Calendar: shortest booking and cleanup');
   const b = await call('POST', '/api/batches', {
     code: 'SMOKE-CAL',
     visibility: 'shared',
@@ -681,8 +689,8 @@ console.log('Calendar: shortest booking and cleanup');
   ok((await call('DELETE', '/api/bookings/' + simDone.j.id)).s === 200, 'and its booking can be removed');
 }
 
-console.log('Batches: variants, lock, mentions');
-{
+if (DEV) {
+  console.log('Batches: variants, lock, mentions');
   const sl = [
     { n: 'Substrate', m: 'Substrate', a: '', b: '', t: '' },
     { n: 'Perovskite', m: 'Spin', a: '', b: '', t: '' },
@@ -743,8 +751,8 @@ console.log('Batches: variants, lock, mentions');
   ok(people.some((p) => p.username === 'anas') && people.some((p) => p.me), 'people who can open it are offered');
 }
 
-console.log('Batches by name, equipment, training, atmosphere and overviews (0.38)');
-{
+if (DEV) {
+  console.log('Batches by name, equipment, training, atmosphere and overviews (0.38)');
   const stack = { arch: 'n-i-p', sl: [] };
   const n1 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
   const n2 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
@@ -863,25 +871,97 @@ ok(
 
 console.log('Database changes in order (0.40)');
 {
-  // the list in schema.ts: numbered 1, 2, 3… with no gaps or repeats, and every change recorded once in this database
-  const src = readFileSync(join(root, 'apps/server/src/schema.ts'), 'utf8');
-  const ids = [...src.matchAll(/^ {4}id: (\d+),$/gm)].map((m) => +m[1]);
-  ok(ids.length > 30 && ids.every((n, i) => n === i + 1), `changes numbered 1…${ids.length} in order`);
+  // the core's list and each module's (0.43): one sequence 1, 2, 3… with no gaps or repeats, each change recorded once here
+  const listed = (f, owner) =>
+    [...readFileSync(join(root, f), 'utf8').matchAll(/^ {4}id: (\d+),\n {4}owner: '(\w+)',$/gm)].map((m) => {
+      if (m[2] !== owner) throw new Error(`${f}: change ${m[1]} is owned by ${m[2]}`);
+      return +m[1];
+    });
+  const core = listed('apps/server/src/schema.ts', 'core'),
+    dev = listed('modules/devices/server/src/schema.ts', 'devices'),
+    ids = [...core, ...dev].sort((a, b) => a - b);
+  ok(
+    core.length > 20 && dev.length > 10 && ids.every((n, i) => n === i + 1),
+    `changes numbered 1…${ids.length} across the core (${core.length}) and Electronic Devices (${dev.length})`,
+  );
   const rec = db.prepare('SELECT id, owner FROM migrations WHERE id < 10000 ORDER BY id').all();
-  ok(rec.length === ids.length && rec.every((r, i) => r.id === ids[i]), 'every change recorded once in the database');
+  ok(
+    rec.length === (MODULES.includes('devices') ? ids.length : core.length) &&
+      rec.every((r) => (r.owner === 'core' ? core : dev).includes(r.id)),
+    'every change of the core and the loaded modules recorded once in the database, under its owner',
+  );
   ok(
     rec.every((r) => r.owner === 'core' || r.owner === 'devices'),
     'each change belongs to the core or the Electronic Devices module',
   );
 }
 
+if (CORE) {
+  console.log('The core alone, without Electronic Devices (0.43)');
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+    .all()
+    .map((r) => r.name);
+  ok(
+    !['presets', 'batches', 'run_data', 'iv_sets', 'iv_curves', 'comparisons'].some((t) => tables.includes(t)),
+    'no Electronic Devices tables in the database',
+  );
+  ok((await call('GET', '/api/batches')).s === 404 && (await call('GET', '/api/presets')).s === 404, 'nor its routes');
+  ok((await call('GET', '/api/chemicals')).j.length === 0, 'the chemical list starts empty');
+  const box = await call('POST', '/api/inventory/containers', {
+    name: 'Core salt',
+    amount: 1,
+    size: 2,
+    unit: 'g',
+    lot: 'C-1',
+  });
+  ok(
+    (await call('GET', '/api/search?q=C-1')).j.hits.some((h) => h.key === 'container:' + box.j.id),
+    'search finds containers',
+  );
+  const use = (await call('GET', '/api/inventory/use')).j;
+  ok(
+    BUILT ? use.basis.length === 0 && use.events.length === 0 : true,
+    'consumption has nothing to sum without a module',
+  );
+  const scale = await call('POST', '/api/equipment', { name: 'Core balance', role: 'scale' });
+  ok(
+    scale.s === 200 && db.prepare('SELECT role, steps FROM equipment WHERE id=?').get(scale.j.id).steps === '[]',
+    'equipment is added; an old procedure name means nothing without its module',
+  );
+  const t = (h) => new Date(Date.UTC(2032, 2, 3, h)).toISOString();
+  ok(
+    (await call('POST', '/api/bookings', { equipment_id: scale.j.id, purpose: 'Calibration', start: t(9), end: t(10) }))
+      .s === 200,
+    'a booking says what it is for',
+  );
+  const ov = (
+    await call('GET', '/api/dashboard?from=2032-03-01T00:00:00.000Z&to=2032-03-08T00:00:00.000Z&unit=week&scope=lab')
+  ).j;
+  ok(
+    ov.scope === 'lab' && !ov.m.devices && ov.lab.hours >= 1 && ov.equipment.some((e) => e.id === scale.j.id),
+    'the Overview has the core’s people and equipment time',
+  );
+  await call('POST', '/api/backups');
+  const chk = (await call('GET', '/api/backups')).j.check;
+  ok(
+    chk?.ok && /users/.test(chk.msg) && !/recipes/.test(chk.msg),
+    `a backup is checked by the core alone: ${chk?.msg}`,
+  );
+}
+
 if (!BUILT) {
-  console.log('A second module next to Electronic Devices (a test module, 0.41)');
+  console.log(
+    DEV
+      ? 'A second module next to Electronic Devices (a test module, 0.41)'
+      : 'A module on the core alone (the test module)',
+  );
   const eqs = (await call('GET', '/api/equipment')).j;
   ok(
     eqs.steps.some((x) => x.key === 'fake-mix' && x.module === 'fake') &&
-      eqs.steps.some((x) => x.key === 'spin' && x.module === 'devices'),
-    'equipment steps come from every module',
+      (!DEV || eqs.steps.some((x) => x.key === 'spin' && x.module === 'devices')) &&
+      (DEV || eqs.steps.every((x) => x.module === 'fake')),
+    DEV ? 'equipment steps come from every module' : 'the core has no steps of its own: only the test module’s',
   );
   ok(
     (await call('POST', '/api/equipment', { name: 'Fake nothing', steps: ['no-such-step'] })).s === 400,
@@ -899,8 +979,8 @@ if (!BUILT) {
   const cal = (await call('GET', '/api/calendar?from=2031-02-01T00:00:00.000Z&to=2031-02-08T00:00:00.000Z')).j;
   ok(
     cal.open.some((c) => c.subject === 'sample' && c.id === smp.j.id && c.noun === 'sample') &&
-      cal.open.some((c) => c.subject === 'batch'),
-    'the booking form offers batches and samples',
+      cal.open.some((c) => c.subject === 'batch') === DEV,
+    DEV ? 'the booking form offers batches and samples' : 'the booking form offers samples only',
   );
   const t = (d, h) => new Date(Date.UTC(2031, 1, d, h)).toISOString();
   const bk = (eq, d, h, extra) =>
@@ -945,7 +1025,10 @@ if (!BUILT) {
   ok((await bk(reader.j.id, 6, 9, { subject: 'sample', subject_id: smp.j.id })).s === 200, 'then the reader takes it');
 
   // 0.42: samples as a record type (comments, search, trash), what they used, and their part of the Overview
-  ok((await call('GET', '/api/version')).j.modules.join() === 'devices,fake', 'the server lists its modules');
+  ok(
+    (await call('GET', '/api/version')).j.modules.join() === [...MODULES, 'fake'].join(),
+    'the server lists its modules',
+  );
   ok(
     (await call('POST', `/api/comments/sample/${smp.j.id}`, { text: 'Looks fine' })).s === 200,
     'a sample takes comments',
@@ -967,8 +1050,10 @@ if (!BUILT) {
     await call('GET', `/api/dashboard?from=2026-01-05T00:00:00.000Z&to=2026-01-12T00:00:00.000Z&unit=week&scope=lab`)
   ).j;
   ok(
-    ov.m.fake.samples >= 1 && ov.m.devices && ov.people.some((p) => p.m.fake.samples >= 1),
-    'the Overview has the test module’s part next to Electronic Devices',
+    ov.m.fake.samples >= 1 && !!ov.m.devices === DEV && ov.people.some((p) => p.m.fake.samples >= 1),
+    DEV
+      ? 'the Overview has the test module’s part next to Electronic Devices'
+      : 'the Overview has the test module’s part',
   );
   ok((await call('GET', '/api/dashboard/person/' + me)).j.m.fake.samples >= 1, 'and a person’s page too');
   await call('DELETE', '/api/m/fake/samples/' + smp.j.id);

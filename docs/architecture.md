@@ -4,7 +4,7 @@ How the code is organised, how a request travels through it, where the data live
 
 ## In one paragraph
 
-One Node.js process serves both the API (`/api/...`) and the built web app. The browser runs a React single-page app that talks to the API with JSON. The API is a Fastify server that validates every input with zod, checks the person's permission, and reads and writes one SQLite database file. Scientific calculations (stoichiometry, deposition times, geometry, J–V parameters, consumption) live in a separate package with no I/O, used by both the browser and the server, and covered by unit tests.
+One Node.js process serves both the API (`/api/...`) and the built web app. The browser runs a React single-page app that talks to the API with JSON. The API is a Fastify server that validates every input with zod, checks the person's permission, and reads and writes one SQLite database file. The app is a **core** (accounts, lab setup, equipment, calendar, inventory, comments, trash, search, Overview, backups, updates) and **modules** that add to it (0.43: Electronic Devices, in `modules/devices`). The core never imports a module: modules register what they add (`apps/server/src/modules.ts`, `apps/web/src/modules/types.ts`) and the build or the server's start puts them in place. Scientific calculations (stoichiometry, deposition times, geometry, J–V parameters, consumption) live in packages with no I/O, used by both the browser and the server, and covered by unit tests.
 
 ```
  Browser (React)                     Node.js process                           Disk
@@ -15,19 +15,23 @@ One Node.js process serves both the API (`/api/...`) and the built web app. The 
  └───────────────────┘               └──────────────────────────────────┘     └──────────────────────────┘
           │                                       │
           └──────────── packages/core (pure functions) and packages/schema (zod) ──────┘
+   modules/devices/{web,server,shared}: Electronic Devices, plugged into each side through the registries
 ```
 
 ## Repository layout
 
 | Folder | What it holds |
 |---|---|
-| `packages/core` | Domain logic, no I/O: solution stoichiometry and masses (`index.ts`), spin and evaporation timing, substrate and mask geometry (`geom.ts`, `mask.ts`), 3D stack geometry (`stack3d.ts`), J–V curve parameters (`iv.ts`), inventory consumption and forecasts (`inventory.ts`). Unit tests next to each file (`*.test.ts`, vitest). |
-| `packages/schema` | zod schemas for every request body (`src/index.ts`). The server validates with them; the web app uses their types. |
-| `apps/server/src` | The API (details below). |
+| `packages/core` | The core's logic, no I/O: accounts and passwords, working hours, inventory amounts and consumption series (`inventory.ts`), equipment inside equipment (`equipment.ts`), SHA-256. Unit tests next to each file (`*.test.ts`, vitest). |
+| `packages/schema` | zod schemas for the core's request bodies (`src/index.ts`). The server validates with them; the web app uses their types. |
+| `apps/server/src` | The core's API (details below). `api.ts` is what modules may use. |
+| `modules/devices/shared` | `@psc/devices`: Electronic Devices' logic, no I/O: solution stoichiometry (`index.ts`), spin and evaporation timing, substrate and mask geometry (`geom.ts`, `mask.ts`), 3D stack geometry (`stack3d.ts`), J–V curve parameters (`iv.ts`), variants, consumption of a batch (`uses.ts`), the photovoltaics steps (`steps.ts`); its zod schemas (`schema.ts`, `@psc/devices/schema`). Unit tests next to each file. |
+| `modules/devices/server` | Its API: the manifest (`index.ts`), its database changes (`schema.ts`), recipes and stacks (`presets.ts`), batches (`batches.ts`, `batchlock.ts`), J–V (`iv.ts`, `ivdata.ts`), comparisons, its Overview part (`overview.ts`), the chemical list a new lab starts with (`chemicals.ts`). |
+| `modules/devices/web` | Its screens: the manifest (`index.tsx`: pages, menu groups, Overview part, the Calendar tray, the run data after a step, the data package window), recipes, designs, stacks and the 3D view, batches, J–V, comparisons. |
 | `apps/server/*.cjs` | Command-line tools for the start/update/restore scripts: `db-tools.cjs` (backup, restore, decrypt) and `reset-password.cjs`. They run with the app stopped or alongside it. |
-| `apps/web/src` | The React app (details below). |
+| `apps/web/src` | The core's React app (details below). |
 | `docs` | User guide (also shown under Help in the app), this file, security and data. |
-| `tools` | `smoke.mjs` (server security checks), `stamp.cjs` (decides when start scripts reinstall or rebuild), `notes.mjs` (release notes from the changelog). |
+| `tools` | `smoke.mjs` (server checks), `browser.mjs` (browser flows), `package.mjs` (the release package, with chosen modules), `fake-module.ts` (a module that exists only in the tests), `stamp.cjs` (decides when start scripts reinstall or rebuild), `notes.mjs` (release notes from the changelog). |
 | Root scripts | `start`, `start-network`, `update`, `restore`, `version`, `reset-password` in `.bat` (Windows), `.command` (macOS) and `.sh` (Linux) flavours. |
 | `.github` | CI (`check.yml`), releases (`release.yml`), Dependabot. |
 
@@ -37,20 +41,15 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 
 | File | Responsibility |
 |---|---|
-| `index.ts` | Starts Fastify (HTTP or HTTPS), registers everything below, sign-in and sessions, users, tags, chemicals, batches, preferences, search, backups API, serving the built web app. The place to read first. |
+| `index.ts` | Starts Fastify (HTTP or HTTPS), loads the modules, registers everything below and the modules' routes, sign-in and sessions, users, tags, chemicals, preferences, search, backups API, serving the built web app. The place to read first. |
+| `api.ts` | What a module may use (0.43): the database and its change list, the registry, notifications, the calendar's booking rules. A module imports only this (`@psc/server/api`). |
 | `db.ts` | Opens the SQLite database and brings it up to date (`schema.ts`, see Migrations), `tx()` for transactions, `perms()` and `tagsOf()` for access tags. |
-| `schema.ts` | Every change to the database, numbered and in order, each marked core or Electronic Devices (`owner`). |
+| `schema.ts` | The core's changes to the database, numbered and in order; each module keeps its own list in the same numbering and runs it when it is loaded. |
 | `security.ts` | Security headers, the cross-site (Origin) check, session token hashing, the sign-in limiter, the password policy. |
 | `audit.ts` | Activity log: the `audit` table, the hooks that record changes, the hash chain and its check, the admin endpoints. |
 | `auth.ts` | Password hashing (scrypt) and verification. |
-| `presets.ts` | Recipes, designs and stacks ("presets"): versions, sharing, run data, trash. |
-| `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs; `stability_of` (stability series) is kept in the data but no longer in the interface since 0.37.1. |
-| `comparisons.ts` | Comparisons: saved groups of devices (references to measurement, sample and substrate), private by default; the device list for picking. |
-| `modules.ts` | The module registry: what bookings can be for (subjects) and the steps equipment can do (0.41); record types for comments, trash, search and sharing, what a module used from the inventory, and its part of the Overview (0.42). The core knows modules only through it. `canSee` is the one sharing rule. |
+| `modules.ts` | The module registry: what bookings can be for (subjects, with their page, hint and steps) and the steps equipment can do (0.41); record types for comments, trash, search and sharing, what a module used from the inventory, and its part of the Overview (0.42); equipment procedures, activity-log names, live-update topics and backup lines (0.43). The core knows modules only through it. `canSee` is the one sharing rule. |
 | `calendar.ts` | Core calendar: bookings, outcomes, atmosphere, clashes and cleanup, off-hours. A booking is for a subject (`bookings.subject`, `subject_id`) or a stated purpose; everything about the subject (owner, lock, whether an outcome is asked, what happens after it) comes from its module. |
-| `devices.ts` | The Electronic Devices module's manifest: batches as a subject (Running and Done follow their bookings), the photovoltaics steps, the batch scheduler's routes, its record types (recipes and stacks, batches, measurements, comparisons) and the consumption of its batches. |
-| `devices-overview.ts` | Electronic Devices' part of the Overview: batches, measured cells, the efficiency trend, best cells, a new record; a person's progress. |
-| `batchlock.ts` | Finished batches lock 14 days after Done (423 on changes); admins unlock for 7 days. |
 | `inventory.ts` | Storage areas and types, shelves, containers, CSV import, and consumption: the sum of what the modules report they used (`/api/inventory/use`). |
 | `social.ts` | Comments, reactions, notifications, lab records, the trash: all over the record types the modules register. |
 | `dashboard.ts` | The Overview: people, equipment time and steps that did not go as planned, plus each module's part (`m.<module>`). |
@@ -91,7 +90,7 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | `users`, `sessions`, `user_prefs`, `tags`, `user_tags` | Accounts, sign-in sessions (token hashes), per-person settings, labels and access tags |
 | `presets` | Recipes, designs and stacks: `segment` says which kind, `data` is JSON, `parent_id` links versions, `deleted_at` is the trash |
 | `run_data` | What really happened when a recipe was run, linked to a batch by code |
-| `batches` | A stack frozen at start (`snapshot` JSON), what was recorded during the run (`record` JSON), its variants with their recipes frozen (`variants` JSON; applied to the snapshot by `applyVariant` in `@psc/core`), and `done_at` / `unlocked_until` for the automatic lock (`batchlock.ts`) |
+| `batches` | A stack frozen at start (`snapshot` JSON), what was recorded during the run (`record` JSON), its variants with their recipes frozen (`variants` JSON; applied to the snapshot by `applyVariant` in `@psc/devices`), and `done_at` / `unlocked_until` for the automatic lock (`batchlock.ts`) |
 | `chemicals` | Reagents with formula, molar mass, density, purity (JSON) |
 | `iv_sets`, `iv_curves` | J–V measurements and their curves (data and computed metrics as JSON); `stability_of` links follow-up measurements; `kind = 'check'` marks check sweeps |
 | `comparisons` | Saved comparisons: groups of devices as JSON references (`data`), private by default |
@@ -111,34 +110,38 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 |---|---|
 | `main.tsx`, `App.tsx` | Entry point; sign-in and the forced password change; then `Shell`. |
 | `Shell.tsx` | Layout (side menu on computers, bottom bar on phones), search, notifications, and which page is open (its address is `#/page/id`, `lib/route.ts`). The menu is the core's pages (Overview, Calendar, Lab) plus the installed modules' groups. |
-| `modules/` | What each module adds to the screens (0.42): `types.ts` is the contract (pages and menu groups, the Overview part), `index.ts` the modules of this build, `devices/` Electronic Devices' pages and Overview part. The server says which are installed (`/api/version`). |
+| `modules/` | What each module adds to the screens: `types.ts` is the contract (pages and menu groups, the Overview part, a Calendar tray, what to ask after a concluded step, windows opened from anywhere), `installed.ts` the modules of this build (written by `vite.config.ts`). The server says which are installed (`/api/version`). |
 | `api.ts` | `api(path, method, body)`: the only way the app calls the server. |
 | `ctx.tsx` | Shared context: the signed-in user, preferences. |
 | `views/` | One file per screen: Batches, Calendar, Inventory, Overview (the core frame; `overview/parts.tsx` the pieces module parts share), Admin settings (`Users.tsx` plus `AdminSecurity.tsx`), Trash, Help, Profile, printable sheets and reports. |
-| `recipes/` | Each recipe kind (substrate prep, solution, spin, evaporation) as a `Kind`: defaults, editor, output, summary, run-data fields. `types.ts` defines the contract; `lib/Library.tsx` is the generic list/edit/view screen that hosts every kind. |
-| `designs/` | Substrate and mask designers (shape editor, canvas, SVG). |
-| `stacks/` | Stack model, the stack editor, the Three.js 3D viewer, the run sheet. |
-| `iv/` | J–V import, measurement page, figures (J–V, box plots, lifetime), pixel comparison; `model.ts` holds the counting rule (`inStats`: best scan per pixel and direction, never a check sweep). |
-| `compare/` | Comparisons across measurements: groups, device picker, naming rules and "what changed" (`model.ts`), results and exports (`Comparisons.tsx`). |
+| `modules/devices/web/src/recipes/` | Each recipe kind (substrate prep, solution, spin, evaporation) as a `Kind`: defaults, editor, output, summary, run-data fields. `types.ts` defines the contract; `lib/Library.tsx` is the generic list/edit/view screen that hosts every kind. |
+| `modules/devices/web/src/designs/` | Substrate and mask designers (shape editor, canvas, SVG). |
+| `modules/devices/web/src/stacks/` | Stack model, the stack editor, the Three.js 3D viewer, the run sheet. |
+| `modules/devices/web/src/iv/` | J–V import, measurement page, figures (J–V, box plots, lifetime), pixel comparison; `model.ts` holds the counting rule (`inStats`: best scan per pixel and direction, never a check sweep). |
+| `modules/devices/web/src/compare/` | Comparisons across measurements: groups, device picker, naming rules and "what changed" (`model.ts`), results and exports (`Comparisons.tsx`). |
 | `lib/` | Shared pieces: UI primitives (`ui.tsx`), comments, notifications, figures export, spreadsheet export (`xlsx.ts`), presence, the funny settings. |
 | `styles.css` | All styles; design tokens (colours, radius, control height) at the top, light and dark themes. |
 
-**Adding a recipe kind**: write a `Kind` in `recipes/` (see `recipes/types.ts`), register it in `recipes/index.ts`, add its page in `modules/devices/index.tsx`. The library, versions, sharing, comments and run data come with the generic screen.
+**Adding a recipe kind**: write a `Kind` in `modules/devices/web/src/recipes/` (see `recipes/types.ts`), register it in `recipes/index.ts`, add its page in `modules/devices/web/src/index.tsx`.
+
+### Modules (0.43)
+
+A module is a folder `modules/<id>/` with up to three packages: `server` (its manifest in `src/index.ts`: `addModule({...})`, imported only through `@psc/server/api`), `web` (its manifest in `src/index.tsx`, default export a `WebModule`, importing the core's pieces as `@web/…`) and `shared` (its pure logic and schemas). From source, the server loads every module present (or those in `PANOPTICA_MODULES`, `none` for the core alone) and `vite.config.ts` builds the web app with the same list. `tools/package.mjs --modules a,b` makes a package with only those: the server bundle imports them before the core, and the web app is built with them. A module's database changes run when it is loaded, after the core's; a lab that adds a module later gets them then. ESLint enforces the line: the core may not import from `modules/` or `@psc/devices`, and a module's server may not import the core's files except `api.ts`. The library, versions, sharing, comments and run data come with the generic screen.
 
 ## How to change things
 
 | Task | Where |
 |---|---|
 | New API endpoint | The module of its area (or a new `registerX(app, auth, bad)` registered in `index.ts`); body schema in `packages/schema`; permission via `auth(...)`; a readable activity-log label in `audit.ts` (`LABEL`) |
-| New table or column | A new entry at the end of `schema.ts` (see Migrations) |
-| New calculation | `packages/core`, with a unit test |
-| New screen | `apps/web/src/views`, as a page of its module (`modules/<module>/index.tsx`) or of the core (`CORE` in `Shell.tsx`) |
+| New table or column | A new entry in the list of its owner (`apps/server/src/schema.ts` for the core, the module's `schema.ts`), with the next number in the shared sequence |
+| New calculation | `packages/core` (the core) or the module's `shared`, with a unit test |
+| New screen | A page of its module (`modules/<module>/web/src/index.tsx`) or of the core (`CORE` in `Shell.tsx`, the screen in `apps/web/src/views`) |
 | New record type (commented, trashed, searched) | An `ItemKind` in the module's `items` (`apps/server/src/modules.ts`) |
 | Release | Bump `version` in `package.json`, add a section to `CHANGELOG.md`, merge to `main` (CI publishes the release) |
 
 ## Quality checks
 
-`npm run check` runs, in order: Prettier formatting check, ESLint, TypeScript (strict) for all packages, the core unit tests (vitest), the server security checks (`tools/smoke.mjs`: a real server on a temporary database, over 200 checks of sign-in, permissions, headers, backups, encryption, activity log, updates, the calendar and the module registry with a test module), the production build, packaging the app (`tools/package.mjs`) and running the server checks again on the packaged server. CI runs it on Windows and Linux for every push and pull request, plus `npm audit` of every dependency, including the build and test tools (0.43). `npm run test:browser` (`tools/browser.mjs`, Playwright with Chromium) clicks through the main flows on the packaged app with a new database: first setup, signing out and in, the side menu, adding equipment, a booking, a stack's and a batch's run sheet (checking that the sheet, not the page, is what prints, also when the browser prints after `print()` returns, as Safari does), starting a batch by name, booking for it, search, a J–V import of synthetic files, the Overview, the trash and consumption. CI runs it on Linux, and every release runs it before publishing.
+`npm run check` runs, in order: Prettier formatting check, ESLint (including the core/module line), TypeScript (strict) for the core and each module package, the unit tests (vitest) of `packages/core` and `modules/devices/shared`, the server checks (`tools/smoke.mjs`: a real server on a temporary database, over 200 checks of sign-in, permissions, headers, backups, encryption, activity log, updates, the calendar and the module registry with a test module) with Electronic Devices and again **with the core alone** (`--core`: no Electronic Devices tables, routes or chemicals; the test module still works), the production build, packaging the app with Electronic Devices and the server checks on that package, then packaging **the core alone** (`--modules none`) and the core checks on that package. CI runs it on Windows and Linux for every push and pull request, plus `npm audit` of every dependency, including the build and test tools. `npm run test:browser` (`tools/browser.mjs`, Playwright with Chromium) clicks through the main flows on the packaged app with a new database: first setup, signing out and in, the side menu, adding equipment, a booking, a stack's and a batch's run sheet (checking that the sheet, not the page, is what prints, also when the browser prints after `print()` returns, as Safari does), starting a batch by name, booking for it, search, a J–V import of synthetic files, the Overview, the trash and consumption. `npm run test:browser:core` does the same flows that exist without the module on the core-alone package. CI runs both on Linux, and every release runs them before publishing.
 
 Format before committing with `npm run format`. Formatting-only commits are listed in `.git-blame-ignore-revs`.
 
@@ -149,5 +152,5 @@ Honest list of what a reviewer will notice, roughly in the order worth fixing:
 - **`any` in the server**: request handlers type `req` and database rows as `any`. Typed route schemas (Fastify generics, or zod-derived types for params and rows) would catch mistakes at compile time.
 - **Large files**: some screens are 1 000–1 700 lines (`Inventory.tsx`, `Overview.tsx`, `Calendar.tsx`) and `styles.css` holds every style. Splitting them by sub-screen would make reviews easier.
 - **Tests**: core logic has unit tests and the server has end-to-end security checks, and the main workflows have browser tests, but there are no per-route server tests (permissions per endpoint, calendar rules).
-- **Module split in progress** (0.41–0.43): bookings, equipment steps, record types (comments, trash, search, sharing), consumption, the side menu and the Overview go through the module registry, and a test module (`tools/fake-module.ts`) is checked next to Electronic Devices. Still woven in: the equipment `role` column (derived from the photovoltaics steps, used by the batch scheduler and the drawings), the batch tray in the Calendar, the chemicals' perovskite roles, the presentation export in `views/overview/slides.tsx`, and the code layout (0.43: `core/` and `modules/devices/`, core tested alone).
+- **Module split, what is left** (0.44 and after): the core still has the equipment `role` column (derived through the modules, used by the batch scheduler and the drawings) and the chemicals' perovskite roles (salt, solvent, ETL…); some core texts name batches (the outcome question, the first-setup screen, the funny headlines) and the user guide in Help describes Electronic Devices; the API routes of Electronic Devices keep their paths (`/api/batches`, not `/api/m/devices/…`).
 - **History**: the repository starts at version 0.25 as one import commit; the reasons behind earlier choices are in the code comments and the changelog, not in commit history.

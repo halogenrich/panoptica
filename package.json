@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "modules/*/*"
   ],
   "scripts": {
     "dev": "concurrently -n api,web \"npm:dev:server\" \"npm:dev:web\"",
@@ -12,15 +13,17 @@
     "dev:web": "npm run dev -w @psc/web",
     "build": "npm run build -w @psc/web",
     "start": "npm run start -w @psc/server",
-    "test": "npm run test -w @psc/core",
-    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web --noEmit && tsc -p tools",
+    "test": "npm run test -w @psc/core && npm run test -w @psc/devices",
+    "typecheck": "tsc -p packages/core && tsc -p modules/devices/shared && tsc -p apps/server && tsc -p modules/devices/server && tsc -p apps/web --noEmit && tsc -p modules/devices/web && tsc -p tools",
     "test:server": "node --no-warnings tools/smoke.mjs",
     "test:browser": "node --import tsx tools/browser.mjs --built",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "package": "node tools/package.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:server && npm run build && node tools/package.mjs --no-web --boot && node --no-warnings tools/smoke.mjs --built"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:server && npm run test:core && npm run build && node tools/package.mjs --no-web --boot && node --no-warnings tools/smoke.mjs --built && node tools/package.mjs out/core --modules none --boot && node --no-warnings tools/smoke.mjs --built --core",
+    "test:core": "node --no-warnings tools/smoke.mjs --core",
+    "test:browser:core": "node --import tsx tools/browser.mjs --built --core"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -34,7 +37,7 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1"
   },
-  "version": "0.42.0",
+  "version": "0.43.0",
   "overrides": {
     "@typescript-eslint/typescript-estree": {
       "minimatch": "^11.0.8"

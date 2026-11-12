@@ -22,6 +22,12 @@ const sets = {
           ? fs.readdirSync(path.join(root, g)).map((n) => `${g}/${n}/package.json`)
           : [],
       ),
+      // the modules' packages (0.43): modules/<id>/{server,web,shared}/package.json
+      ...(fs.existsSync(path.join(root, 'modules'))
+        ? fs
+            .readdirSync(path.join(root, 'modules'))
+            .flatMap((m) => ['server', 'web', 'shared'].map((p) => `modules/${m}/${p}/package.json`))
+        : []),
     ],
   },
   build: {
@@ -30,9 +36,17 @@ const sets = {
       'package.json',
       'apps/web/index.html',
       'apps/web/vite.config.ts',
-      ...['apps/web/src', 'packages/core/src', 'packages/schema/src', 'docs'].flatMap((d) =>
-        walk(path.join(root, d)).map((f) => path.relative(root, f)),
-      ),
+      ...[
+        'apps/web/src',
+        'packages/core/src',
+        'packages/schema/src',
+        'docs',
+        ...(fs.existsSync(path.join(root, 'modules'))
+          ? fs
+              .readdirSync(path.join(root, 'modules'))
+              .flatMap((m) => [`modules/${m}/web/src`, `modules/${m}/shared/src`])
+          : []),
+      ].flatMap((d) => walk(path.join(root, d)).map((f) => path.relative(root, f))),
     ],
   },
 };

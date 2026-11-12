@@ -278,7 +278,22 @@ export function registerCalendar(app: FastifyInstance, auth: (need?: any) => any
       bookings: rows.map((r) => out(r, req.user)),
       open,
       finished,
+      // what bookings can be for, from the modules (0.43): its name, the page it opens on, a hint when there is none
+      subjects: subjects().map((s) => ({
+        kind: s.kind,
+        noun: s.noun,
+        plural: s.plural,
+        view: s.view ?? null,
+        hint: s.hint ?? '',
+        steps: !!s.steps,
+      })),
     };
+  });
+  /** The steps of something bookings are for (a batch's layers), offered in the booking form. */
+  app.get('/api/subjects/:kind/:id/steps', { preHandler: auth() }, async (req: any, reply) => {
+    const s = subject(req.params.kind);
+    if (!s?.steps) return reply.code(404).send({ error: 'not found' });
+    return s.steps(req.user, +req.params.id);
   });
 
   const check = (req: any, reply: any, d: any, id = 0) => {

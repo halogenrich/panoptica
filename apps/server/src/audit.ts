@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { db } from './db.js';
+import { modules } from './modules.js';
 
 /**
  * Activity log: who changed what, when and from where. Every accepted change through the API is recorded (never the content of
@@ -74,7 +75,8 @@ export function verifyAudit(): { ok: boolean; rows: number; brokenAt?: { id: num
   return { ok: true, rows: n };
 }
 
-/** Readable names for the API routes that change something. Unknown routes are logged with their method and path. */
+/** Readable names for the core's API routes that change something (modules add theirs). Unknown routes are logged with their
+ * method and path. */
 const LABEL: Record<string, string> = {
   'POST /api/users': 'Created a user',
   'PATCH /api/users/:id': 'Changed a user',
@@ -97,24 +99,6 @@ const LABEL: Record<string, string> = {
   'DELETE /api/places/:id': 'Removed a place',
   'PATCH /api/me': 'Changed own profile',
   'POST /api/me/password': 'Changed own password',
-  'POST /api/presets': 'Created a recipe or design',
-  'PUT /api/presets/:id': 'Edited a recipe or design',
-  'DELETE /api/presets/:id': 'Moved a recipe or design to the trash',
-  'POST /api/presets/:id/runs': 'Added run data',
-  'DELETE /api/runs/:id': 'Deleted run data',
-  'POST /api/batches': 'Started a batch',
-  'PATCH /api/batches/:id': 'Edited a batch',
-  'DELETE /api/batches/:id': 'Moved a batch to the trash',
-  'PUT /api/batches/:id/variants': 'Edited the variants of a batch',
-  'POST /api/batches/:id/unlock': 'Unlocked a finished batch',
-  'POST /api/batches/:id/lock': 'Locked a batch again',
-  'POST /api/iv': 'Imported a measurement',
-  'PATCH /api/iv/:id': 'Edited a measurement',
-  'PATCH /api/iv/curves/:cid': 'Changed which curves count',
-  'DELETE /api/iv/:id': 'Moved a measurement to the trash',
-  'POST /api/comparisons': 'Created a comparison',
-  'PATCH /api/comparisons/:id': 'Edited a comparison',
-  'DELETE /api/comparisons/:id': 'Moved a comparison to the trash',
   'POST /api/chemicals': 'Added a chemical',
   'PUT /api/chemicals/:id': 'Edited a chemical',
   'DELETE /api/chemicals/:id': 'Deleted a chemical',
@@ -153,25 +137,15 @@ function nameOf(route: string, params: Record<string, string>): string {
   const id = Number(params.id);
   const q = (sql: string) =>
     Number.isFinite(id) ? (db.prepare(sql).get(id) as { n: string } | undefined)?.n : undefined;
-  const n = route.startsWith('/api/users/')
-    ? q("SELECT username || ' (' || name || ')' AS n FROM users WHERE id=?")
-    : route.startsWith('/api/presets/')
-      ? q('SELECT name AS n FROM presets WHERE id=?')
-      : route.startsWith('/api/batches/')
-        ? q('SELECT code AS n FROM batches WHERE id=?')
-        : route.startsWith('/api/chemicals/')
-          ? q('SELECT name AS n FROM chemicals WHERE id=?')
-          : route.startsWith('/api/comparisons/')
-            ? q('SELECT name AS n FROM comparisons WHERE id=?')
-            : route.startsWith('/api/iv/:id')
-              ? q('SELECT name AS n FROM iv_sets WHERE id=?')
-              : route.startsWith('/api/tags/')
-                ? q('SELECT name AS n FROM tags WHERE id=?')
-                : route.startsWith('/api/equipment/:id')
-                  ? q('SELECT name AS n FROM equipment WHERE id=?')
-                  : route.startsWith('/api/backups/:name')
-                    ? params.name
-                    : undefined;
+  // the core's records, then what the modules name (0.43)
+  const own: [string, string][] = [
+    ['/api/users/', "SELECT username || ' (' || name || ')' AS n FROM users WHERE id=?"],
+    ['/api/chemicals/', 'SELECT name AS n FROM chemicals WHERE id=?'],
+    ['/api/tags/', 'SELECT name AS n FROM tags WHERE id=?'],
+    ['/api/equipment/:id', 'SELECT name AS n FROM equipment WHERE id=?'],
+  ];
+  const hit = [...own, ...modules().flatMap((m) => m.audit?.names ?? [])].find(([p]) => route.startsWith(p));
+  const n = hit ? q(hit[1]) : route.startsWith('/api/backups/:name') ? params.name : undefined;
   const rest = Object.entries(params)
     .filter(([k]) => k !== 'id' && k !== 'name')
     .map(([k, v]) => `${k} ${v}`)
@@ -210,7 +184,9 @@ export function registerAudit(app: FastifyInstance, auth: (need?: any) => any) {
       user_id: req.user?.id,
       username: req.user?.username,
       ip: ipOf(req),
-      action: (ok ? '' : 'Refused: ') + (LABEL[key] ?? key),
+      action:
+        (ok ? '' : 'Refused: ') +
+        (LABEL[key] ?? modules().find((m) => m.audit?.labels[key])?.audit?.labels[key] ?? key),
       target: req.auditTarget ?? nameOf(req.routeOptions?.url ?? '', req.params ?? {}),
       status: reply.statusCode,
     });

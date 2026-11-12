@@ -20,11 +20,9 @@ import { Toaster } from './lib/trash';
 import { NotificationList, useNotifications } from './lib/Notifications';
 import EquipmentPage from './views/Equipment';
 import { parseRoute, pushRoute } from './lib/route';
-import { MODULES } from './modules';
+import { MODULES } from './modules/installed';
 import type { Group, Page } from './modules/types';
 const Invite = lazy(() => import('./lib/Invite'));
-const DataPackage = lazy(() => import('./lib/DataPackage'));
-import type { PackSel } from './lib/datapack';
 
 /**
  * The core's own pages (0.42). A module may show one of them in its own group (Electronic Devices puts the Calendar under
@@ -35,12 +33,12 @@ const CORE: Record<string, Page> = {
     key: 'cal',
     label: 'Calendar',
     render: (p) => {
-      const id = (p.extra.schedule as number | undefined) ?? null;
+      // a module's tray when the Calendar was opened with its parameter (Electronic Devices: { schedule: batch id })
+      const t = p.modules.find((m) => m.calendarTray && p.extra[m.calendarTray.param]);
       return (
         <Calendar
-          scheduling={id}
-          onEndScheduling={(back) => (back && id ? p.open('batches', id) : p.open('cal'))}
-          onOpenBatch={(b) => p.open('batches', b)}
+          open={p.open}
+          tray={t ? { Tray: t.calendarTray!.Tray, id: p.extra[t.calendarTray!.param] as number } : null}
         />
       );
     },
@@ -162,13 +160,8 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
     return () => window.removeEventListener('popstate', f);
   }, []);
   const notes = useNotifications(),
-    profs = usePresence(),
-    [pack, setPack] = useState<PackSel | null>(null);
-  useEffect(() => {
-    const f = (e: Event) => setPack((e as CustomEvent<PackSel>).detail);
-    window.addEventListener('psc-datapack', f);
-    return () => window.removeEventListener('psc-datapack', f);
-  }, []);
+    profs = usePresence();
+
   /** Opens a page and an item on it (search results, notifications, links between pages). */
   const go = (k: string, id: number | null = null, extra: Record<string, unknown> = {}) => {
     setView(k);
@@ -234,6 +227,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       onOpen: (id) => setIds((x) => ({ ...x, [view]: id })),
       open: go,
       extra: extras[view] ?? {},
+      modules: mods,
     });
   };
   return (
@@ -393,13 +387,9 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
         </div>
       )}
       <Toaster />
-      <Outcomes />
+      <Outcomes after={Object.assign({}, ...mods.map((m) => m.afterOutcome ?? {}))} />
       <CompleteProfile />
-      {pack && (
-        <Suspense fallback={null}>
-          <DataPackage initial={pack} onClose={() => setPack(null)} />
-        </Suspense>
-      )}
+      {mods.map((m) => m.Overlay && <m.Overlay key={m.id} />)}
       {invite && (
         <Suspense fallback={null}>
           <Invite onClose={() => setInvite(false)} />

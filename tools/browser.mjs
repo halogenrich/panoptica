@@ -10,10 +10,12 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { txtFiles } from '../packages/core/src/ivfixtures.ts';
+import { txtFiles } from '../modules/devices/shared/src/ivfixtures.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const BUILT = process.argv.includes('--built');
+const BUILT = process.argv.includes('--built'),
+  // --core (0.43): the core alone, without Electronic Devices (the package made with --modules none, out/core/panoptica)
+  CORE = process.argv.includes('--core');
 const freePort = () =>
   new Promise((ok) => {
     const s = createServer().listen(0, '127.0.0.1', () => {
@@ -30,7 +32,7 @@ const srv = spawn(
   process.execPath,
   BUILT ? ['--no-warnings', 'dist/server.mjs'] : ['--import', 'tsx', 'src/index.ts'],
   {
-    cwd: join(root, BUILT ? 'out/panoptica/apps/server' : 'apps/server'),
+    cwd: join(root, BUILT ? (CORE ? 'out/core/panoptica/apps/server' : 'out/panoptica/apps/server') : 'apps/server'),
     env: {
       ...process.env,
       PORT: String(PORT),
@@ -40,6 +42,7 @@ const srv = spawn(
       CONFIG_DIR: join(tmp, 'config'),
       UPDATES_DIR: join(tmp, 'updates'),
       ADMIN_PASSWORD: '', // a new install: the first setup makes the admin
+      ...(CORE && !BUILT ? { PANOPTICA_MODULES: 'none' } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -116,7 +119,7 @@ const later = async () => {
   if (await b.isVisible().catch(() => false)) await b.click();
 };
 
-console.log(`Browser tests (${BUILT ? 'packaged server' : 'server from source'})`);
+console.log(`Browser tests (${BUILT ? 'packaged server' : 'server from source'}${CORE ? ', the core alone' : ''})`);
 try {
   let username = '';
   await step('first setup makes the admin and the lab', async () => {
@@ -150,26 +153,39 @@ try {
     await later();
   });
 
-  await step('the side menu has the core’s pages and Electronic Devices’ groups', async () => {
-    const groups = await page.locator('nav.side .glabel').allTextContents();
-    expect(
-      groups.join(',') === 'Fabrication,Measurements,Recipes,Designs,Lab',
-      'side menu groups: ' + groups.join(', '),
-    );
-    const fab = await page
-      .locator('nav.side > div')
-      .filter({ has: page.locator('.glabel', { hasText: 'Fabrication' }) })
-      .locator('.navitem')
-      .allTextContents();
-    expect(fab.join(',') === 'Stacks,Batches,Calendar', 'Fabrication: ' + fab.join(', '));
-  });
+  await step(
+    CORE
+      ? 'the side menu has the core’s pages only'
+      : 'the side menu has the core’s pages and Electronic Devices’ groups',
+    async () => {
+      const groups = await page.locator('nav.side .glabel').allTextContents();
+      expect(
+        groups.join(',') === (CORE ? 'Lab' : 'Fabrication,Measurements,Recipes,Designs,Lab'),
+        'side menu groups: ' + groups.join(', '),
+      );
+      if (CORE) {
+        const items = await page.locator('nav.side .navitem').allTextContents();
+        expect(
+          items.map((x) => x.trim()).join(',') === 'Overview,Calendar,Inventory,Equipment,Trash',
+          'core menu: ' + items.join(', '),
+        );
+        return;
+      }
+      const fab = await page
+        .locator('nav.side > div')
+        .filter({ has: page.locator('.glabel', { hasText: 'Fabrication' }) })
+        .locator('.navitem')
+        .allTextContents();
+      expect(fab.join(',') === 'Stacks,Batches,Calendar', 'Fabrication: ' + fab.join(', '));
+    },
+  );
 
   await step('equipment is added under Lab › Equipment', async () => {
     await nav('Equipment');
     await page.getByRole('button', { name: 'New equipment' }).click();
     const dlg = page.locator('.modal, .dialog').filter({ hasText: 'New equipment' }).last();
     await dlg.getByLabel('Name').fill('Spin coater A');
-    await dlg.getByRole('button', { name: 'Spin coating' }).click();
+    if (!CORE) await dlg.getByRole('button', { name: 'Spin coating' }).click();
     await dlg.getByRole('button', { name: 'Add equipment' }).click();
     // the new equipment opens in its sheet
     const sheet = page.locator('.modal-scrim').filter({ hasText: 'What it can do' });
@@ -217,129 +233,155 @@ try {
   });
 
   let stackId = 0;
-  await step('a stack prints its run sheet, not the page', async () => {
-    const r = await api('POST', '/presets', {
-      segment: 'stk',
-      name: 'Browser stack',
-      visibility: 'shared',
-      data: { arch: 'n-i-p', sl: [] },
+  if (!CORE)
+    await step('a stack prints its run sheet, not the page', async () => {
+      const r = await api('POST', '/presets', {
+        segment: 'stk',
+        name: 'Browser stack',
+        visibility: 'shared',
+        data: { arch: 'n-i-p', sl: [] },
+      });
+      expect(r.s === 200, 'stack not created: ' + JSON.stringify(r.j));
+      stackId = r.j.id;
+      await page.goto(`${base}/#/stk/${stackId}`);
+      await later();
+      const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
+      expect(pr.mode && pr.after, 'the page, not the run sheet, would be printed');
+      expect(pr.title.includes('Browser stack'), `the run sheet is not the stack's: "${pr.title}"`);
+      // back in the app (a key press, a second after the print dialog), print mode ends
+      await page.waitForTimeout(1100);
+      await page.keyboard.press('Shift');
+      await page.waitForFunction(
+        () => !document.body.classList.contains('print-mode') && !document.querySelector('.print-portal'),
+      );
     });
-    expect(r.s === 200, 'stack not created: ' + JSON.stringify(r.j));
-    stackId = r.j.id;
-    await page.goto(`${base}/#/stk/${stackId}`);
-    await later();
-    const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
-    expect(pr.mode && pr.after, 'the page, not the run sheet, would be printed');
-    expect(pr.title.includes('Browser stack'), `the run sheet is not the stack's: "${pr.title}"`);
-    // back in the app (a key press, a second after the print dialog), print mode ends
-    await page.waitForTimeout(1100);
-    await page.keyboard.press('Shift');
-    await page.waitForFunction(
-      () => !document.body.classList.contains('print-mode') && !document.querySelector('.print-portal'),
-    );
-  });
 
-  await step('starting a batch asks only for its name and opens it', async () => {
-    await page.getByRole('button', { name: 'Start batch' }).click();
-    await page.getByLabel('Batch name').fill('Browser batch');
-    await page.locator('.start-batch').getByRole('button', { name: 'Start batch' }).click();
-    await page
-      .getByText(/^B-\d{6}-\d+$/)
-      .first()
-      .waitFor(); // the batch page, under the code the app gave it
-    const b = (await api('GET', '/batches')).j;
-    const mine = (b.batches ?? b).find((x) => x.name === 'Browser batch');
-    expect(mine && /^B-\d{6}-\d+$/.test(mine.code), 'the batch was not numbered by the app');
-  });
+  if (!CORE)
+    await step('starting a batch asks only for its name and opens it', async () => {
+      await page.getByRole('button', { name: 'Start batch' }).click();
+      await page.getByLabel('Batch name').fill('Browser batch');
+      await page.locator('.start-batch').getByRole('button', { name: 'Start batch' }).click();
+      await page
+        .getByText(/^B-\d{6}-\d+$/)
+        .first()
+        .waitFor(); // the batch page, under the code the app gave it
+      const b = (await api('GET', '/batches')).j;
+      const mine = (b.batches ?? b).find((x) => x.name === 'Browser batch');
+      expect(mine && /^B-\d{6}-\d+$/.test(mine.code), 'the batch was not numbered by the app');
+    });
 
-  await step('the batch prints its run sheet, not the page', async () => {
-    const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
-    expect(pr.mode && pr.after, 'the page, not the run sheet, would be printed');
-    expect(/Batch B-\d{6}-\d+/.test(pr.text), 'the run sheet does not name the batch');
-    await page.waitForTimeout(1100);
-    await page.keyboard.press('Shift');
-  });
+  if (!CORE)
+    await step('the batch prints its run sheet, not the page', async () => {
+      const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
+      expect(pr.mode && pr.after, 'the page, not the run sheet, would be printed');
+      expect(/Batch B-\d{6}-\d+/.test(pr.text), 'the run sheet does not name the batch');
+      await page.waitForTimeout(1100);
+      await page.keyboard.press('Shift');
+    });
 
-  await step('equipment is booked for the batch from the Calendar', async () => {
-    await nav('Calendar');
-    await page.getByRole('button', { name: 'New booking' }).click();
-    const dlg = page.getByRole('dialog', { name: 'New booking' });
-    await dlg.getByRole('radio', { name: /Spin coater A/ }).click();
-    // the open batch is offered first, as "subject:id"
-    const sel = dlg.locator('select').first();
-    expect((await sel.locator('option:checked').textContent())?.includes('Browser batch'), 'the batch is not offered');
-    const day = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
-    await dlg.locator('input[type=date]').fill(day);
-    await dlg.locator('input[type=time]').nth(0).fill('14:00');
-    await dlg.locator('input[type=time]').nth(1).fill('15:00');
-    await dlg.getByRole('button', { name: /^(Book|Save)/ }).click();
-    await dlg.waitFor({ state: 'detached' });
-    const bk = (await api('GET', `/calendar?from=${day}T00:00:00.000Z&to=${day}T23:59:59.000Z`)).j.bookings;
-    expect(
-      bk.some((b) => b.subject === 'batch' && b.subject_name === 'Browser batch'),
-      'the booking is not for the batch',
-    );
-  });
+  if (!CORE)
+    await step('equipment is booked for the batch from the Calendar', async () => {
+      await nav('Calendar');
+      await page.getByRole('button', { name: 'New booking' }).click();
+      const dlg = page.getByRole('dialog', { name: 'New booking' });
+      await dlg.getByRole('radio', { name: /Spin coater A/ }).click();
+      // the open batch is offered first, as "subject:id"
+      const sel = dlg.locator('select').first();
+      expect(
+        (await sel.locator('option:checked').textContent())?.includes('Browser batch'),
+        'the batch is not offered',
+      );
+      const day = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+      await dlg.locator('input[type=date]').fill(day);
+      await dlg.locator('input[type=time]').nth(0).fill('14:00');
+      await dlg.locator('input[type=time]').nth(1).fill('15:00');
+      await dlg.getByRole('button', { name: /^(Book|Save)/ }).click();
+      await dlg.waitFor({ state: 'detached' });
+      const bk = (await api('GET', `/calendar?from=${day}T00:00:00.000Z&to=${day}T23:59:59.000Z`)).j.bookings;
+      expect(
+        bk.some((b) => b.subject === 'batch' && b.subject_name === 'Browser batch'),
+        'the booking is not for the batch',
+      );
+    });
 
-  await step('search finds the batch and opens it', async () => {
-    await nav('Stacks');
-    await page.keyboard.press('Control+k');
-    await page.getByPlaceholder('Search, or go to a page…').fill('Browser batch');
-    const hit = page.locator('.palette .pitem').filter({ hasText: 'Batch' }).filter({ hasText: 'Browser batch' });
-    await hit.first().click();
-    await page
-      .getByText(/^B-\d{6}-\d+$/)
-      .first()
-      .waitFor();
-    expect(/#\/batches\/\d+$/.test(page.url()), 'the address is not the batch’s: ' + page.url());
-  });
+  if (!CORE)
+    await step('search finds the batch and opens it', async () => {
+      await nav('Stacks');
+      await page.keyboard.press('Control+k');
+      await page.getByPlaceholder('Search, or go to a page…').fill('Browser batch');
+      const hit = page.locator('.palette .pitem').filter({ hasText: 'Batch' }).filter({ hasText: 'Browser batch' });
+      await hit.first().click();
+      await page
+        .getByText(/^B-\d{6}-\d+$/)
+        .first()
+        .waitFor();
+      expect(/#\/batches\/\d+$/.test(page.url()), 'the address is not the batch’s: ' + page.url());
+    });
 
-  await step('J–V files are imported and their parameters shown', async () => {
-    await nav('J–V curves');
-    await page.getByRole('button', { name: 'Import measurements' }).first().click();
-    await page.locator('input[type=file][multiple]').setInputFiles(
-      txtFiles().map((f) => ({
-        name: f.name.split('/').pop(),
-        mimeType: 'text/plain',
-        buffer: Buffer.from(f.text),
-      })),
-    );
-    await page.getByRole('button', { name: /^Save measurement/ }).click();
-    await page.getByRole('button', { name: /^Save measurement/ }).waitFor({ state: 'detached' });
-    const sets = (await api('GET', '/iv')).j;
-    const list = sets.sets ?? sets;
-    expect(list.length === 1, 'the measurement is not saved');
-    const one = (await api('GET', `/iv/${list[0].id}`)).j;
-    expect((one.curves ?? []).length === 4, `expected 4 curves, got ${(one.curves ?? []).length}`);
-    await page.getByText(/PCE/).first().waitFor();
-  });
+  if (!CORE)
+    await step('J–V files are imported and their parameters shown', async () => {
+      await nav('J–V curves');
+      await page.getByRole('button', { name: 'Import measurements' }).first().click();
+      await page.locator('input[type=file][multiple]').setInputFiles(
+        txtFiles().map((f) => ({
+          name: f.name.split('/').pop(),
+          mimeType: 'text/plain',
+          buffer: Buffer.from(f.text),
+        })),
+      );
+      await page.getByRole('button', { name: /^Save measurement/ }).click();
+      await page.getByRole('button', { name: /^Save measurement/ }).waitFor({ state: 'detached' });
+      const sets = (await api('GET', '/iv')).j;
+      const list = sets.sets ?? sets;
+      expect(list.length === 1, 'the measurement is not saved');
+      const one = (await api('GET', `/iv/${list[0].id}`)).j;
+      expect((one.curves ?? []).length === 4, `expected 4 curves, got ${(one.curves ?? []).length}`);
+      await page.getByText(/PCE/).first().waitFor();
+    });
 
-  await step('the Overview tells the period with the module’s part and the equipment time', async () => {
-    await page.locator('nav.side').getByRole('button', { name: 'Overview', exact: true }).click();
-    await page
-      .locator('.ov-lede')
-      .getByText(/started 1 batch/)
-      .waitFor();
-    await page.locator('.ov-stat').filter({ hasText: 'Best cell' }).waitFor();
-    await page.locator('.ov').getByRole('tab', { name: 'Equipment', exact: true }).click();
-    await page.locator('.eq-use-row').filter({ hasText: 'Spin coater A' }).waitFor();
-  });
+  await step(
+    CORE
+      ? 'the Overview tells the period from the equipment time'
+      : 'the Overview tells the period with the module’s part and the equipment time',
+    async () => {
+      await page.locator('nav.side').getByRole('button', { name: 'Overview', exact: true }).click();
+      if (CORE)
+        await page
+          .locator('.ov-lede')
+          .getByText(/of equipment time booked/)
+          .waitFor();
+      else {
+        await page
+          .locator('.ov-lede')
+          .getByText(/started 1 batch/)
+          .waitFor();
+        await page.locator('.ov-stat').filter({ hasText: 'Best cell' }).waitFor();
+      }
+      await page.locator('.ov').getByRole('tab', { name: 'Equipment', exact: true }).click();
+      await page.locator('.eq-use-row').filter({ hasText: 'Spin coater A' }).waitFor();
+    },
+  );
 
-  await step('the trash names what each item is, and restores it', async () => {
-    expect((await api('DELETE', '/presets/' + stackId)).s === 200, 'the stack was not deleted');
-    await page.locator('nav.side').getByRole('button', { name: /Trash/ }).click();
-    const row = page.locator('tr').filter({ hasText: 'Browser stack' });
-    await row.getByText('Stack', { exact: true }).waitFor();
-    await row.getByRole('button', { name: 'Restore' }).click();
-    await row.waitFor({ state: 'detached' });
-    expect((await api('GET', '/presets/' + stackId)).s === 200, 'the stack is not back');
-  });
+  if (!CORE)
+    await step('the trash names what each item is, and restores it', async () => {
+      expect((await api('DELETE', '/presets/' + stackId)).s === 200, 'the stack was not deleted');
+      await page.locator('nav.side').getByRole('button', { name: /Trash/ }).click();
+      const row = page.locator('tr').filter({ hasText: 'Browser stack' });
+      await row.getByText('Stack', { exact: true }).waitFor();
+      await row.getByRole('button', { name: 'Restore' }).click();
+      await row.waitFor({ state: 'detached' });
+      expect((await api('GET', '/presets/' + stackId)).s === 200, 'the stack is not back');
+    });
 
-  await step('consumption says where its amounts come from', async () => {
-    await nav('Inventory');
-    await page.getByRole('tab', { name: 'Consumption', exact: true }).click();
-    await page.getByText(/From the recipes of 0 running and done batches/).waitFor();
-  });
+  await step(
+    CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
+    async () => {
+      await nav('Inventory');
+      await page.getByRole('tab', { name: 'Consumption', exact: true }).click();
+      if (CORE) await page.getByText('No reagent use in the last 26 weeks.').waitFor();
+      else await page.getByText(/From the recipes of 0 running and done batches/).waitFor();
+    },
+  );
 
   console.log(`All ${passed} browser flows passed`);
   await browser.close();

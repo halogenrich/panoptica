@@ -65,7 +65,10 @@ function check(file) {
   try {
     const ok = Object.values(db.prepare('PRAGMA quick_check').get() || {})[0] === 'ok';
     const users = db.prepare('SELECT COUNT(*) n FROM users').get().n,
-      presets = db.prepare('SELECT COUNT(*) n FROM presets').get().n;
+      // recipes and designs, when the Electronic Devices module is there (0.43: the core can run without it)
+      presets = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='presets'").get()
+        ? db.prepare('SELECT COUNT(*) n FROM presets').get().n
+        : null;
     return ok ? { users, presets } : null;
   } catch {
     return null;
@@ -108,7 +111,7 @@ async function restore(arg) {
     console.log(`${pick} is damaged or not a PANOPTICA database. Nothing changed.`);
     return 1;
   }
-  console.log(`\n${pick}: ${info.users} users, ${info.presets} presets.`);
+  console.log(`\n${pick}: ${info.users} users${info.presets === null ? '' : `, ${info.presets} presets`}.`);
   if (
     !arg &&
     (await ask('Replace the current database with this backup? Type yes to continue: ')).toLowerCase() !== 'yes'
@@ -169,7 +172,7 @@ async function decrypt(file, keyArg) {
     return 1;
   }
   console.log(
-    `Decrypted: backups/${path.basename(out)} (${info.users} users, ${info.presets} presets). Restore it with restore.bat / restore.sh.`,
+    `Decrypted: backups/${path.basename(out)} (${info.users} users${info.presets === null ? '' : `, ${info.presets} presets`}). Restore it with restore.bat / restore.sh.`,
   );
   return 0;
 }

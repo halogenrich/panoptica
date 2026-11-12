@@ -1,13 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { stepsFromRole } from '@psc/core';
-import { classifySet, markShortsInSet } from './ivdata.js';
 
 /**
  * Every change to the database, in order (0.40). Each runs once, in a transaction, and is recorded in the `migrations` table with
  * its number; a new release adds changes at the end and never edits or reorders the ones before.
  *
- * `owner` says which part of PANOPTICA the change belongs to: 'core' (accounts, lab, equipment, calendar, inventory, comments)
- * or 'devices' (the Electronic Devices module: recipes, stacks, batches, J–V). It is what the module split will follow.
+ * `owner` says which part of PANOPTICA the change belongs to. This list is the core's (accounts, lab, equipment, calendar,
+ * inventory, comments); since 0.43 each module keeps its own list and runs it when it is loaded (Electronic Devices:
+ * modules/devices/server/src/schema.ts), after the core's. The numbers are one sequence across all of them.
  *
  * Changes 1–33 existed before this list did: they were run piecemeal by each file at start-up, guarded by "is this column there
  * yet". They keep those guards, so a database from any earlier version (where some or all of them already happened) and a new
@@ -24,12 +23,32 @@ export type Migration = {
   noTx?: boolean;
 };
 
-const has = (db: Db, table: string, col: string) =>
+/** The steps an equipment set up before 0.38 did, from its one procedure (role): frozen here for change 29. */
+function stepsFromRole(role: string, name = ''): string[] {
+  switch (role) {
+    case 'prep':
+      return /plasma/i.test(name) ? ['plasma'] : /uv|ozone|uvo/i.test(name) ? ['uvozone'] : ['sonication', 'n2dry'];
+    case 'scale':
+      return ['weighing', 'dissolving'];
+    case 'spinner':
+      return ['spin', 'annealing'];
+    case 'organic':
+      return ['organic'];
+    case 'metal':
+      return ['metal'];
+    case 'measure':
+      return ['jv', 'lifetime'];
+    default:
+      return [];
+  }
+}
+
+export const has = (db: Db, table: string, col: string) =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
-const meta = (db: Db, key: string) => !!db.prepare('SELECT 1 FROM meta WHERE key=?').get(key);
-const mark = (db: Db, key: string, value = new Date().toISOString()) =>
+export const meta = (db: Db, key: string) => !!db.prepare('SELECT 1 FROM meta WHERE key=?').get(key);
+export const mark = (db: Db, key: string, value = new Date().toISOString()) =>
   db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run(key, value);
-const add = (db: Db, table: string, col: string, def: string) => {
+export const add = (db: Db, table: string, col: string, def: string) => {
   if (!has(db, table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 };
 
@@ -50,48 +69,12 @@ CREATE TABLE IF NOT EXISTS chemicals(id INTEGER PRIMARY KEY, name TEXT UNIQUE NO
 CREATE TABLE IF NOT EXISTS user_prefs(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL DEFAULT '{}');`),
   },
   {
-    id: 2,
-    owner: 'devices',
-    name: 'presets (recipes, designs, stacks), batches, run data',
-    up: (db) =>
-      db.exec(`
-CREATE TABLE IF NOT EXISTS presets(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), segment TEXT NOT NULL, name TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')), data TEXT NOT NULL,
-  schema_version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS batches(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), code TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','running','done')),
-  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')),
-  snapshot TEXT NOT NULL, record TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS run_data(
-  id INTEGER PRIMARY KEY, preset_id INTEGER NOT NULL REFERENCES presets(id) ON DELETE CASCADE,
-  owner_id INTEGER NOT NULL REFERENCES users(id), batch TEXT NOT NULL DEFAULT '', data TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`),
-  },
-  {
-    id: 3,
-    owner: 'devices',
-    name: 'preset versions (parent)',
-    up: (db) => add(db, 'presets', 'parent_id', 'INTEGER REFERENCES presets(id) ON DELETE SET NULL'),
-  },
-  {
     id: 4,
     owner: 'core',
     name: 'deleted users stay as rows, shown as "username (former)"; forced password change',
     up: (db) => {
       add(db, 'users', 'deleted', 'INTEGER NOT NULL DEFAULT 0');
       add(db, 'users', 'must_change', 'INTEGER NOT NULL DEFAULT 0');
-    },
-  },
-  {
-    id: 5,
-    owner: 'devices',
-    name: 'trash for presets and batches (0.18)',
-    up: (db) => {
-      add(db, 'presets', 'deleted_at', 'TEXT');
-      add(db, 'batches', 'deleted_at', 'TEXT');
     },
   },
   {
@@ -128,25 +111,6 @@ CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NUL
   kind TEXT NOT NULL DEFAULT 'label' CHECK(kind IN ('label','professor','manager','inventory')), pos INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS user_tags(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
   PRIMARY KEY(user_id, tag_id));`);
-    },
-  },
-  {
-    id: 8,
-    owner: 'devices',
-    name: 'J–V measurements; device groups and devices left out of the plots (0.17)',
-    up: (db) => {
-      db.exec(`
-CREATE TABLE IF NOT EXISTS iv_sets(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, date TEXT NOT NULL DEFAULT '', system TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'shared' CHECK(visibility IN ('private','shared')), links TEXT NOT NULL DEFAULT '{}', notes TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS iv_curves(
-  id INTEGER PRIMARY KEY, set_id INTEGER NOT NULL REFERENCES iv_sets(id) ON DELETE CASCADE,
-  sample TEXT NOT NULL, substrate TEXT NOT NULL, scan TEXT NOT NULL, pixel TEXT NOT NULL, dir TEXT NOT NULL, file TEXT NOT NULL,
-  area REAL NOT NULL, pin REAL NOT NULL, data TEXT NOT NULL, metrics TEXT NOT NULL, inst TEXT, use INTEGER);
-CREATE INDEX IF NOT EXISTS iv_curves_set ON iv_curves(set_id);`);
-      add(db, 'iv_sets', 'devices', "TEXT NOT NULL DEFAULT '{}'");
-      add(db, 'iv_sets', 'deleted_at', 'TEXT');
     },
   },
   {
@@ -213,17 +177,6 @@ CREATE INDEX IF NOT EXISTS bookings_time ON bookings(start, end);`),
     },
   },
   {
-    id: 12,
-    owner: 'devices',
-    name: 'stability follow-ups (0.23)',
-    up: (db) => {
-      if (!has(db, 'iv_sets', 'stability_of')) {
-        db.exec('ALTER TABLE iv_sets ADD COLUMN stability_of INTEGER REFERENCES iv_sets(id) ON DELETE SET NULL');
-        db.exec('ALTER TABLE iv_sets ADD COLUMN measured_at TEXT');
-      }
-    },
-  },
-  {
     id: 13,
     owner: 'core',
     name: 'activity log with a hash chain (0.26)',
@@ -243,18 +196,6 @@ CREATE INDEX IF NOT EXISTS audit_at ON audit(at); CREATE INDEX IF NOT EXISTS aud
         mark(db, 'sessions_hashed', '1');
       }
     },
-  },
-  {
-    id: 15,
-    owner: 'devices',
-    name: 'comparisons (0.30)',
-    up: (db) =>
-      db.exec(`
-CREATE TABLE IF NOT EXISTS comparisons(
-  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL,
-  visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared')), notes TEXT NOT NULL DEFAULT '',
-  data TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at TEXT);`),
   },
   {
     id: 16,
@@ -281,40 +222,10 @@ CREATE TABLE IF NOT EXISTS comparisons(
     },
   },
   {
-    id: 18,
-    owner: 'devices',
-    name: 'finished batches lock; variants (0.33)',
-    up: (db) => {
-      if (!has(db, 'batches', 'done_at')) {
-        db.exec('ALTER TABLE batches ADD COLUMN done_at TEXT');
-        db.exec('ALTER TABLE batches ADD COLUMN unlocked_until TEXT');
-        // batches finished before 0.33: their last change is the best guess of when they finished
-        db.exec("UPDATE batches SET done_at=updated_at WHERE status='done'");
-      }
-      add(db, 'batches', 'variants', `TEXT NOT NULL DEFAULT '{"control":"","list":[]}'`);
-    },
-  },
-  {
     id: 19,
     owner: 'core',
     name: 'equipment drawings (0.34)',
     up: (db) => add(db, 'equipment', 'art', "TEXT NOT NULL DEFAULT ''"),
-  },
-  {
-    id: 20,
-    owner: 'devices',
-    name: 'lifetime runs: set kind and run details, each curve’s time (0.35); check sweeps classified (0.30)',
-    up: (db) => {
-      if (!has(db, 'iv_sets', 'kind')) {
-        db.exec("ALTER TABLE iv_sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'jv'");
-        db.exec('ALTER TABLE iv_sets ADD COLUMN life TEXT');
-        db.exec('ALTER TABLE iv_curves ADD COLUMN t REAL');
-      }
-      if (!has(db, 'iv_curves', 'kind')) {
-        db.exec('ALTER TABLE iv_curves ADD COLUMN kind TEXT');
-        for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) classifySet(db, r.id);
-      }
-    },
   },
   {
     id: 21,
@@ -399,27 +310,10 @@ CREATE TABLE IF NOT EXISTS access_requests(
     },
   },
   {
-    id: 25,
-    owner: 'devices',
-    name: 'a pixel that shorted in one scan is shorted in all of them (0.37)',
-    up: (db) => {
-      if (!meta(db, 'short-pixels')) {
-        for (const r of db.prepare('SELECT id FROM iv_sets').all() as { id: number }[]) markShortsInSet(db, r.id);
-        mark(db, 'short-pixels', '1');
-      }
-    },
-  },
-  {
     id: 26,
     owner: 'core',
     name: 'a removed photo kept its version number, so the app asked for an image that was gone (0.37.1)',
     up: (db) => db.exec('UPDATE users SET photo_v=0 WHERE photo IS NULL AND photo_v<>0'),
-  },
-  {
-    id: 27,
-    owner: 'devices',
-    name: 'the scheduler’s blocks of a batch, so a batch is not Done while some are not placed (0.37.1)',
-    up: (db) => add(db, 'batches', 'plan_steps', "TEXT NOT NULL DEFAULT '[]'"),
   },
   {
     id: 28,
@@ -482,21 +376,6 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
     owner: 'core',
     name: 'the glovebox atmosphere at the end of a booking (0.38)',
     up: (db) => add(db, 'bookings', 'atmo', "TEXT NOT NULL DEFAULT ''"),
-  },
-  {
-    id: 31,
-    owner: 'devices',
-    name: 'runs whose annealing is booked elsewhere (0.38)',
-    up: (db) => add(db, 'batches', 'plan_split', "TEXT NOT NULL DEFAULT '[]'"),
-  },
-  {
-    id: 32,
-    owner: 'devices',
-    name: 'J–V systems named by their export format (0.38)',
-    up: (db) =>
-      db.exec(
-        "UPDATE iv_sets SET system='csv' WHERE system='padrao'; UPDATE iv_sets SET system='txt' WHERE system='sun'",
-      ),
   },
   {
     id: 33,

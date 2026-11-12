@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abilities, covers, roleFromSteps, stepsFromRole, wouldLoop } from './equipment';
+import { abilities, covers, wouldLoop } from './equipment';
 
 describe('equipment abilities', () => {
   const all = [
@@ -17,12 +17,5 @@ describe('equipment abilities', () => {
   it('no loops when moving equipment into equipment', () => {
     expect(wouldLoop(1, 2, all)).toBe(true); // the glovebox into its own spin coater
     expect(wouldLoop(5, 1, all)).toBe(false);
-  });
-  it('older procedures become steps, and steps give back the procedure', () => {
-    expect(stepsFromRole('prep', 'UV-Ozone')).toEqual(['uvozone']);
-    expect(stepsFromRole('prep', 'Substrate Cleaner')).toEqual(['sonication', 'n2dry']);
-    expect(roleFromSteps(stepsFromRole('spinner'))).toBe('spinner');
-    expect(roleFromSteps(['jv'])).toBe('measure');
-    expect(roleFromSteps(['annealing'])).toBe('');
   });
 });
