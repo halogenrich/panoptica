@@ -178,8 +178,15 @@ try {
       await sheet.evaluate((el) => [...el.querySelectorAll('input')].some((x) => x.value === 'Spin coater A')),
       'the sheet is not the new equipment’s',
     );
-    await page.keyboard.press('Escape');
+    // a window listens for Escape once it has been drawn and its effects have run: on a slow machine the first press can come
+    // before that, so press again until it closes
+    for (let i = 0; i < 10 && (await page.locator('.modal-scrim').count()); i++) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+    }
     await page.locator('.modal-scrim').waitFor({ state: 'detached' });
+    await page.waitForTimeout(400);
+    expect(!(await page.locator('.modal-scrim').count()), 'the equipment sheet opened again after closing');
     const eq = (await api('GET', '/equipment')).j;
     expect(
       (eq.equipment ?? eq).some((e) => e.name === 'Spin coater A'),
