@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react';
 import type { Me } from '../ctx';
+import type { Booking, Eq } from '../views/Calendar';
 
 /**
  * What a module adds to the app's screens (0.42): its pages, grouped in the side menu, and its part of the Overview. The core
@@ -14,6 +15,8 @@ export type PageProps = {
   onOpen: (id: number | null) => void;
   open: Open;
   extra: Record<string, unknown>;
+  /** the installed modules (the Calendar looks for a tray among them) */
+  modules: WebModule[];
 };
 export type Page = { key: string; label: string; short?: string; render: (p: PageProps) => ReactNode };
 /**
@@ -68,4 +71,41 @@ export type OverviewPart<M = any, PM = any, P = any> = {
   personSlide?(p: P): { numbers: [string, string][]; body?: (y: number) => ReactNode };
 };
 
-export type WebModule = { id: string; groups: Group[]; overview?: OverviewPart };
+/** A block a module's calendar tray hands to the Calendar to drag onto a day and time (0.43). */
+export type TrayDrag = {
+  eq: number;
+  /** minutes */
+  dur: number;
+  color: string;
+  label: string;
+  /** where the pointer holds it, in minutes from its start */
+  grab: number;
+  /** books it at the time it was dropped on */
+  book(start: string, end: string): Promise<{ offHours?: boolean }>;
+};
+export type TrayProps = {
+  /** what the Calendar was opened with (the batch to schedule) */
+  id: number;
+  eqs: Eq[];
+  trained: number[];
+  isAdmin: boolean;
+  /** a phone: the tray does not fit */
+  narrow: boolean;
+  /** changes when bookings did: read them again */
+  version: number;
+  onDrag(d: TrayDrag): void;
+  close(): void;
+  open: Open;
+};
+
+export type WebModule = {
+  id: string;
+  groups: Group[];
+  overview?: OverviewPart;
+  /** a tray under the Calendar, when the Calendar is opened with `extra[param]` (Electronic Devices: a batch to schedule) */
+  calendarTray?: { param: string; Tray: FC<TrayProps> };
+  /** after "Concluded" for one of its subjects ('batch'): what the module asks next (the run data); `onClose` when done */
+  afterOutcome?: Record<string, FC<{ booking: Booking; onClose: () => void }>>;
+  /** always mounted next to the pages (windows a module opens from anywhere, such as the data package) */
+  Overlay?: FC;
+};

@@ -8,8 +8,10 @@ export const TAB = Math.random().toString(36).slice(2, 10); // sent with every r
 export const emit = (topics: string[]) => {
   window.dispatchEvent(new CustomEvent('psc-refresh', { detail: { topics } }));
   if (topics.some((t) => t === 'batches' || t === 'calendar' || t === 'all'))
-    window.dispatchEvent(new Event('psc-batches'));
+    window.dispatchEvent(new Event('psc-bookings'));
 };
+/** Bookings changed here (booked, moved, answered): the outcome questions, a module's records (batches) and trays look again. */
+export const bookingsChanged = () => window.dispatchEvent(new Event('psc-bookings'));
 
 let es: EventSource | null = null,
   started = false,

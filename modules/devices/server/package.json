@@ -1,0 +1,11 @@
+{
+  "name": "@psc/devices-server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@psc/devices": "*",
+    "@psc/schema": "*",
+    "@psc/server": "*"
+  }
+}

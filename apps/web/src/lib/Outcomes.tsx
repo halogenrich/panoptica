@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Booking } from '../views/Calendar';
-import { snapCtx, type Batch } from '../views/Batches';
-import { KINDS } from '../recipes';
-import { norm } from '../recipes/types';
-import { RunForm } from './Library';
-import { stepCaptures, type StepPreset } from './stepRuns';
 
 type Pending = Booking & {
   /** the equipment records its atmosphere: O₂ and H₂O (ppm) are written down at the end */
@@ -26,15 +21,19 @@ const when = (b: Pending) => {
  * scheduled again) or canceled, with a reason for the last two. Until then this asks on every page; the batch only becomes
  * Done when every step has an answer.
  */
-export default function Outcomes() {
+export default function Outcomes({
+  after = {},
+}: {
+  /** per subject ('batch'): what its module asks after "Concluded" */
+  after?: Record<string, React.FC<{ booking: Booking; onClose: () => void }>>;
+}) {
   const [list, setList] = useState<Pending[]>([]),
     [pick, setPick] = useState<Record<number, Kind>>({}),
     [why, setWhy] = useState<Record<number, string>>({}),
     [atmo, setAtmo] = useState<Record<number, { o2: string; h2o: string }>>({}),
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(0),
-    // after "Concluded": the run data of the step's recipes, one form after the other
-    [capture, setCapture] = useState<{ k: Pending; b: Batch; items: StepPreset[]; at: number } | null>(null);
+    [follow, setFollow] = useState<Pending | null>(null);
   const load = () =>
     api<Pending[]>('/bookings/pending')
       .then(setList)
@@ -42,56 +41,18 @@ export default function Outcomes() {
   useEffect(() => {
     load();
     const t = setInterval(load, 60_000);
-    window.addEventListener('psc-batches', load);
+    window.addEventListener('psc-bookings', load);
     window.addEventListener('psc-refresh', load);
     return () => {
       clearInterval(t);
-      window.removeEventListener('psc-batches', load);
+      window.removeEventListener('psc-bookings', load);
       window.removeEventListener('psc-refresh', load);
     };
   }, []);
-  if (capture) {
-    const it = capture.items[capture.at],
-      k = KINDS[it.seg],
-      d = norm(k, (capture.b.snapshot.resolved[it.slot] ?? {})[it.seg === 's2' ? 'b' : 'a']?.data ?? {}),
-      next = () =>
-        capture.at + 1 < capture.items.length ? setCapture({ ...capture, at: capture.at + 1 }) : setCapture(null);
-    return (
-      <div className="scrim outcome-scrim">
-        <div className="dialog wide outcomes" role="dialog" aria-modal="true" aria-labelledby="runs-h">
-          <div className="dialog-head">
-            <h2 id="runs-h">Run data: {it.name}</h2>
-            {capture.items.length > 1 && (
-              <span className="mut small">
-                {capture.at + 1} of {capture.items.length}
-              </span>
-            )}
-          </div>
-          <p className="mut small">
-            {capture.k.subject_code}, {it.layer}. The step is concluded; write down what the run actually was. If the
-            notebook is not at hand, choose Add it later: the batch page keeps asking for it and you get a reminder.
-          </p>
-          <RunForm
-            key={capture.at}
-            kind={k}
-            ctx={snapCtx(capture.b)}
-            d={d}
-            presetId={+it.id}
-            batch={capture.k.subject_code}
-            required
-            onCancel={next}
-            onDone={() => {
-              window.dispatchEvent(new Event('psc-batches'));
-              next();
-            }}
-            onLater={() => {
-              api(`/bookings/${capture.k.id}/runs-later`, 'POST', {}).catch(() => {});
-              setCapture(null);
-            }}
-          />
-        </div>
-      </div>
-    );
+  // after "Concluded": what the subject's module asks next (Electronic Devices: the run data of the step's recipes)
+  if (follow) {
+    const F = after[follow.subject];
+    return F ? <F booking={follow} onClose={() => setFollow(null)} /> : null;
   }
   if (!list.length) return null;
   const atmoOf = (b: Pending) => {
@@ -116,13 +77,8 @@ export default function Outcomes() {
       .then(() => {
         setErr('');
         setList((l) => l.filter((x) => x.id !== b.id));
-        window.dispatchEvent(new Event('psc-batches'));
-        // run data is asked for batch steps (other modules' subjects have none here yet)
-        if (outcome === 'done' && b.subject === 'batch')
-          return api<Batch>('/batches/' + b.subject_id).then((bt) => {
-            const items = stepCaptures(bt, b.step);
-            if (items.length) setCapture({ k: b, b: bt, items, at: 0 });
-          });
+        window.dispatchEvent(new Event('psc-bookings'));
+        if (outcome === 'done' && b.subject && after[b.subject]) setFollow(b);
       })
       .catch((e) => setErr(e.message))
       .finally(() => setBusy(0));

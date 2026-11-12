@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { modules } from './modules.js';
 
 /**
  * Live updates. Every signed-in page keeps one Server-Sent Events stream open (GET /api/events). After any accepted change,
@@ -9,14 +10,11 @@ import type { FastifyInstance } from 'fastify';
 type Client = { send: (s: string) => void };
 const clients = new Set<Client>();
 
-/** API area → what pages should reload. Changes to bookings also move batches between Planned, Running and Done. */
+/** The core's API areas → what pages should reload (modules add theirs). Changes to bookings also move a module's records (batches
+ * between Planned, Running and Done). */
 const TOPICS: [RegExp, string[]][] = [
   [/^\/api\/(bookings|equipment|places|schedule|calendar)/, ['calendar', 'batches', 'equipment']],
-  [/^\/api\/batches/, ['batches', 'calendar']],
-  [/^\/api\/(presets|runs)/, ['presets', 'batches']],
   [/^\/api\/(chemicals|storage|shelves|containers|inventory)/, ['inventory']],
-  [/^\/api\/iv/, ['iv', 'comparisons']],
-  [/^\/api\/comparisons/, ['comparisons']],
   [/^\/api\/(comments|reactions|notifications)/, ['comments', 'notifications']],
   [/^\/api\/(users|tags|me)/, ['users']],
   [/^\/api\/trash/, ['all']],
@@ -52,7 +50,7 @@ export function registerEvents(app: FastifyInstance, auth: (need?: any) => any) 
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || reply.statusCode >= 400) return;
     const url: string = req.routeOptions?.url ?? req.url;
     if (!url.startsWith('/api/') || QUIET.test(url)) return;
-    const topics = TOPICS.find(([r]) => r.test(url))?.[1] ?? ['all'];
+    const topics = [...TOPICS, ...modules().flatMap((m) => m.topics ?? [])].find(([r]) => r.test(url))?.[1] ?? ['all'];
     broadcast(topics, String(req.headers['x-tab'] ?? ''));
   });
 }

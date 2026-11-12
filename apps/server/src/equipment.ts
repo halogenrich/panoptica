@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { EquipmentIn, EquipmentRole } from '@psc/schema';
-import { roleFromSteps, stepsFromRole, wouldLoop } from '@psc/core';
-import { stepDefs, stepKeys } from './modules.js';
+import { wouldLoop } from '@psc/core';
+import { roleOf, stepDefs, stepKeys, stepsOfRole } from './modules.js';
 import { db, tx } from './db.js';
 import { notify } from './social.js';
 
@@ -217,7 +217,7 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
     if (!p.success) return bad(reply, p);
     const d = p.data;
     if (d.place_id && !placeOf(d.place_id)) return reply.code(400).send({ error: 'choose a place' });
-    const steps = d.steps ?? (d.role ? stepsFromRole(d.role, d.name) : []);
+    const steps = d.steps ?? (d.role ? stepsOfRole(d.role, d.name) : []);
     try {
       const id = Number(
         db
@@ -228,7 +228,7 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
           .run(
             d.name,
             d.color ?? '#2563eb',
-            roleFromSteps(steps),
+            roleOf(steps),
             d.cleanup ?? 0,
             d.art ?? '',
             JSON.stringify(steps),
@@ -259,7 +259,7 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
         if (d.steps)
           db.prepare('UPDATE equipment SET steps=?, role=? WHERE id=?').run(
             JSON.stringify([...new Set(d.steps)]),
-            roleFromSteps(d.steps),
+            roleOf(d.steps),
             id,
           );
       });

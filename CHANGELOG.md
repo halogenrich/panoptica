@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.43.0 (2026-11-12)
+
+- **Electronic Devices is its own module** (`modules/devices`): its screens, its server routes, its calculations and its database changes moved out of the core. The core runs without it: the side menu is then Overview, Calendar, Inventory and Equipment, and none of the module's tables, routes, chemicals or screens exist.
+- **The core is tested alone before every release**: the server checks, a package built with no module and the browser flows that exist without it. A lab that starts with the core and adds Electronic Devices later ends up with the same database as one that had it from the start (checked).
+- The module plugs into the core through the registry: its tray to schedule a batch in the Calendar, the run data asked after a step is concluded, the data package window, the steps a booking for a batch can be for, the "Open batch" link in a booking, the activity-log names of its actions, live updates and backup checks.
+- The release package can be built with chosen modules (`tools/package.mjs --modules`), the base for the per-lab packages of 0.44.
+- Security: the checks and releases now audit every dependency, including the build and test tools; the lint tools' minimatch advisory (moderate) was fixed on 12/11/2026.
+- Nothing changes for people using the app: on an older lab database every Overview, search, trash, comment and calendar answer is the same as in 0.42, and a new database is identical.
+
 ## 0.42.0 (2026-11-12)
 
 - **Comments, the trash, search and sharing work through record types the modules register**, not a fixed list of stacks, batches, measurements and comparisons. The trash now names each item's type from its module. One sharing rule is used everywhere: the owner, anyone when it is shared, admins and the Professor.

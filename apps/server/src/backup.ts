@@ -14,6 +14,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync, db } from './db.js';
+import { modules } from './modules.js';
 import { CONFIG_DIR, hasConfig, writeConfig } from './config.js';
 
 /**
@@ -171,9 +172,12 @@ export function checkBackup(file: string): { ok: boolean; msg: string } {
     c = new DatabaseSync(file, { readOnly: true });
     const r = Object.values(c.prepare('PRAGMA integrity_check').get() ?? {})[0];
     if (r !== 'ok') return { ok: false, msg: `integrity check: ${r}` };
-    const n = (c.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n,
-      p = (c.prepare('SELECT COUNT(*) AS n FROM presets').get() as { n: number }).n;
-    return { ok: true, msg: `${n} users, ${p} recipes and designs` };
+    const n = (c.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+    // each module adds a line about its data ("12 recipes and designs")
+    return {
+      ok: true,
+      msg: [`${n} users`, ...modules().map((m) => m.backupCheck?.(c!) ?? '')].filter(Boolean).join(', '),
+    };
   } catch (e) {
     return { ok: false, msg: (e as Error).message };
   } finally {

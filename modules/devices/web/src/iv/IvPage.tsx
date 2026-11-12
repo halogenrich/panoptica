@@ -1,0 +1,836 @@
+import { openDataPackage } from '../lib/DataPackage';
+import { useItemRoute } from '@web/lib/route';
+import CopyLink from '@web/lib/CopyLink';
+import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '@web/api';
+import { trashed, useRefresh } from '@web/lib/trash';
+import { Badge, Empty, LayoutToggle, Seg, fmtDate, useLayout } from '@web/lib/ui';
+import { type BoxGroup } from './charts';
+import { BoxPanel, OutlierToggle, TITLES, combinePanels, commonLogoSpot, lighter, useOutliers } from './BoxFigure';
+import { useFigureSettings, useLogoChoice } from '@web/lib/figure';
+import ExportMenu, { pngSvg } from '@web/lib/ExportMenu';
+import { exportSvg } from './JvFigure';
+import ImportIv from './Import';
+import { Check } from '@web/views/common';
+import {
+  METRICS,
+  SERIES,
+  hasValue,
+  SYSTEM,
+  clearGeomCache,
+  counts,
+  download,
+  fmt,
+  statRows,
+  summarize,
+  toCsv,
+  type Curve,
+  type Dir,
+  type IvSet,
+  type IvSetFull,
+  type Link,
+  type MetricKey,
+  type StatRow,
+} from './model';
+import { SampleMaps } from './SubstrateMap';
+import { CompareCtx, ComparePanel, useCompare } from './Compare';
+import Lifetime from './Lifetime';
+import { DeviceTable, devKey } from './Devices';
+
+const fdate = (d: string) =>
+  d
+    ? new Date(d + 'T12:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : 'no date';
+
+/** J–V curves and lifetime runs are two pages of the side menu (`mode`); an open measurement looks the same from either. */
+export default function IvPage({
+  openId,
+  onOpen,
+  mode = 'jv',
+}: {
+  openId: number | null;
+  onOpen: (id: number | null) => void;
+  mode?: 'jv' | 'life';
+}) {
+  useState(() => clearGeomCache()); // once per visit: masks may have been reordered since
+  return openId ? (
+    <Detail id={openId} onBack={() => onOpen(null)} back={mode === 'life' ? 'Lifetime' : 'J–V curves'} />
+  ) : (
+    <List key={mode} mode={mode} onOpen={onOpen} />
+  );
+}
+
+function List({ onOpen, mode }: { onOpen: (id: number) => void; mode: 'jv' | 'life' }) {
+  const life = mode === 'life';
+  const [rows, setRows] = useState<IvSet[] | null>(null),
+    [tab, setTab] = useState<'list' | 'stats'>('list'),
+    [imp, setImp] = useState(false),
+    [q, setQ] = useState(''),
+    [layout, setLayout] = useLayout();
+  const load = () =>
+    api<IvSet[]>('/iv')
+      .then(setRows)
+      .catch(() => setRows([]));
+  useEffect(() => {
+    load();
+  }, []);
+  useRefresh(load, ['iv']);
+  const mine = (rows ?? []).filter((r) => (r.kind === 'lifetime') === life);
+  const shown = mine.filter((r) =>
+    (
+      r.name +
+      ' ' +
+      r.samples.join(' ') +
+      ' ' +
+      Object.values(r.links)
+        .map((l) => l?.label ?? '')
+        .join(' ')
+    )
+      .toLowerCase()
+      .includes(q.toLowerCase()),
+  );
+  return (
+    <>
+      <div className="lib-bar">
+        {!life && (
+          <Seg
+            value={tab}
+            on={setTab}
+            small
+            opts={[
+              ['list', 'Measurements'],
+              ['stats', 'Statistics'],
+            ]}
+          />
+        )}
+        {tab === 'list' && (
+          <input
+            className="lib-search"
+            type="search"
+            placeholder={life ? 'Search lifetime runs' : 'Search measurements'}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        )}
+        <div className="grow" />
+        {tab === 'list' && <LayoutToggle v={layout} on={setLayout} />}
+        <button className="link" onClick={() => openDataPackage()}>
+          Data package
+        </button>
+        <button className="btn" onClick={() => setImp(true)}>
+          Import measurements
+        </button>
+      </div>
+      {tab === 'stats' ? (
+        <Stats sets={rows ?? []} />
+      ) : rows === null ? (
+        <div className="cards">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="pcard skeleton" />
+          ))}
+        </div>
+      ) : shown.length === 0 ? (
+        <Empty
+          title={mine.length ? 'Nothing matches' : life ? 'No lifetime runs yet' : 'No J–V measurements yet'}
+          text={
+            mine.length
+              ? 'Change the search text.'
+              : life
+                ? 'Use Import measurements and drop the lifetime run folder the J–V system saved (or a .zip of it).'
+                : 'Use Import measurements and drop the folder the J–V system saved (or a .zip of it).'
+          }
+        />
+      ) : layout === 'list' ? (
+        <section className="group scroll flush">
+          <table className="list">
+            <thead>
+              <tr>
+                <th>Measurement</th>
+                <th>Samples</th>
+                <th className="num">Best PCE (%)</th>
+                <th className="num">Substrates</th>
+                <th className="num">Working curves</th>
+                <th />
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                  <td>
+                    <b>{r.name}</b>
+                  </td>
+                  <td className="mut">{r.samples.map((s) => r.links[s]?.label ?? s.replace(/_/g, ' ')).join(', ')}</td>
+                  <td className="num">{r.best ? r.best.toFixed(1) : '—'}</td>
+                  <td className="num">{r.substrates}</td>
+                  <td className="num">{r.working}</td>
+                  <td>{r.visibility === 'shared' && <Badge>Shared</Badge>}</td>
+                  <td className="mut">{fdate(r.date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : (
+        <div className="cards">
+          {shown.map((r) => (
+            <button key={r.id} className="pcard" onClick={() => onOpen(r.id)}>
+              <div className="pcard-art iv-art">
+                <span>
+                  {r.best ? r.best.toFixed(1) : '—'}
+                  <small>%</small>
+                </span>
+                <small>best PCE</small>
+              </div>
+              <div className="pcard-body">
+                <div className="pcard-name">{r.name}</div>
+                <div className="pcard-sum">
+                  {r.samples.map((s) => r.links[s]?.label ?? s.replace(/_/g, ' ')).join(' · ')}
+                </div>
+                <div className="pcard-meta">
+                  {r.kind === 'lifetime' && r.life ? (
+                    <span>
+                      Lifetime, {r.life.points} readings over{' '}
+                      {r.life.span < 10800
+                        ? `${Math.round(r.life.span / 60)} min`
+                        : `${(r.life.span / 3600).toFixed(1)} h`}
+                    </span>
+                  ) : (
+                    <>
+                      <span>{r.substrates} substrates</span>
+                      <span>{r.working} working curves</span>
+                    </>
+                  )}
+                  {r.visibility === 'shared' && <Badge>Shared</Badge>}
+                  <span>{fdate(r.date)}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {imp && (
+        <ImportIv
+          onClose={() => setImp(false)}
+          onDone={(ids) => {
+            setImp(false);
+            load();
+            if (ids.length === 1) onOpen(ids[0]);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: Link) => void; disabled?: boolean }) {
+  const [t, setT] = useState<LinkTargets | null>(null);
+  useEffect(() => {
+    Promise.all([api<any[]>('/batches'), api<any[]>('/presets?segment=stk')])
+      .then(([b, s]) => setT({ batches: b, stacks: s }))
+      .catch(() => setT({ batches: [], stacks: [] }));
+  }, []);
+  return (
+    <select
+      className="link-select"
+      aria-label="Linked batch or stack"
+      disabled={disabled || !t}
+      value={linkVal(value)}
+      onChange={(e) => onChange(parseLink(e.target.value))}
+    >
+      <option value="">Not linked to a batch or stack</option>
+      <LinkOptions t={t} />
+    </select>
+  );
+}
+
+function Detail({ id, onBack, back }: { id: number; onBack: () => void; back: string }) {
+  useItemRoute('iv', id);
+  const [s, setS] = useState<IvSetFull | null>(null),
+    [msg, setMsg] = useState(''),
+    [tab, setTab] = useState<'life' | 'cells' | 'stats'>('cells');
+  const cmp = useCompare();
+  const hasRev = !!s?.curves.some((c) => c.dir === 'rev'),
+    [dir, setDir] = useState<Dir | 'both'>('rev');
+  const load = () =>
+    api<IvSetFull>('/iv/' + id)
+      .then((x) => {
+        setS((o) => {
+          if (!o && x.kind === 'lifetime') setTab('life'); // a lifetime run opens on its time plot
+          return x;
+        });
+        if (!x.curves.some((c) => c.dir === 'rev')) setDir('fwd');
+      })
+      .catch((e) => setMsg(e.message));
+  useEffect(() => {
+    load();
+  }, [id]);
+  if (!s) return <p className="mut">{msg || 'Loading…'}</p>;
+  const patch = (p: object) =>
+    api('/iv/' + id, 'PATCH', p)
+      .then(load)
+      .catch((e) => setMsg(e.message));
+  const onCurve = (c: Curve) => setS({ ...s, curves: s.curves.map((x) => (x.id === c.id ? c : x)) });
+  // cells and statistics of a lifetime run show its first reading (the later ones are under Lifetime)
+  const life = s.kind === 'lifetime',
+    sv = life ? { ...s, curves: s.curves.filter((c) => c.kind !== 'life') } : s;
+  return (
+    <div className="batch iv">
+      <div className="batch-head">
+        <button className="link" onClick={onBack}>
+          ‹ {back}
+        </button>
+        <input
+          className="batch-name iv-name"
+          aria-label="Name"
+          value={s.name}
+          disabled={!s.editable}
+          onChange={(e) => setS({ ...s, name: e.target.value })}
+          onBlur={() => patch({ name: s.name })}
+        />
+        <div className="grow" />
+        <Seg
+          value={s.visibility}
+          small
+          on={(v) => s.editable && patch({ visibility: v })}
+          opts={[
+            ['private', 'Private'],
+            ['shared', 'Shared'],
+          ]}
+        />
+        <CopyLink view="iv" id={id} what="this measurement" />
+        <button className="link" onClick={() => openDataPackage({ iv: [id] })}>
+          Data package
+        </button>
+        {s.editable && (
+          <button
+            className="link danger-link"
+            title="Moves it to the trash: Undo right after, or restore it from Trash for 30 days"
+            onClick={() =>
+              api('/iv/' + id, 'DELETE')
+                .then(() => trashed('iv', id, s.name))
+                .then(onBack)
+            }
+          >
+            Move to trash
+          </button>
+        )}
+      </div>
+      <p className="mut small">
+        {SYSTEM[s.system]} · {life ? 'lifetime run' : 'measured'} {fdate(s.date)} · {s.substrates} substrate
+        {s.substrates === 1 ? '' : 's'} · {s.curves.length} curves · imported by {s.owner} {fmtDate(s.created_at)}
+        {msg ? ` · ${msg}` : ''}
+      </p>
+      <div className="inline">
+        <Seg
+          value={tab}
+          on={setTab}
+          small
+          opts={[
+            ...(life ? [['life', 'Lifetime'] as ['life', string]] : []),
+            ['cells', life ? 'Cells (first reading)' : 'Cells'],
+            ['stats', 'Statistics'],
+          ]}
+        />
+        {tab === 'cells' && hasRev && (
+          <Seg
+            value={dir}
+            on={setDir}
+            small
+            opts={[
+              ['rev', 'Backward scan'],
+              ['fwd', 'Forward scan'],
+              ['both', 'Both (backward / forward)'],
+            ]}
+          />
+        )}
+        {tab === 'cells' && (
+          <span className="mut small legend-px">
+            <i className="k-ok" />
+            PCE in % (darker = higher){dir === 'both' ? ', backward / forward' : ''} <i className="k-dead" />
+            dead <i className="k-short" />
+            short (in either direction) · click a pixel for its curves, Shift-click to compare pixels
+          </span>
+        )}
+      </div>
+      {tab === 'cells' && cmp.items.length > 0 && (
+        <ComparePanel
+          items={cmp.items}
+          onRemove={(k) => cmp.setItems(cmp.items.filter((x) => x.key !== k))}
+          onClear={() => cmp.setItems([])}
+        />
+      )}
+      <CompareCtx.Provider value={cmp.value}>
+        {tab === 'life' ? (
+          <Lifetime s={s} />
+        ) : tab === 'stats' ? (
+          <StatsFor sets={[sv]} />
+        ) : (
+          s.samples.map((sample) => (
+            <section key={sample} className="sample">
+              <div className="inline sample-head">
+                <h3>{sample.replace(/_/g, ' ')}</h3>
+                <LinkSelect
+                  value={s.rawLinks[sample] ?? null}
+                  disabled={!s.editable}
+                  onChange={(l) => patch({ links: { [sample]: l } })}
+                />
+              </div>
+              <details className="devices-box">
+                <summary>
+                  Devices for the plots and device groups
+                  {(() => {
+                    const subs = [...new Set(s.curves.filter((c) => c.sample === sample).map((c) => c.substrate))],
+                      off = subs.filter((x) => s.devices?.[devKey(sample, x)]?.off).length,
+                      gs = new Set(subs.map((x) => s.devices?.[devKey(sample, x)]?.g).filter(Boolean));
+                    return (
+                      <span className="mut small">
+                        {' '}
+                        · {subs.length - off} of {subs.length} in plots
+                        {gs.size ? ` · groups: ${[...gs].join(', ')}` : ''}
+                      </span>
+                    );
+                  })()}
+                </summary>
+                <DeviceTable
+                  rows={[...new Set(s.curves.filter((c) => c.sample === sample).map((c) => c.substrate))].map((x) => ({
+                    sample,
+                    substrate: x,
+                    best: Math.max(
+                      0,
+                      ...s.curves
+                        .filter((c) => c.sample === sample && c.substrate === x && counts(c))
+                        .map((c) => c.m.pce),
+                    ),
+                  }))}
+                  value={s.devices ?? {}}
+                  disabled={!s.editable}
+                  groups={[]}
+                  fallback={(smp) => s.links[smp]?.label ?? smp.replace(/_/g, ' ')}
+                  onChange={(p) => {
+                    setS({ ...s, devices: { ...s.devices, ...p } });
+                    api('/iv/' + id, 'PATCH', { devices: p }).catch((e) => setMsg(e.message));
+                  }}
+                />
+              </details>
+              <SampleMaps set={sv} sample={sample} link={s.links[sample] ?? null} dir={dir} onCurve={onCurve} />
+            </section>
+          ))
+        )}
+      </CompareCtx.Provider>
+    </div>
+  );
+}
+
+/** Statistics across measurements: choose which, then box plots by group. */
+function Stats({ sets }: { sets: IvSet[] }) {
+  const [sel, setSel] = useState<number[] | null>(null),
+    [full, setFull] = useState<Record<number, IvSetFull>>({});
+  const chosen = sel ?? sets.map((s) => s.id);
+  useEffect(() => {
+    for (const id of chosen)
+      if (!full[id])
+        api<IvSetFull>('/iv/' + id)
+          .then((x) => setFull((f) => ({ ...f, [id]: x })))
+          .catch(() => {});
+  }, [chosen.join(',')]);
+  if (!sets.length)
+    return <Empty title="No measurements yet" text="Import J–V measurements first (Import measurements)." />;
+  return (
+    <div className="stats">
+      <div className="group">
+        <h3>Measurements included</h3>
+        <div className="chips">
+          {sets.map((s) => (
+            <button
+              key={s.id}
+              className={'chip' + (chosen.includes(s.id) ? ' on' : '')}
+              aria-pressed={chosen.includes(s.id)}
+              onClick={() => setSel(chosen.includes(s.id) ? chosen.filter((x) => x !== s.id) : [...chosen, s.id])}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <StatsFor sets={chosen.map((id) => full[id]).filter(Boolean)} />
+    </div>
+  );
+}
+
+export function StatsFor({ sets }: { sets: IvSetFull[] }) {
+  const [dir, setDir] = useState<Dir | 'both'>('rev'),
+    [dens, setDens] = useState(false),
+    [outl, setOutl] = useOutliers();
+  const fs = useFigureSettings(),
+    hasLogo = !!fs.watermark,
+    [logo, setLogo] = useLogoChoice();
+  const figs = useRef<Record<string, SVGSVGElement | null>>({}),
+    [figErr, setFigErr] = useState('');
+  // which plots to show (remembered in this browser)
+  const [show, setShowState] = useState<MetricKey[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('psc-plots') ?? 'null');
+      if (Array.isArray(v) && v.length) return v;
+    } catch {
+      /* private window */
+    }
+    return ['jsc', 'ff', 'voc', 'pce'];
+  });
+  const toggleShow = (k: MetricKey) => {
+    const n = show.includes(k)
+      ? show.filter((x) => x !== k)
+      : METRICS.map((m) => m.key).filter((x) => x === k || show.includes(x));
+    setShowState(n);
+    try {
+      localStorage.setItem('psc-plots', JSON.stringify(n));
+    } catch {
+      /* ignore */
+    }
+  };
+  const stamp = () => new Date().toISOString().slice(0, 10),
+    svgs = () => show.map((k) => figs.current[k]).filter((x): x is SVGSVGElement => !!x);
+  const allAs = (as: 'png' | 'svg') =>
+    svgs().length && exportSvg(combinePanels(svgs()), `jv-boxplots-${stamp()}`, as).catch((e) => setFigErr(e.message));
+  // one file per plot, one after the other (browsers drop downloads started in the same instant)
+  const eachAs = async (as: 'png' | 'svg') => {
+    for (const k of show) {
+      const el = figs.current[k];
+      if (el) await exportSvg(el, `jv-${k}-${stamp()}`, as).catch((e) => setFigErr(e.message));
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  };
+  const anyRev = sets.some((s) => s.curves.some((c) => c.dir === 'rev'));
+  const rows = useMemo(() => statRows(sets, anyRev ? dir : dir === 'rev' ? 'fwd' : dir), [sets, dir, anyRev]);
+  // groups keep the order they first appear in (by measurement, then sample) so a colour always means the same group
+  const groups = useMemo(() => {
+    const g: { key: string; label: string; rows: StatRow[] }[] = [];
+    for (const r of rows) {
+      let x = g.find((y) => y.key === r.gkey);
+      if (!x) g.push((x = { key: r.gkey, label: r.group, rows: [] }));
+      x.rows.push(r);
+    }
+    return g;
+  }, [rows]);
+  const champ = rows.reduce<StatRow | null>((b, r) => (!b || r.m.pce > b.m.pce ? r : b), null);
+  const dirs: Dir[] = dir === 'both' && anyRev ? ['rev', 'fwd'] : [anyRev ? (dir === 'both' ? 'rev' : dir) : 'fwd'];
+  const box = (k: MetricKey): BoxGroup[] =>
+    groups.map((g, i) => ({
+      label: g.label,
+      series: dirs.map((d) => {
+        const rs = g.rows.filter((r) => r.dir === d && hasValue(r, k)),
+          best = rs.reduce<StatRow | null>((b, r) => (!b || r.m.pce > b.m.pce ? r : b), null);
+        return {
+          label: dirs.length > 1 ? (d === 'rev' ? 'Backward' : 'Forward') : '',
+          color: SERIES[i % SERIES.length],
+          light: d === 'fwd' && dirs.length > 1,
+          stats: summarize(rs, k),
+          points: rs.map((r) => ({
+            v: r.m[k] as number,
+            best: r === best,
+            tip: `${r.sample.replace(/_/g, ' ')} · substrate ${r.substrate} · pixel ${r.pixel}${r.scan ? ` · scan ${r.scan}` : ''} · ${r.dir === 'rev' ? 'backward' : 'forward'} · ${r.set}`,
+          })),
+        };
+      }),
+    }));
+  if (!sets.length) return <p className="mut">Loading…</p>;
+  return (
+    <>
+      <div className="inline">
+        {anyRev && (
+          <Seg
+            value={dir}
+            on={setDir}
+            small
+            opts={[
+              ['rev', 'Backward scans'],
+              ['fwd', 'Forward scans'],
+              ['both', 'Both'],
+            ]}
+          />
+        )}
+        <span className="mut small">
+          {rows.length} curves from working pixels in {groups.length} group{groups.length === 1 ? '' : 's'} · each pixel
+          counts once per direction, with its best scan; dead and shorted pixels and check sweeps are left out (change
+          it per pixel in Cells)
+        </span>
+        <div className="grow" />
+        <ExportMenu
+          disabled={!rows.length}
+          sections={[
+            [
+              'Box plots',
+              [
+                ['All in one image', pngSvg((as) => void allAs(as))],
+                [`Each plot (${show.length} files)`, pngSvg((as) => void eachAs(as))],
+              ],
+            ],
+            [
+              'Data',
+              [
+                [
+                  'Every counted pixel',
+                  [['CSV', () => download(`jv-statistics-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows))]],
+                ],
+              ],
+            ],
+          ]}
+        />
+      </div>
+      {champ && (
+        <p className="champ">
+          Champion: <b>{fmt(champ.m.pce)} %</b> · Voc {fmt(champ.m.voc, 3)} V · Jsc {fmt(champ.m.jsc)} mA/cm² · FF{' '}
+          {fmt(champ.m.ff, 1)} %{' '}
+          <span className="mut">
+            — {champ.group} · substrate {champ.substrate} · pixel {champ.pixel} ·{' '}
+            {champ.dir === 'rev' ? 'backward' : 'forward'}
+          </span>
+        </p>
+      )}
+      <div className="inline plot-pick">
+        <span className="mut small">Show</span>
+        <div className="chips">
+          {METRICS.map((m) => (
+            <button
+              key={m.key}
+              className={'chip' + (show.includes(m.key) ? ' on' : '')}
+              aria-pressed={show.includes(m.key)}
+              onClick={() => toggleShow(m.key)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <label className="inline small">
+          <Check v={dens} on={setDens} /> Density curve
+        </label>
+        <OutlierToggle v={outl} on={setOutl} />
+        {hasLogo && (
+          <label className="inline small">
+            <Check v={logo} on={setLogo} /> Lab logo
+          </label>
+        )}
+        <div className="grow" />
+        {figErr && <span className="err small">{figErr}</span>}
+      </div>
+      {rows.length > 0 && (
+        <p className="mut small">
+          Dots: pixels (gold ring = best) ·{' '}
+          {outl
+            ? 'triangles: outliers (beyond 1.5 × IQR)'
+            : 'axis fitted to the boxes; an arrow with a number marks outliers beyond it (still counted)'}
+          {dirs.length > 1 ? ' · forward in the lighter shade' : ''} · hover for values · each plot exports on its own
+          (PNG and SVG under it), or from Export{show.includes('rsh') ? ' · Rsh on a log axis' : ''}
+        </p>
+      )}
+      {rows.length > 0 && (
+        <div className="plot-grid">
+          {show.map((k, _i, all) => {
+            const m = METRICS.find((x) => x.key === k)!;
+            // the logo in the same place on every plot, when one place is free on all of them
+            const spot = commonLogoSpot(
+              all.map((kk) => ({ key: kk, title: TITLES[kk], groups: box(kk) })),
+              hasLogo && logo ? fs : undefined,
+              { showDensity: dens, outliers: outl },
+            );
+            const name = `jv-${k}-${new Date().toISOString().slice(0, 10)}`;
+            return (
+              <figure key={k} className="plot-card">
+                <div className="fig-wrap">
+                  <BoxPanel
+                    svgRef={(el) => {
+                      figs.current[k] = el;
+                    }}
+                    showDensity={dens}
+                    outliers={outl}
+                    log={k === 'rsh'}
+                    logo={hasLogo && logo ? fs : undefined}
+                    panel={{ key: k, title: TITLES[k], groups: box(k), unit: m.unit, digits: m.digits }}
+                    spot={spot}
+                  />
+                </div>
+                <figcaption className="inline">
+                  <b>{m.label}</b>
+                  <div className="grow" />
+                  <button
+                    className="link small"
+                    onClick={() =>
+                      figs.current[k] && exportSvg(figs.current[k]!, name, 'png').catch((e) => setFigErr(e.message))
+                    }
+                  >
+                    PNG
+                  </button>
+                  <button
+                    className="link small"
+                    onClick={() => figs.current[k] && exportSvg(figs.current[k]!, name, 'svg')}
+                  >
+                    SVG
+                  </button>
+                </figcaption>
+              </figure>
+            );
+          })}
+        </div>
+      )}
+      {(groups.length > 1 || dirs.length > 1) && (
+        <div className="legend">
+          {groups.map((g, i) => (
+            <span key={g.key}>
+              <i style={{ background: SERIES[i % SERIES.length] }} />
+              {g.label}
+            </span>
+          ))}
+          {dirs.length > 1 && (
+            <span className="mut">
+              backward in the group colour, forward lighter · dots{dens ? ' and density curves' : ''} darker
+            </span>
+          )}
+        </div>
+      )}
+      <div className="group scroll">
+        <table className="stat-table">
+          <thead>
+            <tr>
+              <th>Group</th>
+              <th>n</th>
+              {METRICS.map((m) => (
+                <th key={m.key}>
+                  {m.label} ({m.unit})<br />
+                  <span className="mut small">mean ± SD · median · best</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {groups.flatMap((g, i) =>
+              dirs.map((d) => {
+                const rs = g.rows.filter((r) => r.dir === d);
+                return (
+                  <tr key={g.key + d}>
+                    <td>
+                      <i
+                        className="swatch"
+                        style={{
+                          background:
+                            d === 'fwd' && dirs.length > 1
+                              ? lighter(SERIES[i % SERIES.length])
+                              : SERIES[i % SERIES.length],
+                        }}
+                      />
+                      {g.label}
+                      {dirs.length > 1 ? <span className="mut"> · {d === 'rev' ? 'backward' : 'forward'}</span> : null}
+                    </td>
+                    <td>{rs.length}</td>
+                    {METRICS.map((m) => {
+                      const b = summarize(rs, m.key);
+                      return (
+                        <td key={m.key}>
+                          {b ? (
+                            <>
+                              {fmt(b.mean, m.digits)} ± {fmt(b.sd, m.digits)}
+                              <br />
+                              <span className="mut small">
+                                {fmt(b.median, m.digits)} · {fmt(b.max, m.digits)}
+                              </span>
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** On a batch page: the measurements linked to it. */
+export function BatchMeasurements({
+  batchId,
+  code,
+  onOpen,
+}: {
+  batchId: number;
+  code: string;
+  onOpen: (id: number) => void;
+}) {
+  const [list, setList] = useState<(IvSet & { linkedSamples: string[] })[] | null>(null),
+    [full, setFull] = useState<Record<number, IvSetFull>>({}),
+    [imp, setImp] = useState(false);
+  const load = () =>
+    api<(IvSet & { linkedSamples: string[] })[]>(`/batches/${batchId}/iv`)
+      .then((l) => {
+        setList(l);
+        l.forEach((s) => api<IvSetFull>('/iv/' + s.id).then((x) => setFull((f) => ({ ...f, [s.id]: x }))));
+      })
+      .catch(() => setList([]));
+  useEffect(() => {
+    load();
+  }, [batchId]);
+  useState(() => clearGeomCache());
+  return (
+    <>
+      <div className="inline">
+        <h3 className="sub">Measurements for {code}</h3>
+        <div className="grow" />
+        <button className="link" onClick={() => setImp(true)}>
+          Import measurements
+        </button>
+      </div>
+      {list === null ? null : list.length === 0 ? (
+        <p className="mut">
+          None yet. Import the J–V files here (the samples are linked to this batch), or link a sample to {code} on the
+          J–V curves page.
+        </p>
+      ) : (
+        list.map(
+          (s) =>
+            full[s.id] && (
+              <section key={s.id} className="group sample">
+                <div className="inline">
+                  <b>{s.name}</b>
+                  <span className="mut small">{fdate(s.date)}</span>
+                  <div className="grow" />
+                  <button className="link" onClick={() => onOpen(s.id)}>
+                    Open measurement
+                  </button>
+                </div>
+                {s.linkedSamples.map((sample) => (
+                  <SampleMaps
+                    key={sample}
+                    set={full[s.id]}
+                    sample={sample}
+                    link={full[s.id].links[sample] ?? null}
+                    dir={full[s.id].curves.some((c) => c.dir === 'rev') ? 'rev' : 'fwd'}
+                    onCurve={(c) =>
+                      setFull((f) => ({
+                        ...f,
+                        [s.id]: { ...f[s.id], curves: f[s.id].curves.map((x) => (x.id === c.id ? c : x)) },
+                      }))
+                    }
+                  />
+                ))}
+              </section>
+            ),
+        )
+      )}
+      {imp && (
+        <ImportIv
+          presetLink={{ kind: 'batch', id: batchId }}
+          onClose={() => setImp(false)}
+          onDone={() => {
+            setImp(false);
+            load();
+          }}
+        />
+      )}
+    </>
+  );
+}

@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import type { ChemUse } from '@psc/core';
 
 /**
  * What a module adds to the core (0.41): the things bookings can be for, and the steps equipment can do. The core (calendar,
@@ -37,6 +36,12 @@ export interface BookingSubject {
   tick(): void;
   /** what `u` can book for: open ones, and finished ones (for measuring equipment) */
   choices(u: Who): { open: Choice[]; finished: Choice[] };
+  /** the page one opens on in the app ('batches'), for "Open batch" in the booking form (0.43) */
+  view?: string;
+  /** shown in the Calendar when there is none to book for ("start one from a stack") */
+  hint?: string;
+  /** the steps of one, offered in the booking form (a batch's layers); `u` may see it */
+  steps?(u: Who, id: number): string[];
 }
 
 export type StepDef = {
@@ -75,6 +80,7 @@ export interface ItemKind {
 export type SearchHit = { key: string; label: string; hint: string; link: Link };
 
 /** Inventory use a module reports (0.42): the core only sums it per chemical and period. */
+export type ChemUse = { name: string; mg?: number; ul?: number };
 export type UseEvent = {
   /** what it was used for ('UV-972'), and when */
   label: string;
@@ -110,6 +116,18 @@ export type Module = {
   items?: ItemKind[];
   uses?: UseReport;
   overview?: OverviewPart;
+  /**
+   * The one procedure (`equipment.role`) older parts of a module still read, from what an equipment can do; and the steps for a
+   * procedure given by an older client (0.43).
+   */
+  equipment?: { role(steps: readonly string[]): string; stepsFor(role: string, name: string): string[] };
+  /** Readable names of its routes in the activity log ('POST /api/batches': 'Started a batch'), and how to name what a route
+   * changes: [route prefix, SQL giving `n` for the id]. */
+  audit?: { labels: Record<string, string>; names?: [string, string][] };
+  /** What pages reload after a change to its routes (live updates): [route pattern, topics]. */
+  topics?: [RegExp, string[]][];
+  /** A line about its data in a backup that was just checked ("12 recipes and designs"). */
+  backupCheck?(db: import('node:sqlite').DatabaseSync): string;
   /** its routes, registered after the core's */
   register?: (app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) => void;
 };
@@ -130,6 +148,10 @@ export const stepKeys = () => stepDefs().map((s) => s.key);
 /** Equipment that can do a measuring step measures finished work. */
 export const measuring = (steps: readonly string[]) => steps.some((k) => stepDefs().find((s) => s.key === k)?.measures);
 export const items = () => mods.flatMap((m) => m.items ?? []);
+/** The procedure (role) of equipment that can do these steps, from the first module that names one. */
+export const roleOf = (steps: readonly string[]) => mods.map((m) => m.equipment?.role(steps) ?? '').find(Boolean) ?? '';
+export const stepsOfRole = (role: string, name: string) =>
+  mods.map((m) => m.equipment?.stepsFor(role, name) ?? []).find((x) => x.length) ?? [];
 export const item = (kind: string) => items().find((i) => i.kind === kind);
 
 /** Sharing, one rule for every record type: the owner, anyone when it is shared, and admins and the Professor (`all`). */
