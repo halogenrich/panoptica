@@ -23,4 +23,4 @@ jobs:
       # the main flows clicked through in Chromium, on the packaged app (Linux is enough: it is the same web app)
       - if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium && npm run test:browser
-      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm audit --audit-level=moderate
