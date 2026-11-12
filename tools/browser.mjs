@@ -344,6 +344,13 @@ try {
   mkdirSync(join(root, 'out'), { recursive: true });
   await page.screenshot({ path: join(root, 'out/browser-failure.png'), fullPage: true }).catch(() => {});
   if (errors.length) console.error('page errors:', errors.join('\n'));
+  // what is on top (a window in the way is the usual cause), and where the app is
+  const over = await page
+    .locator('.scrim')
+    .allInnerTexts()
+    .catch(() => []);
+  if (over.length) console.error('open windows:', over.map((t) => t.slice(0, 200).replace(/\s+/g, ' ')).join(' | '));
+  console.error('address:', page.url());
   console.error('----- server log (last lines)\n' + log.split('\n').slice(-30).join('\n'));
   await browser.close();
   srv.kill();
