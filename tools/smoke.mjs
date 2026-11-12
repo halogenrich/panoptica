@@ -126,9 +126,10 @@ const done = (code) => {
   }
   process.exit(code);
 };
-for (let i = 0; i < 100 && !log.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+// up to a minute: from source, a cold Windows runner compiles the core and the modules on the first start
+for (let i = 0; i < 300 && !log.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
 if (!log.includes('Server listening')) {
-  console.error(log);
+  console.error('the server did not start in a minute:\n' + log);
   done(1);
 }
 
@@ -1090,7 +1091,7 @@ console.log('First setup (a fresh install)');
   s2.stdout.on('data', (x) => (log2 += x));
   s2.stderr.on('data', (x) => (log2 += x));
   // the setup message is printed just after "Server listening", so wait for it rather than for the listen line
-  for (let i = 0; i < 100 && !log2.includes('not set up yet'); i++) await new Promise((r) => setTimeout(r, 200));
+  for (let i = 0; i < 300 && !log2.includes('not set up yet'); i++) await new Promise((r) => setTimeout(r, 200));
   await new Promise((r) => setTimeout(r, 300));
   ok(
     /not set up yet/.test(log2) && !/password/i.test(log2.split('not set up yet')[1] ?? ''),
