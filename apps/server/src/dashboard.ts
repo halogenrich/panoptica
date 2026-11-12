@@ -2,43 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { db, tagsOf } from './db.js';
 import { minutesOf, workDayOf } from '@psc/core';
 import { lab } from './lab.js';
+import { measuring, modules, subject } from './modules.js';
+import { withSubjects } from './calendar.js';
 
 /**
- * Overview for the Professor and Managers (and admins): what the lab did in a week or a month. Everything is computed here
- * from batches, measurements and bookings, so the page is one request. Stability follow-ups are left out of the numbers.
+ * Overview: what a person, a supervisor's students or the lab did in a week or a month, in one request. The core counts people,
+ * equipment time and steps that did not go as planned; each module adds its own numbers (0.42: `overview` in its manifest), under
+ * `m.<module>` for the period and under each person.
  */
-type Curve = {
-  set_id: number;
-  sample: string;
-  substrate: string;
-  pixel: string;
-  dir: string;
-  metrics: string;
-  use: number | null;
-  kind?: string | null;
-};
-const median = (a: number[]) => {
-  if (!a.length) return null;
-  const s = [...a].sort((x, y) => x - y),
-    m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-const dayOf = (s: { date: string; created_at: string }) =>
-  s.date && /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : s.created_at.slice(0, 10);
 const iso = (d: Date) => d.toISOString();
 
-/** Best working pixel of each device (sample + substrate) in a set: the "devices" counted and compared. */
-function devicesOf(curves: Curve[]) {
-  const by = new Map<string, number>();
-  for (const c of curves) {
-    const m = JSON.parse(c.metrics);
-    // counted: ok, not left out by hand, and not a check sweep unless ticked in by hand
-    if (m.status !== 'ok' || c.use === 0 || (c.kind && c.use !== 1) || !Number.isFinite(m.pce)) continue;
-    const k = `${c.set_id}|${c.sample}|${c.substrate}`;
-    by.set(k, Math.max(by.get(k) ?? 0, m.pce));
-  }
-  return by;
-}
 /** Working hours in a period (the lab's working days and hours, Lab setup): the base for how busy each equipment was. */
 function workHours(from: Date, to: Date) {
   const hours = lab().hours;
@@ -49,6 +22,14 @@ function workHours(from: Date, to: Date) {
   }
   return h;
 }
+/** An outcome is asked for this booking when it ends (a step of something; measuring equipment asks none). */
+const asksOutcome = (k: any) =>
+  !!k.subject &&
+  !!subject(k.subject)?.asksOutcome({
+    id: k.equipment_id,
+    name: k.equipment,
+    measuring: measuring(JSON.parse(k.eq_steps || '[]')),
+  });
 
 export function registerDashboard(app: FastifyInstance, auth: (need?: any) => any) {
   /**
@@ -101,9 +82,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from)
       return reply.code(400).send({ error: 'choose a period' });
     const f = iso(from),
-      t = iso(to),
-      fd = f.slice(0, 10),
-      td = t.slice(0, 10);
+      t = iso(to);
     const ids = scopeIds(req),
       inScope = (id: number) => ids === null || !!ids?.includes(id);
     const users = (
@@ -115,94 +94,29 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
     )
       .filter((u) => inScope(u.id))
       .map((u) => ({ ...u, tags: tagsOf(u.id) }));
-    const sets = (
+    // bookings in the period; those for something deleted or in the trash are left out
+    const books = withSubjects(
       db
         .prepare(
-          'SELECT s.id,s.owner_id,s.name,s.date,s.created_at,s.system,s.links FROM iv_sets s WHERE s.deleted_at IS NULL AND s.stability_of IS NULL',
+          `SELECT k.*, e.name AS equipment, e.color, e.steps AS eq_steps, u.name AS user_name FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN users u ON u.id=k.user_id
+      WHERE k.end > ? AND k.start < ?`,
         )
-        .all() as any[]
-    ).filter((s) => inScope(s.owner_id));
-    const inP = (s: any) => {
-      const d = dayOf(s);
-      return d >= fd && d < td;
-    };
-    const curvesOf = (ids: number[]) =>
-      ids.length
-        ? (db
-            .prepare(
-              `SELECT set_id,sample,substrate,pixel,dir,metrics,use,kind FROM iv_curves WHERE set_id IN (${ids.map(() => '?').join(',')})`,
-            )
-            .all(...ids) as Curve[])
-        : [];
-    const pSets = sets.filter(inP),
-      pDev = devicesOf(curvesOf(pSets.map((s) => s.id)));
-    const batches = (
-      db
-        .prepare(
-          'SELECT b.id,b.code,b.name,b.owner_id,b.status,b.created_at,b.updated_at,u.name AS owner FROM batches b JOIN users u ON u.id=b.owner_id WHERE b.deleted_at IS NULL',
-        )
-        .all() as any[]
-    ).filter((b) => inScope(b.owner_id));
-    const started = batches.filter(
-      (b) =>
-        b.created_at.replace(' ', 'T') >= f.slice(0, 19).replace('Z', '') &&
-        b.created_at.replace(' ', 'T') < t.slice(0, 19),
-    );
-    const done = batches.filter(
-      (b) =>
-        b.status === 'done' &&
-        b.updated_at.replace(' ', 'T') >= f.slice(0, 19) &&
-        b.updated_at.replace(' ', 'T') < t.slice(0, 19),
-    );
-    const books = db
-      .prepare(
-        `SELECT k.*, e.name AS equipment, e.color, e.role AS role, u.name AS user_name, b.code AS batch_code FROM bookings k JOIN equipment e ON e.id=k.equipment_id JOIN users u ON u.id=k.user_id LEFT JOIN batches b ON k.subject='batch' AND b.id=k.subject_id
-      WHERE k.end > ? AND k.start < ? AND b.deleted_at IS NULL`,
-      )
-      .all(f, t)
-      .filter((k: any) => inScope(k.user_id)) as any[];
+        .all(f, t) as any[],
+    ).filter((k: any) => inScope(k.user_id));
     const hoursOf = (k: any) =>
       (Math.min(new Date(k.end).getTime(), to.getTime()) - Math.max(new Date(k.start).getTime(), from.getTime())) /
       3.6e6;
 
-    // ---- people
-    const people = users.map((u) => {
-      const mySets = pSets.filter((s) => s.owner_id === u.id),
-        devs = [...pDev.entries()].filter(([k]) => mySets.some((s) => k.startsWith(s.id + '|'))).map(([, v]) => v);
-      const allDevs = devicesOf(curvesOf(sets.filter((s) => s.owner_id === u.id).map((s) => s.id)));
-      return {
-        ...u,
-        batchesStarted: started.filter((b) => b.owner_id === u.id).length,
-        batchesDone: done.filter((b) => b.owner_id === u.id).length,
-        running: batches.filter((b) => b.owner_id === u.id && b.status === 'running').length,
-        measurements: mySets.length,
-        devices: devs.length,
-        best: devs.length ? Math.max(...devs) : null,
-        median: median(devs),
-        bestEver: allDevs.size ? Math.max(...allDevs.values()) : null,
-        hours: books.filter((k) => k.user_id === u.id).reduce((a, k) => a + hoursOf(k), 0),
-      };
-    });
+    // ---- the modules' numbers
+    const m: Record<string, any> = {};
+    for (const x of modules()) if (x.overview) m[x.id] = x.overview.period({ from, to, unit, inScope, users });
 
-    // ---- trend: the last 12 periods up to this one, best and median device of each
-    const trend: { start: string; best: number | null; median: number | null; devices: number }[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const a = new Date(from),
-        b = new Date(from);
-      if (unit === 'month') {
-        a.setMonth(a.getMonth() - i);
-        b.setMonth(b.getMonth() - i + 1);
-      } else {
-        a.setDate(a.getDate() - 7 * i);
-        b.setDate(b.getDate() - 7 * i + 7);
-      }
-      const ss = sets.filter((s) => {
-          const d = dayOf(s);
-          return d >= iso(a).slice(0, 10) && d < iso(b).slice(0, 10);
-        }),
-        v = [...devicesOf(curvesOf(ss.map((s) => s.id))).values()];
-      trend.push({ start: iso(a), best: v.length ? Math.max(...v) : null, median: median(v), devices: v.length });
-    }
+    // ---- people
+    const people = users.map((u) => ({
+      ...u,
+      hours: books.filter((k) => k.user_id === u.id).reduce((a, k) => a + hoursOf(k), 0),
+      m: Object.fromEntries(Object.entries(m).map(([id, v]) => [id, v.people[u.id] ?? {}])),
+    }));
 
     // ---- equipment
     const wh = workHours(from, to);
@@ -227,31 +141,8 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       };
     });
 
-    // ---- digest
-    const owner = (id: number) => users.find((u) => u.id === id)?.name ?? 'someone';
-    const top = [...pDev.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([k, pce]) => {
-        const [sid, sample, substrate] = k.split('|'),
-          s = sets.find((x) => x.id === +sid)!;
-        return { pce, set: s.name, setId: s.id, sample, substrate, owner: owner(s.owner_id), system: s.system };
-      });
-    const before = devicesOf(curvesOf(sets.filter((s) => dayOf(s) < fd).map((s) => s.id))),
-      recordBefore = before.size ? Math.max(...before.values()) : null;
+    // ---- steps that did not go as planned, and those still waiting for their outcome
     const digest = {
-      top,
-      record:
-        top[0] && (recordBefore === null || top[0].pce > recordBefore) ? { ...top[0], before: recordBefore } : null,
-      finished: done.map((b) => ({ id: b.id, code: b.code, name: b.name, owner: b.owner })),
-      started: started.map((b) => ({ id: b.id, code: b.code, name: b.name, owner: b.owner, status: b.status })),
-      measurements: pSets.map((s) => ({
-        id: s.id,
-        name: s.name,
-        owner: owner(s.owner_id),
-        devices: [...pDev.keys()].filter((k) => k.startsWith(s.id + '|')).length,
-        best: Math.max(0, ...[...pDev.entries()].filter(([k]) => k.startsWith(s.id + '|')).map(([, v]) => v)),
-      })),
       setbacks: books
         .filter((k) => k.outcome === 'postponed' || k.outcome === 'canceled')
         .map((k) => ({
@@ -259,40 +150,28 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
           outcome: k.outcome,
           reason: k.reason,
           equipment: k.equipment,
-          batch: k.batch_code,
+          subject: k.subject_code,
           step: k.step,
           user: k.user_name,
           start: k.start,
         })),
-      // batch steps still waiting for their outcome (bookings outside a batch and J–V measurements have none)
-      waiting: books.filter((k) => !k.outcome && k.subject && k.role !== 'measure' && k.end < iso(new Date())).length,
-    };
-    const lab = {
-      batchesStarted: started.length,
-      batchesDone: done.length,
-      running: batches.filter((b) => b.status === 'running').length,
-      measurements: pSets.length,
-      devices: pDev.size,
-      best: pDev.size ? Math.max(...pDev.values()) : null,
-      median: median([...pDev.values()]),
-      hours: books.reduce((a, k) => a + hoursOf(k), 0),
-      workHours: wh,
+      waiting: books.filter((k) => !k.outcome && asksOutcome(k) && k.end < iso(new Date())).length,
     };
     return {
       from: f,
       to: t,
       unit,
-      lab,
-      trend,
+      lab: { hours: books.reduce((a, k) => a + hoursOf(k), 0), workHours: wh },
       people,
       // the lab's equipment for the lab; only what the people in view used, otherwise
       equipment: ids === null ? equipment : equipment.filter((e) => e.bookings > 0),
       digest,
+      m: Object.fromEntries(Object.entries(m).map(([id, { people: _, ...v }]) => [id, v])),
       scope: ids === null ? 'lab' : ids?.length === 1 ? 'one' : 'group',
     };
   });
 
-  /** One person's page: their batches, measurements over time, and equipment time (all time, newest first). */
+  /** One person's page: equipment time and steps that did not go as planned (all time), and each module's part. */
   app.get('/api/dashboard/person/:id', { preHandler: [auth(), allowed] }, async (req: any, reply) => {
     const u = db
       .prepare(
@@ -300,48 +179,29 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
       )
       .get(+req.params.id) as any;
     if (!u) return reply.code(404).send({ error: 'not found' });
-    const sets = db
-      .prepare(
-        'SELECT id,name,date,created_at,system FROM iv_sets WHERE owner_id=? AND deleted_at IS NULL AND stability_of IS NULL',
-      )
-      .all(u.id) as any[];
-    const curves = sets.length
-      ? (db
-          .prepare(
-            `SELECT set_id,sample,substrate,pixel,dir,metrics,use,kind FROM iv_curves WHERE set_id IN (${sets.map(() => '?').join(',')})`,
-          )
-          .all(...sets.map((s) => s.id)) as Curve[])
-      : [];
-    const dev = devicesOf(curves);
-    const progress = sets
-      .map((s) => {
-        const v = [...dev.entries()].filter(([k]) => k.startsWith(s.id + '|')).map(([, x]) => x);
-        return {
-          id: s.id,
-          name: s.name,
-          day: dayOf(s),
-          system: s.system,
-          devices: v.length,
-          best: v.length ? Math.max(...v) : null,
-          median: median(v),
-        };
-      })
-      .sort((a, b) => a.day.localeCompare(b.day));
-    const batches = db
-      .prepare(
-        'SELECT id,code,name,status,created_at,updated_at FROM batches WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC',
-      )
-      .all(u.id);
     const hours = db
       .prepare(
         `SELECT e.name, e.color, SUM((julianday(k.end) - julianday(k.start)) * 24) AS hours, COUNT(*) AS n FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.user_id=? GROUP BY e.id ORDER BY hours DESC`,
       )
       .all(u.id);
-    const setbacks = db
-      .prepare(
-        `SELECT k.outcome, k.reason, k.start, k.step, e.name AS equipment, b.code AS batch FROM bookings k JOIN equipment e ON e.id=k.equipment_id LEFT JOIN batches b ON k.subject='batch' AND b.id=k.subject_id WHERE k.user_id=? AND k.outcome IN ('postponed','canceled') ORDER BY k.start DESC LIMIT 10`,
-      )
-      .all(u.id);
-    return { ...u, tags: tagsOf(u.id), progress, batches, hours, setbacks };
+    const setbacks = withSubjects(
+      db
+        .prepare(
+          `SELECT k.outcome, k.reason, k.start, k.step, k.subject, k.subject_id, e.name AS equipment FROM bookings k JOIN equipment e ON e.id=k.equipment_id WHERE k.user_id=? AND k.outcome IN ('postponed','canceled') ORDER BY k.start DESC`,
+        )
+        .all(u.id) as any[],
+    )
+      .slice(0, 10)
+      .map((k) => ({
+        outcome: k.outcome,
+        reason: k.reason,
+        start: k.start,
+        step: k.step,
+        equipment: k.equipment,
+        subject: k.subject_code,
+      }));
+    const m: Record<string, unknown> = {};
+    for (const x of modules()) if (x.overview) m[x.id] = x.overview.person(u.id);
+    return { ...u, tags: tagsOf(u.id), hours, setbacks, m };
   });
 }

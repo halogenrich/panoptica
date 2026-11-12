@@ -3,12 +3,11 @@ import { ivMetrics } from '@psc/core';
 import { classifySet, markShortsInSet } from './ivdata.js';
 import { IvCurvePatch, IvSetIn, IvSetPatch } from '@psc/schema';
 import { db, tx } from './db.js';
+import { canSee } from './modules.js';
 import { checkRecord } from './social.js';
 
 type U = { id: number; role: 'admin' | 'member'; all?: boolean };
 type Link = { kind: 'batch' | 'stack'; id: number; variant?: string } | null;
-const visible = (u: U, r: { owner_id: number; visibility: string }) =>
-  r.owner_id === u.id || r.visibility === 'shared' || !!u.all;
 const editable = (u: U, r: { owner_id: number }) => r.owner_id === u.id || u.role === 'admin';
 const fin = (x: number) => (Number.isFinite(x) ? x : null); // JSON has no NaN/Infinity
 
@@ -119,13 +118,13 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
         )
         .all() as any[]
     )
-      .filter((s) => visible(req.user, s))
+      .filter((s) => canSee(req.user, s))
       .map((s) => ({ ...summary(s), mine: s.owner_id === req.user.id })),
   );
 
   app.get('/api/iv/:id', { preHandler: auth() }, async (req: any, reply) => {
     const s = setRow(+req.params.id);
-    if (!s || !visible(req.user, s)) return reply.code(404).send({ error: 'not found' });
+    if (!s || !canSee(req.user, s)) return reply.code(404).send({ error: 'not found' });
     const curves = (
       db
         .prepare(
@@ -219,7 +218,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
 
   app.patch('/api/iv/:id', { preHandler: auth() }, async (req: any, reply) => {
     const s = setRow(+req.params.id);
-    if (!s || !visible(req.user, s)) return reply.code(404).send({ error: 'not found' });
+    if (!s || !canSee(req.user, s)) return reply.code(404).send({ error: 'not found' });
     if (!editable(req.user, s)) return reply.code(403).send({ error: 'not your measurement' });
     const p = IvSetPatch.safeParse(req.body);
     if (!p.success) return bad(reply, p);
@@ -261,7 +260,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
     const c = db
       .prepare('SELECT c.id,s.owner_id,s.visibility FROM iv_curves c JOIN iv_sets s ON s.id=c.set_id WHERE c.id=?')
       .get(+req.params.cid) as any;
-    if (!c || !visible(req.user, c)) return reply.code(404).send({ error: 'not found' });
+    if (!c || !canSee(req.user, c)) return reply.code(404).send({ error: 'not found' });
     if (!editable(req.user, c)) return reply.code(403).send({ error: 'not your measurement' });
     const p = IvCurvePatch.safeParse(req.body);
     if (!p.success) return bad(reply, p);
@@ -271,7 +270,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
 
   app.delete('/api/iv/:id', { preHandler: auth() }, async (req: any, reply) => {
     const s = setRow(+req.params.id);
-    if (!s || !visible(req.user, s)) return reply.code(404).send({ error: 'not found' });
+    if (!s || !canSee(req.user, s)) return reply.code(404).send({ error: 'not found' });
     if (!editable(req.user, s)) return reply.code(403).send({ error: 'not your measurement' });
     db.prepare('UPDATE iv_sets SET deleted_at=? WHERE id=?').run(new Date().toISOString(), s.id); // to the trash
     return { ok: true, trash: true };
@@ -284,7 +283,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
   app.get('/api/iv/:id/stability', { preHandler: auth() }, async (req: any, reply) => {
     const base = baseOf(+req.params.id),
       b = setRow(base);
-    if (!b || !visible(req.user, b)) return reply.code(404).send({ error: 'not found' });
+    if (!b || !canSee(req.user, b)) return reply.code(404).send({ error: 'not found' });
     const sets = [
       b,
       ...(
@@ -293,7 +292,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
             'SELECT s.*,u.name AS owner FROM iv_sets s JOIN users u ON u.id=s.owner_id WHERE s.stability_of=? AND s.deleted_at IS NULL',
           )
           .all(base) as any[]
-      ).filter((s) => visible(req.user, s)),
+      ).filter((s) => canSee(req.user, s)),
     ];
     return {
       base,
@@ -331,7 +330,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
         )
         .all() as any[]
     )
-      .filter((s) => visible(req.user, s))
+      .filter((s) => canSee(req.user, s))
       .map((s) => ({
         s,
         samples: Object.entries(JSON.parse(s.links) as Record<string, Link>)

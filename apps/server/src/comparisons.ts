@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ComparisonIn, ComparisonPatch } from '@psc/schema';
 import { db } from './db.js';
+import { canSee } from './modules.js';
 import { linkNames } from './iv.js';
 
 /**
@@ -9,8 +10,6 @@ import { linkNames } from './iv.js';
  * are now (a pixel ticked out later is left out here too). Private by default; shared ones are read-only for others.
  */
 type U = { id: number; role: 'admin' | 'member'; all?: boolean; name?: string };
-const visible = (u: U, r: { owner_id: number; visibility: string }) =>
-  r.owner_id === u.id || r.visibility === 'shared' || !!u.all;
 const editable = (u: U, r: { owner_id: number }) => r.owner_id === u.id || u.role === 'admin';
 
 export function registerComparisons(
@@ -50,7 +49,7 @@ export function registerComparisons(
         )
         .all() as any[]
     )
-      .filter((r) => visible(req.user, r))
+      .filter((r) => canSee(req.user, r))
       .map((r) => {
         const { data: _d, ...rest } = out(r, req.user);
         return rest;
@@ -68,7 +67,7 @@ export function registerComparisons(
           'SELECT s.*,u.name AS owner FROM iv_sets s JOIN users u ON u.id=s.owner_id WHERE s.deleted_at IS NULL AND s.stability_of IS NULL ORDER BY s.date DESC, s.id DESC',
         )
         .all() as any[]
-    ).filter((s) => visible(req.user, s));
+    ).filter((s) => canSee(req.user, s));
     if (!sets.length) return [];
     const byId = new Map(sets.map((s) => [s.id, s]));
     const curves = db
@@ -117,7 +116,7 @@ export function registerComparisons(
 
   app.get('/api/comparisons/:id', { preHandler: auth() }, async (req: any, reply) => {
     const r = row(+req.params.id);
-    if (!r || !visible(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     return out(r, req.user);
   });
 
@@ -133,7 +132,7 @@ export function registerComparisons(
 
   app.patch('/api/comparisons/:id', { preHandler: auth() }, async (req: any, reply) => {
     const r = row(+req.params.id);
-    if (!r || !visible(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     if (!editable(req.user, r)) return reply.code(403).send({ error: 'not your comparison: make a copy to change it' });
     const p = ComparisonPatch.safeParse(req.body);
     if (!p.success) return bad(reply, p);
@@ -146,7 +145,7 @@ export function registerComparisons(
 
   app.delete('/api/comparisons/:id', { preHandler: auth() }, async (req: any, reply) => {
     const r = row(+req.params.id);
-    if (!r || !visible(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     if (!editable(req.user, r)) return reply.code(403).send({ error: 'not your comparison' });
     db.prepare('UPDATE comparisons SET deleted_at=? WHERE id=?').run(new Date().toISOString(), r.id); // to the trash
     return { ok: true, trash: true };

@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.42.0 (2026-11-12)
+
+- **Comments, the trash, search and sharing work through record types the modules register**, not a fixed list of stacks, batches, measurements and comparisons. The trash now names each item's type from its module. One sharing rule is used everywhere: the owner, anyone when it is shared, admins and the Professor.
+- **Consumption is reported by the modules**: Electronic Devices reports the planned amounts from each running and done batch, and the Inventory only adds them up. The solution and spin-coating calculations moved into the shared core package, so the recipe screens and the report use the same one. The amounts are unchanged (checked batch by batch on an older lab database).
+- **The side menu and the Overview are built from the modules**: the core has the Overview, the Calendar and Lab; Electronic Devices adds its groups and its part of the Overview (batches, cells, the efficiency trend, best cells). The Overview's numbers are unchanged (checked on an older lab database for weeks and months, the lab, one person and a supervisor's students).
+- The test module now also has a record type, reports consumption and has an Overview part, all checked before every release. The browser tests add the side menu, search, the Overview, the trash and consumption.
+- Small wording changes: the search box says "Search, or go to a page…", an empty trash says "Deleted items appear here until they are removed for good", a quiet period in the Overview says "No activity this week", and a chemical's consumption lists what it was "Used for". A person's page in the Overview no longer lists postponed or canceled steps of deleted batches (the week and month view already left them out).
+
 ## 0.41.0 (2026-11-11)
 
 - **Bookings are for a subject a module defines**, not for a batch: the calendar no longer reads batches itself. Who owns a batch, whether it can be booked for, whether it is locked, whether an outcome is asked and what happens after it (Running, Done) now come from the Electronic Devices module. Existing bookings carry over unchanged (checked booking by booking on an older lab database).

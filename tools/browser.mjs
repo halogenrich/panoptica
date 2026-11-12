@@ -1,8 +1,8 @@
 // Browser tests: the main flows clicked through in a real browser (Chromium), on a new install.
 //   node --import tsx tools/browser.mjs            the server from source (apps/server/src) with the built web app (apps/web/dist)
 //   node --import tsx tools/browser.mjs --built    the packaged server (out/panoptica, from tools/package.mjs)
-// Flows: first setup, sign out and in, equipment, a booking, a stack's run sheet, starting a batch and its run sheet, a J–V
-// import. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
+// Flows: first setup, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
+// sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -150,6 +150,20 @@ try {
     await later();
   });
 
+  await step('the side menu has the core’s pages and Electronic Devices’ groups', async () => {
+    const groups = await page.locator('nav.side .glabel').allTextContents();
+    expect(
+      groups.join(',') === 'Fabrication,Measurements,Recipes,Designs,Lab',
+      'side menu groups: ' + groups.join(', '),
+    );
+    const fab = await page
+      .locator('nav.side > div')
+      .filter({ has: page.locator('.glabel', { hasText: 'Fabrication' }) })
+      .locator('.navitem')
+      .allTextContents();
+    expect(fab.join(',') === 'Stacks,Batches,Calendar', 'Fabrication: ' + fab.join(', '));
+  });
+
   await step('equipment is added under Lab › Equipment', async () => {
     await nav('Equipment');
     await page.getByRole('button', { name: 'New equipment' }).click();
@@ -260,6 +274,19 @@ try {
     );
   });
 
+  await step('search finds the batch and opens it', async () => {
+    await nav('Stacks');
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder('Search, or go to a page…').fill('Browser batch');
+    const hit = page.locator('.palette .pitem').filter({ hasText: 'Batch' }).filter({ hasText: 'Browser batch' });
+    await hit.first().click();
+    await page
+      .getByText(/^B-\d{6}-\d+$/)
+      .first()
+      .waitFor();
+    expect(/#\/batches\/\d+$/.test(page.url()), 'the address is not the batch’s: ' + page.url());
+  });
+
   await step('J–V files are imported and their parameters shown', async () => {
     await nav('J–V curves');
     await page.getByRole('button', { name: 'Import measurements' }).first().click();
@@ -278,6 +305,33 @@ try {
     const one = (await api('GET', `/iv/${list[0].id}`)).j;
     expect((one.curves ?? []).length === 4, `expected 4 curves, got ${(one.curves ?? []).length}`);
     await page.getByText(/PCE/).first().waitFor();
+  });
+
+  await step('the Overview tells the period with the module’s part and the equipment time', async () => {
+    await page.locator('nav.side').getByRole('button', { name: 'Overview', exact: true }).click();
+    await page
+      .locator('.ov-lede')
+      .getByText(/started 1 batch/)
+      .waitFor();
+    await page.locator('.ov-stat').filter({ hasText: 'Best cell' }).waitFor();
+    await page.locator('.ov').getByRole('tab', { name: 'Equipment', exact: true }).click();
+    await page.locator('.eq-use-row').filter({ hasText: 'Spin coater A' }).waitFor();
+  });
+
+  await step('the trash names what each item is, and restores it', async () => {
+    expect((await api('DELETE', '/presets/' + stackId)).s === 200, 'the stack was not deleted');
+    await page.locator('nav.side').getByRole('button', { name: /Trash/ }).click();
+    const row = page.locator('tr').filter({ hasText: 'Browser stack' });
+    await row.getByText('Stack', { exact: true }).waitFor();
+    await row.getByRole('button', { name: 'Restore' }).click();
+    await row.waitFor({ state: 'detached' });
+    expect((await api('GET', '/presets/' + stackId)).s === 200, 'the stack is not back');
+  });
+
+  await step('consumption says where its amounts come from', async () => {
+    await nav('Inventory');
+    await page.getByRole('tab', { name: 'Consumption', exact: true }).click();
+    await page.getByText(/From the recipes of 0 running and done batches/).waitFor();
   });
 
   console.log(`All ${passed} browser flows passed`);

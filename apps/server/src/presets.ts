@@ -2,9 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { lockedByCode } from './batchlock.js';
 import { PresetIn, RunIn } from '@psc/schema';
 import { db } from './db.js';
+import { canSee } from './modules.js';
 import { notifyFork } from './social.js';
 
-type U = { id: number; role: 'admin' | 'member'; all?: boolean };
 type Row = {
   id: number;
   segment: string;
@@ -17,8 +17,6 @@ type Row = {
   updated_at: string;
 };
 
-const visible = (u: U, r: { owner_id: number; visibility: string }) =>
-  r.owner_id === u.id || r.visibility === 'shared' || !!u.all;
 const SELECT = `SELECT p.id,p.segment,p.name,p.visibility,p.data,p.owner_id,p.parent_id,u.name AS owner,p.updated_at FROM presets p JOIN users u ON u.id=p.owner_id`;
 
 /** Where each preset is referenced: stacks (live references) and batches (frozen snapshots). */
@@ -114,7 +112,7 @@ export function registerPresets(
 
   app.get('/api/presets/:id', { preHandler: auth() }, async (req: any, reply) => {
     const r = db.prepare(SELECT + ' WHERE p.id=? AND p.deleted_at IS NULL').get(+req.params.id) as Row | undefined;
-    if (!r || !visible(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     const use = usageMap();
     return {
       ...r,
@@ -122,7 +120,7 @@ export function registerPresets(
       mine: r.owner_id === req.user.id ? 1 : 0,
       usage: use(r.id),
       family: family(r.id).map((f) =>
-        visible(req.user, f)
+        canSee(req.user, f)
           ? {
               id: f.id,
               name: f.name,
@@ -166,7 +164,7 @@ export function registerPresets(
     if (!p.success) return bad(reply, p);
     const id = +req.params.id,
       r = db.prepare(SELECT + ' WHERE p.id=? AND p.deleted_at IS NULL').get(id) as Row | undefined;
-    if (!r || !visible(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     const u = usageMap()(id),
       reasons: string[] = [];
     if (u.stacks.length) reasons.push(`used in ${u.stacks.length} stack${u.stacks.length > 1 ? 's' : ''}`);
@@ -213,7 +211,7 @@ export function registerPresets(
   const presetVisible = (req: any, reply: any) => {
     const r = db.prepare('SELECT owner_id,visibility FROM presets WHERE id=?').get(+req.params.id) as
       { owner_id: number; visibility: string } | undefined;
-    if (!r || !visible(req.user, r)) {
+    if (!r || !canSee(req.user, r)) {
       reply.code(404).send({ error: 'not found' });
       return false;
     }

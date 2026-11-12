@@ -46,13 +46,14 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | `presets.ts` | Recipes, designs and stacks ("presets"): versions, sharing, run data, trash. |
 | `iv.ts` | J–V measurement import, curves, check sweeps (`kind = 'check'`, classified on import), statistics inputs; `stability_of` (stability series) is kept in the data but no longer in the interface since 0.37.1. |
 | `comparisons.ts` | Comparisons: saved groups of devices (references to measurement, sample and substrate), private by default; the device list for picking. |
-| `modules.ts` | The module registry (0.41): what bookings can be for (subjects) and the steps equipment can do, each from a module. The core knows them only through it. |
+| `modules.ts` | The module registry: what bookings can be for (subjects) and the steps equipment can do (0.41); record types for comments, trash, search and sharing, what a module used from the inventory, and its part of the Overview (0.42). The core knows modules only through it. `canSee` is the one sharing rule. |
 | `calendar.ts` | Core calendar: bookings, outcomes, atmosphere, clashes and cleanup, off-hours. A booking is for a subject (`bookings.subject`, `subject_id`) or a stated purpose; everything about the subject (owner, lock, whether an outcome is asked, what happens after it) comes from its module. |
-| `devices.ts` | The Electronic Devices module's calendar part: batches as a subject (Running and Done follow their bookings), the photovoltaics steps, and the batch scheduler's routes. |
+| `devices.ts` | The Electronic Devices module's manifest: batches as a subject (Running and Done follow their bookings), the photovoltaics steps, the batch scheduler's routes, its record types (recipes and stacks, batches, measurements, comparisons) and the consumption of its batches. |
+| `devices-overview.ts` | Electronic Devices' part of the Overview: batches, measured cells, the efficiency trend, best cells, a new record; a person's progress. |
 | `batchlock.ts` | Finished batches lock 14 days after Done (423 on changes); admins unlock for 7 days. |
-| `inventory.ts` | Storage areas and types, shelves, containers, CSV import. |
-| `social.ts` | Comments, reactions, notifications, lab records. |
-| `dashboard.ts` | The Overview (aggregates over batches, measurements and bookings). |
+| `inventory.ts` | Storage areas and types, shelves, containers, CSV import, and consumption: the sum of what the modules report they used (`/api/inventory/use`). |
+| `social.ts` | Comments, reactions, notifications, lab records, the trash: all over the record types the modules register. |
+| `dashboard.ts` | The Overview: people, equipment time and steps that did not go as planned, plus each module's part (`m.<module>`). |
 | `backup.ts` | Backups: make, check, list, prune, the encrypted second copy. |
 | `updates.ts` | Update check against GitHub releases, download with checksum, install. |
 | `config.ts` | The app root and the `config/` folder for this computer's secrets. |
@@ -109,10 +110,11 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | Path | Responsibility |
 |---|---|
 | `main.tsx`, `App.tsx` | Entry point; sign-in and the forced password change; then `Shell`. |
-| `Shell.tsx` | Layout (side menu on computers, bottom bar on phones), search, notifications, and which view is open. Navigation is component state (`view`), not URL routes. |
+| `Shell.tsx` | Layout (side menu on computers, bottom bar on phones), search, notifications, and which page is open (its address is `#/page/id`, `lib/route.ts`). The menu is the core's pages (Overview, Calendar, Lab) plus the installed modules' groups. |
+| `modules/` | What each module adds to the screens (0.42): `types.ts` is the contract (pages and menu groups, the Overview part), `index.ts` the modules of this build, `devices/` Electronic Devices' pages and Overview part. The server says which are installed (`/api/version`). |
 | `api.ts` | `api(path, method, body)`: the only way the app calls the server. |
 | `ctx.tsx` | Shared context: the signed-in user, preferences. |
-| `views/` | One file per screen: Batches, Calendar, Inventory, Overview, Admin settings (`Users.tsx` plus `AdminSecurity.tsx`), Trash, Help, Profile, printable sheets and reports. |
+| `views/` | One file per screen: Batches, Calendar, Inventory, Overview (the core frame; `overview/parts.tsx` the pieces module parts share), Admin settings (`Users.tsx` plus `AdminSecurity.tsx`), Trash, Help, Profile, printable sheets and reports. |
 | `recipes/` | Each recipe kind (substrate prep, solution, spin, evaporation) as a `Kind`: defaults, editor, output, summary, run-data fields. `types.ts` defines the contract; `lib/Library.tsx` is the generic list/edit/view screen that hosts every kind. |
 | `designs/` | Substrate and mask designers (shape editor, canvas, SVG). |
 | `stacks/` | Stack model, the stack editor, the Three.js 3D viewer, the run sheet. |
@@ -121,7 +123,7 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | `lib/` | Shared pieces: UI primitives (`ui.tsx`), comments, notifications, figures export, spreadsheet export (`xlsx.ts`), presence, the funny settings. |
 | `styles.css` | All styles; design tokens (colours, radius, control height) at the top, light and dark themes. |
 
-**Adding a recipe kind**: write a `Kind` in `recipes/` (see `recipes/types.ts`), register it in `recipes/index.ts`, add its navigation entry in `Shell.tsx`. The library, versions, sharing, comments and run data come with the generic screen.
+**Adding a recipe kind**: write a `Kind` in `recipes/` (see `recipes/types.ts`), register it in `recipes/index.ts`, add its page in `modules/devices/index.tsx`. The library, versions, sharing, comments and run data come with the generic screen.
 
 ## How to change things
 
@@ -130,12 +132,13 @@ SQLite, one file, WAL mode, foreign keys on, accessed with Node's built-in `node
 | New API endpoint | The module of its area (or a new `registerX(app, auth, bad)` registered in `index.ts`); body schema in `packages/schema`; permission via `auth(...)`; a readable activity-log label in `audit.ts` (`LABEL`) |
 | New table or column | A new entry at the end of `schema.ts` (see Migrations) |
 | New calculation | `packages/core`, with a unit test |
-| New screen | `apps/web/src/views`, wired in `Shell.tsx` |
+| New screen | `apps/web/src/views`, as a page of its module (`modules/<module>/index.tsx`) or of the core (`CORE` in `Shell.tsx`) |
+| New record type (commented, trashed, searched) | An `ItemKind` in the module's `items` (`apps/server/src/modules.ts`) |
 | Release | Bump `version` in `package.json`, add a section to `CHANGELOG.md`, merge to `main` (CI publishes the release) |
 
 ## Quality checks
 
-`npm run check` runs, in order: Prettier formatting check, ESLint, TypeScript (strict) for all packages, the core unit tests (vitest), the server security checks (`tools/smoke.mjs`: a real server on a temporary database, 38 checks of sign-in, permissions, headers, backups, encryption, activity log and updates), the production build, packaging the app (`tools/package.mjs`) and running the server checks again on the packaged server. CI runs it on Windows and Linux for every push and pull request, plus `npm audit`. `npm run test:browser` (`tools/browser.mjs`, Playwright with Chromium) clicks through the main flows on the packaged app with a new database: first setup, signing out and in, adding equipment, a booking, a stack's and a batch's run sheet (checking that the sheet, not the page, is what prints, also when the browser prints after `print()` returns, as Safari does), starting a batch by name, and a J–V import of synthetic files. CI runs it on Linux, and every release runs it before publishing.
+`npm run check` runs, in order: Prettier formatting check, ESLint, TypeScript (strict) for all packages, the core unit tests (vitest), the server security checks (`tools/smoke.mjs`: a real server on a temporary database, over 200 checks of sign-in, permissions, headers, backups, encryption, activity log, updates, the calendar and the module registry with a test module), the production build, packaging the app (`tools/package.mjs`) and running the server checks again on the packaged server. CI runs it on Windows and Linux for every push and pull request, plus `npm audit`. `npm run test:browser` (`tools/browser.mjs`, Playwright with Chromium) clicks through the main flows on the packaged app with a new database: first setup, signing out and in, the side menu, adding equipment, a booking, a stack's and a batch's run sheet (checking that the sheet, not the page, is what prints, also when the browser prints after `print()` returns, as Safari does), starting a batch by name, booking for it, search, a J–V import of synthetic files, the Overview, the trash and consumption. CI runs it on Linux, and every release runs it before publishing.
 
 Format before committing with `npm run format`. Formatting-only commits are listed in `.git-blame-ignore-revs`.
 
@@ -146,5 +149,5 @@ Honest list of what a reviewer will notice, roughly in the order worth fixing:
 - **`any` in the server**: request handlers type `req` and database rows as `any`. Typed route schemas (Fastify generics, or zod-derived types for params and rows) would catch mistakes at compile time.
 - **Large files**: some screens are 1 000–1 700 lines (`Inventory.tsx`, `Overview.tsx`, `Calendar.tsx`) and `styles.css` holds every style. Splitting them by sub-screen would make reviews easier.
 - **Tests**: core logic has unit tests and the server has end-to-end security checks, and the main workflows have browser tests, but there are no per-route server tests (permissions per endpoint, calendar rules).
-- **Module split in progress** (0.41–0.43): bookings and equipment steps go through the module registry, and a test module (`tools/fake-module.ts`) is checked next to Electronic Devices. Still woven in: the equipment `role` column (derived from the photovoltaics steps, used by the batch scheduler and the drawings), item types in comments, trash and search, the side menu and the Overview's batch and J–V numbers (0.42), and the code layout (0.43).
+- **Module split in progress** (0.41–0.43): bookings, equipment steps, record types (comments, trash, search, sharing), consumption, the side menu and the Overview go through the module registry, and a test module (`tools/fake-module.ts`) is checked next to Electronic Devices. Still woven in: the equipment `role` column (derived from the photovoltaics steps, used by the batch scheduler and the drawings), the batch tray in the Calendar, the chemicals' perovskite roles, the presentation export in `views/overview/slides.tsx`, and the code layout (0.43: `core/` and `modules/devices/`, core tested alone).
 - **History**: the repository starts at version 0.25 as one import commit; the reasons behind earlier choices are in the code comments and the changelog, not in commit history.

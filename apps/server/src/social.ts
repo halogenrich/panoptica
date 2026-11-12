@@ -1,14 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { CommentIn, ReactIn } from '@psc/schema';
 import { db, tx, perms } from './db.js';
+import { canSee, item, items, type ItemKind, type Link } from './modules.js';
 
 type U = { id: number; name: string; username: string; role: 'admin' | 'member'; all?: boolean; professor?: boolean };
-const canSee = (u: U, r: { owner_id: number; visibility: string }) =>
-  r.owner_id === u.id || r.visibility === 'shared' || !!u.all;
 
 // ------------------------------------------------------------------ notifications
-/** Where a notification leads in the app: a preset (by segment), a batch or a measurement. */
-export type Link = { view: string; id: number };
+/** Where a notification leads in the app: a page and the item on it (a recipe by its segment, a batch, a measurement). */
 export function notify(userIds: number[], kind: string, text: string, link: Link, actor = '') {
   const ins = db.prepare('INSERT INTO notifications(user_id,kind,text,link,actor) VALUES(?,?,?,?,?)');
   for (const id of new Set(userIds)) ins.run(id, kind, text, JSON.stringify(link), actor);
@@ -57,29 +55,24 @@ export function notifyFork(newId: number, parentId: number, by: U) {
   );
 }
 
-// ------------------------------------------------------------------ comment targets
+// ------------------------------------------------------------------ records (0.42: the kinds modules register)
 type Target = { owner_id: number; visibility: string; name: string; link: Link };
+/** One record of a registered kind, in the trash or not. */
+function row(k: ItemKind, id: number, trashed = false) {
+  return db
+    .prepare(
+      `SELECT id,owner_id,visibility,${k.cols} FROM ${k.table} WHERE id=? AND deleted_at IS ${trashed ? 'NOT ' : ''}NULL`,
+    )
+    .get(id) as any;
+}
+/** A record that can be commented on, with the name sentences use for it and where it opens. */
 function target(kind: string, id: number): Target | null {
-  if (kind === 'preset') {
-    const r = db
-      .prepare('SELECT owner_id,visibility,name,segment FROM presets WHERE id=? AND deleted_at IS NULL')
-      .get(id) as any;
-    return r ? { owner_id: r.owner_id, visibility: r.visibility, name: r.name, link: { view: r.segment, id } } : null;
-  }
-  if (kind === 'batch') {
-    const r = db
-      .prepare('SELECT owner_id,visibility,code,name FROM batches WHERE id=? AND deleted_at IS NULL')
-      .get(id) as any;
-    return r
-      ? {
-          owner_id: r.owner_id,
-          visibility: r.visibility,
-          name: `batch ${r.code}${r.name ? ' · ' + r.name : ''}`,
-          link: { view: 'batches', id },
-        }
-      : null;
-  }
-  return null;
+  const k = item(kind);
+  if (!k?.comments) return null;
+  const r = row(k, id);
+  if (!r) return null;
+  const d = k.describe(r);
+  return { owner_id: r.owner_id, visibility: r.visibility, name: d.title ?? d.name, link: d.link };
 }
 
 /**
@@ -134,35 +127,27 @@ function mentionTargets(text: string, t: Target, kind: string, tid: number, cid:
 
 // ------------------------------------------------------------------ trash
 const TRASH_DAYS = 30;
-type TrashKind = 'preset' | 'batch' | 'iv' | 'cmp';
-const TABLE: Record<TrashKind, string> = { preset: 'presets', batch: 'batches', iv: 'iv_sets', cmp: 'comparisons' };
 
-/** Permanently removes one trashed item (what the old delete did). */
-function purgeOne(kind: TrashKind, id: number) {
+/** Permanently removes one trashed record, with its comments and bookings and what its module adds (what the old delete did). */
+function purgeOne(k: ItemKind, id: number) {
   tx(() => {
-    if (kind === 'preset') {
-      const r = db.prepare('SELECT parent_id FROM presets WHERE id=?').get(id) as
-        { parent_id: number | null } | undefined;
-      if (!r) return;
-      db.prepare('UPDATE presets SET parent_id=? WHERE parent_id=?').run(r.parent_id, id); // keep the family tree connected
-      db.prepare("DELETE FROM comments WHERE target='preset' AND target_id=?").run(id);
-      db.prepare('DELETE FROM presets WHERE id=?').run(id);
-    } else if (kind === 'batch') {
-      db.prepare("DELETE FROM comments WHERE target='batch' AND target_id=?").run(id);
-      db.prepare("DELETE FROM bookings WHERE subject='batch' AND subject_id=?").run(id); // (0.41: no foreign key to cascade)
-      db.prepare('DELETE FROM batches WHERE id=?').run(id);
-    } else if (kind === 'cmp') db.prepare('DELETE FROM comparisons WHERE id=?').run(id);
-    else db.prepare('DELETE FROM iv_sets WHERE id=?').run(id);
+    if (!db.prepare(`SELECT 1 FROM ${k.table} WHERE id=?`).get(id)) return;
+    db.prepare('DELETE FROM comments WHERE target=? AND target_id=?').run(k.kind, id);
+    db.prepare('DELETE FROM bookings WHERE subject=? AND subject_id=?').run(k.kind, id); // (0.41: no foreign key to cascade)
+    k.purge?.(id);
+    db.prepare(`DELETE FROM ${k.table} WHERE id=?`).run(id);
   });
 }
 export function purgeTrash() {
   const cut = new Date(Date.now() - TRASH_DAYS * 864e5).toISOString();
-  for (const k of Object.keys(TABLE) as TrashKind[])
+  for (const k of items())
     for (const r of db
-      .prepare(`SELECT id FROM ${TABLE[k]} WHERE deleted_at IS NOT NULL AND deleted_at < ?`)
+      .prepare(`SELECT id FROM ${k.table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`)
       .all(cut) as { id: number }[])
       purgeOne(k, r.id);
 }
+/** Empties the trash of what is older than 30 days, now and every 6 hours (after the modules are added). */
+export function startTrash() {}
 
 export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => any, bad: (reply: any, p: any) => any) {
   // ---- comments ----
@@ -381,40 +366,40 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
 
   // ---- trash ----
   app.get('/api/trash', { preHandler: auth() }, async (req: any) => {
-    const mine = '(x.owner_id=@uid OR @admin=1)';
-    const q = (sql: string) =>
-      db.prepare(sql).all({ uid: req.user.id, admin: req.user.role === 'admin' ? 1 : 0 }) as any[];
-    const items = [
-      ...q(
-        `SELECT 'preset' AS kind,x.id,x.name,x.segment,x.deleted_at,u.name AS owner FROM presets x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
-      ),
-      ...q(
-        `SELECT 'batch' AS kind,x.id,x.code || CASE WHEN x.name<>'' THEN ' · ' || x.name ELSE '' END AS name,'batches' AS segment,x.deleted_at,u.name AS owner FROM batches x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
-      ),
-      ...q(
-        `SELECT 'cmp' AS kind,x.id,x.name,'cmp' AS segment,x.deleted_at,u.name AS owner FROM comparisons x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
-      ),
-      ...q(
-        `SELECT 'iv' AS kind,x.id,x.name,'iv' AS segment,x.deleted_at,u.name AS owner FROM iv_sets x JOIN users u ON u.id=x.owner_id WHERE x.deleted_at IS NOT NULL AND ${mine}`,
-      ),
-    ].sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
+    const admin = req.user.role === 'admin' ? 1 : 0;
+    const list = items()
+      .flatMap((k) =>
+        (
+          db
+            .prepare(
+              `SELECT x.id,x.owner_id,x.visibility,x.deleted_at,u.name AS owner,${k.cols
+                .split(',')
+                .map((c) => 'x.' + c.trim())
+                .join(',')} FROM ${k.table} x JOIN users u ON u.id=x.owner_id
+               WHERE x.deleted_at IS NOT NULL AND (x.owner_id=? OR ?=1)`,
+            )
+            .all(req.user.id, admin) as any[]
+        ).map((r) => {
+          const d = k.describe(r);
+          return { kind: k.kind, id: r.id, name: d.name, type: d.type, deleted_at: r.deleted_at, owner: r.owner };
+        }),
+      )
+      .sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
     return {
       days: TRASH_DAYS,
-      items: items.map((i) => ({
+      items: list.map((i) => ({
         ...i,
         purge_at: new Date(new Date(i.deleted_at).getTime() + TRASH_DAYS * 864e5).toISOString(),
       })),
     };
   });
   const trashed = (req: any, reply: any) => {
-    const k = req.params.kind as TrashKind;
-    if (!(k in TABLE)) {
+    const k = item(req.params.kind);
+    if (!k) {
       reply.code(404).send({ error: 'not found' });
       return null;
     }
-    const r = db
-      .prepare(`SELECT owner_id FROM ${TABLE[k]} WHERE id=? AND deleted_at IS NOT NULL`)
-      .get(+req.params.id) as any;
+    const r = row(k, +req.params.id, true);
     if (!r) {
       reply.code(404).send({ error: 'not in the trash' });
       return null;
@@ -428,7 +413,7 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
   app.post('/api/trash/:kind/:id/restore', { preHandler: auth() }, async (req: any, reply) => {
     const k = trashed(req, reply);
     if (!k) return;
-    db.prepare(`UPDATE ${TABLE[k]} SET deleted_at=NULL WHERE id=?`).run(+req.params.id);
+    db.prepare(`UPDATE ${k.table} SET deleted_at=NULL WHERE id=?`).run(+req.params.id);
     return { ok: true };
   });
   app.delete('/api/trash/:kind/:id', { preHandler: auth() }, async (req: any, reply) => {
@@ -437,6 +422,4 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
     purgeOne(k, +req.params.id);
     return { ok: true };
   });
-  purgeTrash();
-  setInterval(purgeTrash, 6 * 3600 * 1000).unref();
 }

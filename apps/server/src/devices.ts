@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { ScheduleIn } from '@psc/schema';
-import { STEP_KINDS } from '@psc/core';
+import { STEP_KINDS, snapshotUses } from '@psc/core';
 import { db, tx } from './db.js';
 import { notify } from './social.js';
 import { lockedById, markDone } from './batchlock.js';
-import { addModule, measuring, type BookingSubject, type SubjectInfo } from './modules.js';
+import { devicesOverview } from './devices-overview.js';
+import { addModule, measuring, type BookingSubject, type ItemKind, type SubjectInfo } from './modules.js';
 import {
   after,
   bookingOut,
@@ -239,11 +240,135 @@ function registerDevicesCalendar(app: FastifyInstance, auth: (need?: any) => any
   );
 }
 
+// ------------------------------------------------------------------ its records (0.42)
+/** Recipes, stacks and designs are one table, by segment: the page each opens on, and what one is called. */
+const PAGE: Record<string, string> = {
+  stk: 'Stacks',
+  sub: 'Substrates',
+  mask: 'Metal masks',
+  s0: 'Substrate preparation',
+  s1: 'Solutions',
+  s2: 'Spin coating',
+  s3: 'Organic evaporation',
+  s4: 'Metal evaporation',
+};
+const ONE: Record<string, string> = {
+  stk: 'Stack',
+  sub: 'Substrate',
+  mask: 'Metal mask',
+  s0: 'Substrate preparation',
+  s1: 'Solution',
+  s2: 'Spin program',
+  s3: 'Organic evaporation',
+  s4: 'Metal evaporation',
+};
+const batchName = (r: { code: string; name: string }) => r.code + (r.name ? ' · ' + r.name : '');
+const ITEMS: ItemKind[] = [
+  {
+    kind: 'preset',
+    module: 'devices',
+    table: 'presets',
+    cols: 'name,segment',
+    describe: (r) => ({ name: r.name, type: ONE[r.segment] ?? r.segment, link: { view: r.segment, id: r.id } }),
+    comments: true,
+    // keep the family tree connected
+    purge(id) {
+      const r = db.prepare('SELECT parent_id FROM presets WHERE id=?').get(id) as { parent_id: number | null };
+      db.prepare('UPDATE presets SET parent_id=? WHERE parent_id=?').run(r.parent_id, id);
+    },
+    search: (_q, p) =>
+      (
+        db
+          .prepare(
+            `SELECT id,segment,name FROM presets WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY name LIMIT 8`,
+          )
+          .all(p) as any[]
+      ).map((r) => ({
+        key: 'preset:' + r.id,
+        label: r.name,
+        hint: PAGE[r.segment] ?? 'Preset',
+        link: { view: r.segment, id: r.id },
+      })),
+  },
+  {
+    kind: 'batch',
+    module: 'devices',
+    table: 'batches',
+    cols: 'code,name',
+    describe: (r) => ({
+      name: batchName(r),
+      type: 'Batch',
+      title: 'batch ' + batchName(r),
+      link: { view: 'batches', id: r.id },
+    }),
+    comments: true,
+    search: (_q, p) =>
+      (
+        db
+          .prepare(
+            `SELECT id,code,name FROM batches WHERE deleted_at IS NULL AND (code LIKE @q OR name LIKE @q) AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY id DESC LIMIT 8`,
+          )
+          .all(p) as any[]
+      ).map((r) => ({ key: 'batch:' + r.id, label: batchName(r), hint: 'Batch', link: { view: 'batches', id: r.id } })),
+  },
+  {
+    kind: 'iv',
+    module: 'devices',
+    table: 'iv_sets',
+    cols: 'name',
+    describe: (r) => ({ name: r.name, type: 'Measurement', link: { view: 'iv', id: r.id } }),
+    search: (_q, p) =>
+      (
+        db
+          .prepare(
+            `SELECT id,name,date FROM iv_sets WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY date DESC LIMIT 6`,
+          )
+          .all(p) as any[]
+      ).map((r) => ({ key: 'iv:' + r.id, label: r.name, hint: 'Measurement', link: { view: 'iv', id: r.id } })),
+  },
+  {
+    kind: 'cmp',
+    module: 'devices',
+    table: 'comparisons',
+    cols: 'name',
+    describe: (r) => ({ name: r.name, type: 'Comparison', link: { view: 'cmp', id: r.id } }),
+    search: (_q, p) =>
+      (
+        db
+          .prepare(
+            `SELECT id,name FROM comparisons WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY updated_at DESC LIMIT 6`,
+          )
+          .all(p) as any[]
+      ).map((r) => ({ key: 'cmp:' + r.id, label: r.name, hint: 'Comparison', link: { view: 'cmp', id: r.id } })),
+  },
+];
+
 /** The photovoltaics steps; J–V measurement and lifetime equipment measures finished devices. */
 const MEASURES = new Set(['jv', 'lifetime']);
 addModule({
   id: 'devices',
   subjects: [batchSubject],
   steps: STEP_KINDS.map((s) => ({ ...s, module: 'devices', ...(MEASURES.has(s.key) ? { measures: true } : {}) })),
+  items: ITEMS,
+  // planned amounts from the recipes frozen in each running or done batch
+  uses: {
+    basis: (n) =>
+      `From the recipes of ${n} running and done batch${n === 1 ? '' : 'es'} (planned amounts: solutions as prepared, solvents dispensed in spin programs).`,
+    events: () =>
+      (
+        db
+          .prepare(
+            `SELECT code,owner_id,visibility,snapshot,created_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
+          )
+          .all() as any[]
+      ).map((b) => ({
+        label: b.code,
+        date: b.created_at,
+        owner_id: b.owner_id,
+        shared: b.visibility === 'shared',
+        uses: snapshotUses(JSON.parse(b.snapshot)),
+      })),
+  },
+  overview: devicesOverview,
   register: registerDevicesCalendar,
 });

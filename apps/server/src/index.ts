@@ -28,11 +28,11 @@ import { hash, verify as verifyRaw } from './auth.js';
 import { registerPresets } from './presets.js';
 import { registerIv } from './iv.js';
 import { registerComparisons } from './comparisons.js';
-import { registerSocial } from './social.js';
+import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerCalendar } from './calendar.js';
 import './devices.js'; // the Electronic Devices module (0.41: its calendar part)
-import { modules } from './modules.js';
+import { canSee, items, modules } from './modules.js';
 import { registerEquipment } from './equipment.js';
 import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
 import { registerDashboard } from './dashboard.js';
@@ -432,6 +432,7 @@ if (process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TEST_MODULE)
 registerEquipment(app, auth, bad);
 registerCalendar(app, auth, bad);
 for (const m of modules()) m.register?.(app, auth, bad);
+startTrash();
 registerDashboard(app, auth);
 
 // ---- chemicals: everyone reads, admin edits ----
@@ -493,8 +494,7 @@ app.delete('/api/chemicals/:id', { preHandler: auth('inventory') }, async (req: 
 const preset = (u: User, id: string) => {
   if (!id) return null;
   const r = db.prepare('SELECT name,data,owner_id,visibility FROM presets WHERE id=?').get(+id) as any;
-  if (!r || !(r.owner_id === u.id || r.visibility === 'shared' || !!u.all))
-    throw new Error('a preset used in this stack is not available');
+  if (!r || !canSee(u, r)) throw new Error('a preset used in this stack is not available');
   return { name: r.name, data: JSON.parse(r.data) };
 };
 const batchOf = (req: any, reply: any, edit = false) => {
@@ -588,8 +588,7 @@ app.get('/api/stacks/:id/snapshot', { preHandler: auth() }, async (req: any, rep
   const r = db
     .prepare("SELECT * FROM presets WHERE id=? AND segment='stk' AND deleted_at IS NULL")
     .get(+req.params.id) as any;
-  if (!r || !(r.owner_id === req.user.id || r.visibility === 'shared' || req.user.all))
-    return reply.code(404).send({ error: 'not found' });
+  if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
   const stack = JSON.parse(r.data),
     resolved = resolveStack(req.user, stack);
   const chems = (db.prepare('SELECT name,data FROM chemicals').all() as any[]).map((c) => ({
@@ -710,8 +709,7 @@ app.put('/api/batches/:id/variants', { preHandler: auth() }, async (req: any, re
         const r = db
           .prepare("SELECT * FROM presets WHERE id=? AND segment='stk' AND deleted_at IS NULL")
           .get(v.stack) as any;
-        if (!r || !(r.owner_id === req.user.id || r.visibility === 'shared' || req.user.all))
-          throw new Error('the linked stack is not available');
+        if (!r || !canSee(req.user, r)) throw new Error('the linked stack is not available');
         const stack = JSON.parse(r.data);
         return {
           ...v,
@@ -808,45 +806,34 @@ app.put('/api/settings/figure', { preHandler: auth(true), bodyLimit: 3 * 1024 * 
   db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run('figure', JSON.stringify(d));
   return d;
 });
+/** One search over every record type the modules register (those the person may open), then containers and chemicals. */
 app.get('/api/search', { preHandler: auth() }, async (req: any) => {
   const q = '%' + String(req.query.q || '').replace(/[%_]/g, '') + '%',
-    p = { q, uid: req.user.id, all: req.user.all ? 1 : 0 };
-  return {
-    presets: db
-      .prepare(
-        `SELECT id,segment,name FROM presets WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY name LIMIT 8`,
-      )
-      .all(p),
-    batches: db
-      .prepare(
-        `SELECT id,code,name FROM batches WHERE deleted_at IS NULL AND (code LIKE @q OR name LIKE @q) AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY id DESC LIMIT 8`,
-      )
-      .all(p),
-    chemicals: db.prepare('SELECT id,name FROM chemicals WHERE name LIKE @q ORDER BY name LIMIT 8').all({ q }),
-    // containers by name, CAS or lot, with where they are
-    containers: db
+    p = { q, uid: req.user.id, all: (req.user.all ? 1 : 0) as 0 | 1 };
+  const containers = (
+    db
       .prepare(
         `SELECT c.id,c.name,c.lot,c.status,a.name AS place FROM containers c LEFT JOIN storage_areas a ON a.id=c.area_id
          WHERE (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
       )
-      .all({ q }),
-    measurements: db
-      .prepare(
-        `SELECT id,name,date FROM iv_sets WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY date DESC LIMIT 6`,
-      )
-      .all(p),
-    comparisons: db
-      .prepare(
-        `SELECT id,name FROM comparisons WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY updated_at DESC LIMIT 6`,
-      )
-      .all(p),
-  };
+      .all({ q }) as any[]
+  ).map((c) => ({
+    key: 'container:' + c.id,
+    label: c.name + (c.lot ? `, lot ${c.lot}` : ''),
+    hint: `Container${c.place ? ', ' + c.place : ''}${c.status === 'empty' ? ' (empty)' : ''}`,
+    link: { view: 'chem', id: c.id },
+  }));
+  const chemicals = (
+    db.prepare('SELECT id,name FROM chemicals WHERE name LIKE @q ORDER BY name LIMIT 8').all({ q }) as any[]
+  ).map((c) => ({ key: 'chemical:' + c.id, label: c.name, hint: 'Chemical list', link: { view: 'chem', id: null } }));
+  return { hits: [...items().flatMap((k) => k.search?.(q, p) ?? []), ...containers, ...chemicals] };
 });
 
 const VERSION = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../package.json', import.meta.url)), 'utf8'),
 ).version;
-app.get('/api/version', async () => ({ version: VERSION }));
+/** The version, and the modules installed (the app shows only their pages). */
+app.get('/api/version', async () => ({ version: VERSION, modules: modules().map((m) => m.id) }));
 /** Where other devices can reach the app: only when it was started for the network (start-network / start lan). */
 app.get('/api/network', { preHandler: auth() }, async () => {
   const host = process.env.HOST || '127.0.0.1',

@@ -587,3 +587,4 @@ export * from './variants';
 export * from './sha256';
 export * from './accounts';
 export * from './equipment';
+export * from './uses';

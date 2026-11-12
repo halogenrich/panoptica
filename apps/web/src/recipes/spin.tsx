@@ -1,24 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { spinPlan, type Dispense, type SpinStep } from '@psc/core';
+import { spinDefaults, spinPlan, spinUses, type Dispense, type SpinD, type SpinStep } from '@psc/core';
 import { Check, DragHandle, Num, RemoveRow, useReorder } from '../views/common';
 import { Section, T } from './shared';
 import type { Ctx, Kind } from './types';
 
 const st = (t: number, rpm: number, final = false): SpinStep => ({ t, rpm, n2: false, final });
 // a new recipe starts empty: the lab enters its own program
-const defaults = () => ({
-  steps: [] as SpinStep[],
-  dp: [] as Dispense[],
-  an: false,
-  aT: 0,
-  aM: 0,
-  ox: false,
-  oa: '',
-  oh: 0,
-  N: 1,
-  ov: 0,
-});
-type D = ReturnType<typeof defaults>;
+const defaults = spinDefaults;
+type D = SpinD;
 const maxRpm = (d: D) => Math.max(0, ...d.steps.map((s) => s.rpm));
 
 const nice = (v: number) => {
@@ -405,10 +394,7 @@ export const spin: Kind<D> = {
   Output,
   Visual,
   // solvents dispensed straight from the bottle (antisolvent, washing); solutions are counted in their own recipe
-  uses: (d) =>
-    Object.entries(spinPlan(d.steps, d.dp, d.N, d.ov).vol)
-      .filter(([k]) => k.startsWith('Solvent: '))
-      .map(([k, mL]) => ({ name: k.slice(9), ul: mL * 1000 })),
+  uses: spinUses,
   summary: (d) =>
     `${d.steps.length} steps · ${d.steps.reduce((a, s) => a + s.t, 0)} s · ${maxRpm(d)} rpm${d.an ? ` · ${d.aT} °C` : ''}`,
   describe: (d) => ({

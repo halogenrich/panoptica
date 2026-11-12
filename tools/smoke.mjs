@@ -581,7 +581,19 @@ console.log('Calendar: shortest booking and cleanup');
   ok(withArt.find((e) => e.id === eq.j.id)?.art === 'glovebox', 'the calendar sends the drawing');
   const bl = (await call('GET', '/api/batches')).j.find((x) => x.id === b.j.id);
   ok(bl.steps === 4 && bl.concluded === 0, 'batch progress counts its booked steps and concluded ones');
-  ok((await call('GET', '/api/search?q=Smoke')).j.containers !== undefined, 'search also looks in containers');
+  const box = await call('POST', '/api/inventory/containers', {
+    name: 'Smoke salt',
+    amount: 5,
+    size: 10,
+    unit: 'g',
+    lot: 'L-7',
+  });
+  ok(
+    (await call('GET', '/api/search?q=L-7')).j.hits.some(
+      (h) => h.key === 'container:' + box.j.id && h.label === 'Smoke salt, lot L-7' && h.link.view === 'chem',
+    ),
+    'search also looks in containers (by lot)',
+  );
   // working hours (local time of the computer that runs the app): Monday to Friday 08–18 unless set otherwise
   const at = (d, h) => new Date(2030, 2, d, h).toISOString();
   const bookAt = (d, h) =>
@@ -801,7 +813,12 @@ console.log('Batches by name, equipment, training, atmosphere and overviews (0.3
   ok(mine.s === 200 && mine.j.scope === 'one', 'a member opens their own overview');
   ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 403, 'but not the lab’s');
   ok((await asAna('GET', '/api/dashboard/person/1')).s === 403, 'nor someone else’s page');
-  ok((await call('GET', `/api/dashboard?${per}&scope=lab`)).j.scope === 'lab', 'an admin opens the lab');
+  const labView = (await call('GET', `/api/dashboard?${per}&scope=lab`)).j;
+  ok(labView.scope === 'lab', 'an admin opens the lab');
+  ok(
+    labView.m.devices.lab && labView.people.every((p) => p.m.devices && typeof p.hours === 'number'),
+    'the overview has the core’s numbers and the Electronic Devices part (for the period and each person)',
+  );
   const tag = await call('POST', '/api/tags', { name: 'Smoke overview', perms: ['overview'] });
   ok((await call('PUT', `/api/users/${anaId}/tags`, { tags: [tag.j.id] })).s === 200, 'a tag with Lab overview given');
   ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 200, 'then the member opens the lab overview');
@@ -926,10 +943,52 @@ if (!BUILT) {
     'the test module was told (its sample is finished)',
   );
   ok((await bk(reader.j.id, 6, 9, { subject: 'sample', subject_id: smp.j.id })).s === 200, 'then the reader takes it');
+
+  // 0.42: samples as a record type (comments, search, trash), what they used, and their part of the Overview
+  ok((await call('GET', '/api/version')).j.modules.join() === 'devices,fake', 'the server lists its modules');
+  ok(
+    (await call('POST', `/api/comments/sample/${smp.j.id}`, { text: 'Looks fine' })).s === 200,
+    'a sample takes comments',
+  );
+  ok((await call('GET', `/api/comments-count/sample/${smp.j.id}`)).j.n === 1, 'and counts them');
+  ok((await call('POST', '/api/comments/nothing/1', { text: 'x' })).s === 404, 'an unknown record type takes none');
+  const found = (await call('GET', '/api/search?q=S-1')).j.hits;
+  ok(
+    found.some((h) => h.key === 'sample:' + smp.j.id && h.hint === 'Sample' && h.link.view === 'fake'),
+    'search finds samples',
+  );
+  const use = (await call('GET', '/api/inventory/use')).j;
+  ok(
+    use.basis.some((b) => /finished test sample/.test(b)) &&
+      use.events.some((e) => e.label === 'S-1' && e.uses[0].name === 'Test salt'),
+    'the inventory sums what the test module reports it used',
+  );
+  const ov = (
+    await call('GET', `/api/dashboard?from=2026-01-05T00:00:00.000Z&to=2026-01-12T00:00:00.000Z&unit=week&scope=lab`)
+  ).j;
+  ok(
+    ov.m.fake.samples >= 1 && ov.m.devices && ov.people.some((p) => p.m.fake.samples >= 1),
+    'the Overview has the test module’s part next to Electronic Devices',
+  );
+  ok((await call('GET', '/api/dashboard/person/' + me)).j.m.fake.samples >= 1, 'and a person’s page too');
   await call('DELETE', '/api/m/fake/samples/' + smp.j.id);
   const after = (await call('GET', '/api/calendar?from=2031-02-01T00:00:00.000Z&to=2031-02-08T00:00:00.000Z')).j
     .bookings;
   ok(!after.some((k) => k.subject === 'sample'), 'bookings of a deleted sample are hidden');
+  const inTrash = (await call('GET', '/api/trash')).j.items.find((i) => i.kind === 'sample' && i.id === smp.j.id);
+  ok(inTrash?.type === 'Sample' && inTrash.name === 'S-1 First sample', 'the deleted sample is in the trash');
+  ok(!(await call('GET', '/api/search?q=S-1')).j.hits.some((h) => h.key === 'sample:' + smp.j.id), 'and out of search');
+  ok((await call('POST', `/api/trash/sample/${smp.j.id}/restore`, {})).s === 200, 'restored');
+  ok((await call('GET', `/api/comments-count/sample/${smp.j.id}`)).j.n === 1, 'with its comment');
+  await call('DELETE', '/api/m/fake/samples/' + smp.j.id);
+  ok((await call('DELETE', `/api/trash/sample/${smp.j.id}`)).s === 200, 'then deleted for good');
+  ok(
+    !db.prepare('SELECT 1 FROM fake_samples WHERE id=?').get(smp.j.id) &&
+      !db.prepare("SELECT 1 FROM comments WHERE target='sample' AND target_id=?").get(smp.j.id) &&
+      !db.prepare("SELECT 1 FROM bookings WHERE subject='sample' AND subject_id=?").get(smp.j.id),
+    'with its comments and bookings',
+  );
+  ok((await call('DELETE', '/api/trash/nothing/1')).s === 404, 'an unknown record type is not in the trash');
 }
 
 console.log('First setup (a fresh install)');
