@@ -5,7 +5,6 @@ import { useRefresh } from '../lib/trash';
 import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
-import { batchUses, type BatchUse } from '../lib/consumption';
 import { DragHandle, useReorder, type Chemical } from './common';
 import Chemicals from './Chemicals';
 
@@ -1494,24 +1493,30 @@ type Row = {
   batches: { code: string; date: string; v: number }[];
 };
 
+/** What the modules report they took (0.42): one entry per record (a batch), with its planned amounts per chemical. */
+type UseReport = {
+  basis: string[];
+  events: { label: string; date: string; uses: { name: string; mg?: number; ul?: number }[] }[];
+};
+
 function Consumption({ inv, chems }: { inv: Inv; chems: Chemical[] }) {
-  const [uses, setUses] = useState<BatchUse[] | null>(null),
+  const [rep, setRep] = useState<UseReport | null>(null),
     [p, setP] = useState<Period>('week'),
     [open, setOpen] = useState<string | null>(null),
     [err, setErr] = useState('');
   useEffect(() => {
-    api<any[]>('/inventory/batches')
-      .then((l) => setUses(l.map(batchUses)))
+    api<UseReport>('/inventory/use')
+      .then(setRep)
       .catch((e) => setErr(e.message));
   }, []);
   const rows = useMemo<Row[]>(() => {
-    if (!uses) return [];
+    if (!rep) return [];
     const by = new Map<string, { date: string; code: string; u: { mg?: number; ul?: number } }[]>();
-    for (const b of uses)
+    for (const b of rep.events)
       for (const u of b.uses) {
         const k = u.name.trim();
         if (!by.has(k)) by.set(k, []);
-        by.get(k)!.push({ date: b.date, code: b.code, u });
+        by.get(k)!.push({ date: b.date, code: b.label, u });
       }
     const n = p === 'week' ? 26 : 12,
       start = (() => {
@@ -1560,9 +1565,9 @@ function Consumption({ inv, chems }: { inv: Inv; chems: Chemical[] }) {
           a.f.days - b.f.days ||
           a.name.localeCompare(b.name),
       );
-  }, [uses, p, inv, chems]);
+  }, [rep, p, inv, chems]);
   if (err) return <p className="err">{err}</p>;
-  if (!uses) return <p className="mut">Reading batches…</p>;
+  if (!rep) return <p className="mut">Reading what was used…</p>;
   const label = p === 'week' ? 'week' : 'month',
     sel = rows.find((r) => r.name === open);
   return (
@@ -1577,10 +1582,7 @@ function Consumption({ inv, chems }: { inv: Inv; chems: Chemical[] }) {
             ['month', 'By month'],
           ]}
         />
-        <span className="mut small">
-          From the recipes of {uses.length} running and done batch{uses.length === 1 ? '' : 'es'} (planned amounts:
-          solutions as prepared, solvents dispensed in spin programs). Stock from the containers not marked empty.
-        </span>
+        <span className="mut small">{rep.basis.join(' ')} Stock from the containers not marked empty.</span>
       </div>
       {!rows.length ? (
         <p className="mut">No reagent use in the last {p === 'week' ? '26 weeks' : '12 months'}.</p>
@@ -1734,7 +1736,7 @@ function UseDetail({ r, p }: { r: Row; p: Period }) {
         )}
       </svg>
       <p className="mut small">
-        Batches:{' '}
+        Used for:{' '}
         {r.batches
           .slice(-12)
           .reverse()

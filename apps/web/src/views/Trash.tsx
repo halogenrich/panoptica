@@ -3,30 +3,18 @@ import { api } from '../api';
 import { Badge, Empty, fmtDate } from '../lib/ui';
 import { refreshAll, showToast, useRefresh } from '../lib/trash';
 
+/** A record in the trash, of any type a module keeps (0.42): the server names its type. */
 type Item = {
-  kind: 'preset' | 'batch' | 'iv' | 'cmp';
+  kind: string;
   id: number;
   name: string;
-  segment: string;
+  type: string;
   deleted_at: string;
   purge_at: string;
   owner: string;
 };
-const KIND: Record<string, string> = {
-  stk: 'Stack',
-  batches: 'Batch',
-  iv: 'Measurement',
-  cmp: 'Comparison',
-  sub: 'Substrate',
-  mask: 'Metal mask',
-  s0: 'Substrate preparation',
-  s1: 'Solution',
-  s2: 'Spin program',
-  s3: 'Organic evaporation',
-  s4: 'Metal evaporation',
-};
 
-/** Deleted stacks, recipes, designs, batches, measurements and comparisons: restore them, or delete them for good. Emptied automatically after 30 days. */
+/** Deleted records (stacks, recipes, batches, measurements…): restore them, or delete them for good. Emptied automatically after 30 days. */
 export default function Trash({ admin }: { admin: boolean }) {
   const [d, setD] = useState<{ days: number; items: Item[] } | null>(null),
     [err, setErr] = useState('');
@@ -63,10 +51,7 @@ export default function Trash({ admin }: { admin: boolean }) {
       </p>
       {err && <p className="err">{err}</p>}
       {d.items.length === 0 ? (
-        <Empty
-          title="The trash is empty"
-          text="Deleted stacks, recipes, designs, batches, measurements and comparisons appear here."
-        />
+        <Empty title="The trash is empty" text="Deleted items appear here until they are removed for good." />
       ) : (
         <section className="group scroll flush">
           <table className="list">
@@ -86,7 +71,7 @@ export default function Trash({ admin }: { admin: boolean }) {
                     <b>{i.name}</b>
                   </td>
                   <td>
-                    <Badge>{KIND[i.segment] ?? i.segment}</Badge>
+                    <Badge>{i.type}</Badge>
                   </td>
                   {admin && <td>{i.owner}</td>}
                   <td className="mut">

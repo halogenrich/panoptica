@@ -1,83 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { SPACERS, layeredAmounts, nFromAmounts, solutionPlan, type Additive, type Basis, type Comp } from '@psc/core';
+import {
+  layeredAmounts,
+  nFromAmounts,
+  soluteOf as solute,
+  solComp as comp,
+  solutesFor as solutes,
+  solutionDefaults as defaults,
+  solutionPlanOf as plan,
+  solutionUses,
+  spacerOf,
+  spacersFor as spacers,
+  type Additive,
+  type Basis,
+  type SolMode,
+  type SolutionD,
+} from '@psc/core';
 import { Check, DragHandle, Num, RemoveRow, useReorder } from '../views/common';
 import { Seg } from '../lib/ui';
 import { Formula, Section, T, fix, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
 
-type Mode = 'Perovskite' | 'ETL' | 'HTL' | 'Custom';
-/** 3D perovskite, or layered: Ruddlesden–Popper (monovalent spacer), Dion–Jacobson (divalent spacer), alternating cations in the interlayer (GA). */
-type Dim = '3D' | 'RP' | 'DJ';
-const spacers = (dim: Dim) => SPACERS.filter((x) => x.z === (dim === 'DJ' ? 2 : 1));
-const spacerOf = (d: { dim: Dim; L: string }) => spacers(d.dim).find((x) => x.ion === d.L) ?? spacers(d.dim)[0];
-const comp = (d: {
-  A: Record<string, number>;
-  X: Record<string, number>;
-  dim: Dim;
-  L: string;
-  n: number;
-  s?: number;
-}): Comp =>
-  d.dim === '3D'
-    ? { A: d.A, X: d.X }
-    : { A: d.A, X: d.X, L: { ion: spacerOf(d).ion, z: d.dim === 'DJ' ? 2 : 1 }, n: Math.max(1, d.n || 1), s: d.s };
-const defaults = () => ({
-  mode: 'Perovskite' as Mode,
-  A: {} as Record<string, number>,
-  X: {} as Record<string, number>,
-  M: 0,
-  V: 0,
-  meth: 'solvent' as 'solvent' | 'density',
-  rho: 0,
-  dim: '3D' as Dim,
-  L: 'PEA',
-  n: 2,
-  s: undefined as number | undefined,
-  prep: 'one' as 'one' | 'stocks',
-  stocks: {} as Record<string, { c?: number; v?: number }>,
-  sol: '',
-  c: 0,
-  u: 'mg/mL' as 'mg/mL' | 'mM',
-  sv: [] as { n: string; p: number }[],
-  ad: [] as Additive[],
-  stir: false,
-  sm: 0,
-  heat: false,
-  hT: 0,
-  hm: 0,
-  cool: false,
-});
-type D = ReturnType<typeof defaults>;
+type Mode = SolMode;
+type D = SolutionD;
 const BASES: Basis[] = ['mol%', 'wt%', 'mg/mL', 'µL/mL', 'µL stock/mL'];
-
-const solutes = (d: D, ctx: Ctx) => {
-  const by = (...r: string[]) => ctx.chems.filter((c) => r.includes(c.role)).map((c) => c.name);
-  return d.mode === 'ETL' ? by('etl', 'organic') : d.mode === 'HTL' ? by('htl') : ctx.chems.map((c) => c.name);
-};
-const solute = (d: D, ctx: Ctx) => {
-  const l = solutes(d, ctx);
-  return l.includes(d.sol) ? d.sol : d.sol || l[0] || '';
-};
-const plan = (d: D, ctx: Ctx, act: Record<string, string> = {}) =>
-  solutionPlan(
-    {
-      mode: d.mode,
-      comp: comp(d),
-      M: d.M,
-      V: d.V,
-      sol: solute(d, ctx),
-      c: d.c,
-      u: d.u,
-      sv: d.sv,
-      ad: d.ad,
-      act,
-      meth: d.meth,
-      rho: d.rho,
-      prep: d.prep,
-      stocks: d.stocks,
-    },
-    ctx.cl,
-  );
 const prep = (d: D) =>
   [
     d.stir ? `stir ${d.sm} min` : 'no stirring',
@@ -812,21 +757,7 @@ export const solution: Kind<D> = {
   Output,
   Visual,
   // planned amounts: salts (or the stock solutions as prepared), additives and solvents
-  uses: (d, ctx) => {
-    const r = plan(d, ctx),
-      out: { name: string; mg?: number; ul?: number }[] = [];
-    if (r.stocks) for (const x of r.stocks.list) out.push({ name: x.s, mg: x.mg });
-    else for (const x of r.rows) out.push({ name: x.s, mg: x.mg });
-    for (const a of r.extra)
-      out.push(
-        a.b === 'µL stock/mL' ? { name: a.n, mg: a.stockMg } : a.ul ? { name: a.n, ul: a.ul } : { name: a.n, mg: a.m },
-      );
-    const stockUl = r.stocks ? r.stocks.list.reduce((t, x) => t + x.make * 1000, 0) : 0,
-      sp = d.sv.reduce((t, x) => t + x.p, 0) || 1;
-    for (const v of r.solv)
-      out.push({ name: v.n, ul: v.ul + (stockUl * (d.sv.find((x) => x.n === v.n)?.p ?? 0)) / sp });
-    return out.filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0));
-  },
+  uses: solutionUses,
   summary: (d, ctx) => `${headline(d, ctx)} · ${d.mode === 'Perovskite' ? d.M + ' M · ' : ''}${d.V} mL`,
   describe: (d, ctx) => ({
     Type: d.mode,

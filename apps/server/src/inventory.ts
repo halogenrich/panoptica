@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { AreaIn, ShelfIn, ContainerIn, InventoryImport, OrderIn, StorageTypeIn } from '@psc/schema';
 import { db, tx } from './db.js';
+import { modules } from './modules.js';
 
 /**
  * Inventory: storage areas (cabinets, desiccators, gloveboxes, fridges…) with shelves, and the containers on them.
@@ -264,26 +265,21 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
   });
 
   /**
-   * Batches for the consumption estimate: running and done, with their frozen recipes. Everyone with inventory, manager or
-   * professor access (and admins) gets all of them, since stock is shared; others get the ones they can see.
+   * Consumption (0.42): what each module reports it took from the inventory; the page sums it per chemical and period. Everyone
+   * with inventory, manager or professor access (and admins) gets all of it, since stock is shared; others get what they can see.
    */
-  app.get('/api/inventory/batches', { preHandler: auth() }, async (req: any) => {
+  app.get('/api/inventory/use', { preHandler: auth() }, async (req: any) => {
     const u = req.user as U,
-      every = u.all || u.inventory || u.manager;
-    return (
-      db
-        .prepare(
-          `SELECT id,code,status,owner_id,visibility,snapshot,created_at,updated_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
-        )
-        .all() as any[]
-    )
-      .filter((b) => every || b.owner_id === u.id || b.visibility === 'shared')
-      .map((b) => ({
-        id: b.id,
-        code: b.code,
-        status: b.status,
-        created_at: b.created_at,
-        snapshot: JSON.parse(b.snapshot),
-      }));
+      every = !!(u.all || u.inventory || u.manager);
+    const parts = modules()
+      .filter((m) => m.uses)
+      .map((m) => {
+        const ev = m.uses!.events().filter((e) => every || e.owner_id === u.id || e.shared);
+        return {
+          basis: m.uses!.basis(ev.length),
+          events: ev.map((e) => ({ label: e.label, date: e.date, uses: e.uses })),
+        };
+      });
+    return { basis: parts.map((p) => p.basis), events: parts.flatMap((p) => p.events) };
   });
 }

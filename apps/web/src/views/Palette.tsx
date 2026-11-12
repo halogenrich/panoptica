@@ -55,7 +55,7 @@ export default function Palette({
       <div className="palette" onClick={(e) => e.stopPropagation()}>
         <input
           ref={ref}
-          placeholder="Search presets, batches, chemicals, or go to…"
+          placeholder="Search, or go to a page…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useContext, useEffect, useState } from 'react';
+import { Suspense, lazy, useContext, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { LabCtx, PrefCtx, type Me, type Prefs } from './ctx';
 import { Wordmark } from './start/parts';
@@ -10,9 +10,6 @@ import Outcomes from './lib/Outcomes';
 import Profile from './views/Profile';
 import { Bell, Logout, Menu, Search, Trash as TrashIcon } from './Icons';
 import Palette, { type Cmd } from './views/Palette';
-import Batches from './views/Batches';
-import Library from './lib/Library';
-import { KINDS } from './recipes';
 import Inventory from './views/Inventory';
 import Calendar from './views/Calendar';
 import Overview from './views/Overview';
@@ -21,105 +18,61 @@ import Help from './views/Help';
 import Trash from './views/Trash';
 import { Toaster } from './lib/trash';
 import { NotificationList, useNotifications } from './lib/Notifications';
-import IvPage from './iv/IvPage';
-import Comparisons from './compare/Comparisons';
 import EquipmentPage from './views/Equipment';
 import { parseRoute, pushRoute } from './lib/route';
+import { MODULES } from './modules';
+import type { Group, Page } from './modules/types';
 const Invite = lazy(() => import('./lib/Invite'));
 const DataPackage = lazy(() => import('./lib/DataPackage'));
 import type { PackSel } from './lib/datapack';
 
-type Key =
-  | 'dash'
-  | 'stk'
-  | 'batches'
-  | 'cal'
-  | 'iv'
-  | 'life'
-  | 'cmp'
-  | 'sub'
-  | 'mask'
-  | 's0'
-  | 's1'
-  | 's2'
-  | 's3'
-  | 's4'
-  | 's5'
-  | 'chem'
-  | 'eq'
-  | 'users'
-  | 'help'
-  | 'trash'
-  | 'profile';
 /**
- * Side menu, in the order work happens: make devices (Fabrication), measure them (Measurements), the procedures they use
- * (Recipes, Designs), and the lab's shared resources (Lab, at the bottom). The phone tabs follow the same groups.
+ * The core's own pages (0.42). A module may show one of them in its own group (Electronic Devices puts the Calendar under
+ * Fabrication); otherwise the Calendar comes right after the Overview and the lab's shared resources (Lab) sit at the bottom.
  */
-const NAV: { group: string; items: [Key, string][] }[] = [
-  {
-    group: 'Fabrication',
-    items: [
-      ['stk', 'Stacks'],
-      ['batches', 'Batches'],
-      ['cal', 'Calendar'],
-    ],
+const CORE: Record<string, Page> = {
+  cal: {
+    key: 'cal',
+    label: 'Calendar',
+    render: (p) => {
+      const id = (p.extra.schedule as number | undefined) ?? null;
+      return (
+        <Calendar
+          scheduling={id}
+          onEndScheduling={(back) => (back && id ? p.open('batches', id) : p.open('cal'))}
+          onOpenBatch={(b) => p.open('batches', b)}
+        />
+      );
+    },
   },
-  {
-    group: 'Measurements',
-    items: [
-      ['iv', 'J–V curves'],
-      ['life', 'Lifetime'],
-      ['cmp', 'Comparisons'],
-    ],
+  chem: {
+    key: 'chem',
+    label: 'Inventory',
+    render: (p) => <Inventory canEdit={p.me.role === 'admin' || !!p.me.inventory} openId={p.openId} />,
   },
-  {
-    group: 'Recipes',
-    items: [
-      ['s0', 'Substrate preparation'],
-      ['s1', 'Solutions'],
-      ['s2', 'Spin coating'],
-      ['s3', 'Organic evaporation'],
-      ['s4', 'Metal evaporation'],
-      ['s5', 'Evaporated perovskite'],
-    ],
-  },
-  {
-    group: 'Designs',
-    items: [
-      ['sub', 'Substrates'],
-      ['mask', 'Metal masks'],
-    ],
-  },
-  {
-    group: 'Lab',
-    items: [
-      ['chem', 'Inventory'],
-      ['eq', 'Equipment'],
-    ],
-  },
-];
-const LABEL: Record<string, string> = {
-  ...Object.fromEntries(NAV.flatMap((g) => g.items)),
+  eq: { key: 'eq', label: 'Equipment', render: (p) => <EquipmentPage openId={p.openId} onOpen={p.onOpen} /> },
+};
+const SPECIAL: Record<string, string> = {
   dash: 'Overview',
   users: 'Admin settings',
   trash: 'Trash',
   help: 'Help',
   profile: 'Profile',
 };
-/** Phone tab bar, the same groups as the side menu: Fabrication, Measurements, Recipes, then Menu for the rest. */
-const TABS: { key: string; label: string; items: Key[] }[] = [
-  { key: 'stacks', label: 'Fabrication', items: ['stk', 'batches', 'cal'] },
-  { key: 'iv', label: 'Measurements', items: ['iv', 'life', 'cmp'] },
-  { key: 'recipes', label: 'Recipes', items: ['s0', 's1', 's2', 's3', 's4', 's5'] },
-];
-const SHORT: Partial<Record<Key, string>> = {
-  s0: 'Substrate preparation',
-  s1: 'Solutions',
-  s2: 'Spin coating',
-  s3: 'Organic evaporation',
-  s4: 'Metal evaporation',
-  s5: 'Evaporated perovskite',
-};
+type MenuGroup = { group: string; tab?: string; pages: Page[]; bottom?: boolean };
+/** The side menu from the core and the installed modules, in the modules' order; phone tabs are the groups that ask for one. */
+function menuOf(mods: typeof MODULES): MenuGroup[] {
+  const placed = new Set(mods.flatMap((m) => m.groups.flatMap((g) => g.pages.filter((x) => typeof x === 'string'))));
+  const own = (g: Group): MenuGroup => ({
+    ...g,
+    pages: g.pages.map((x) => (typeof x === 'string' ? CORE[x] : x)).filter((x): x is Page => !!x),
+  });
+  return [
+    ...(placed.has('cal') ? [] : [{ group: '', pages: [CORE.cal] }]),
+    ...mods.flatMap((m) => m.groups.map(own)),
+    { group: 'Lab', pages: [CORE.chem, CORE.eq].filter((x) => !placed.has(x.key)), bottom: true },
+  ].filter((g) => g.pages.length);
+}
 
 function Seg<T extends string>({ value, opts, on }: { value: T; opts: [T, string][]; on: (v: T) => void }) {
   return (
@@ -133,44 +86,47 @@ function Seg<T extends string>({ value, opts, on }: { value: T; opts: [T, string
   );
 }
 
-const Soon = ({ title, text }: { title: string; text: string }) => (
-  <>
-    <h2>{title}</h2>
-    <section className="group">
-      <p className="mut">{text}</p>
-    </section>
-  </>
-);
-
-const KEYS = new Set<string>([...Object.keys(LABEL), 'dash', 'users']);
-
 export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { prefs, set } = useContext(PrefCtx),
     { lab } = useContext(LabCtx);
+  // the modules the server has (until it says, every module this build has)
+  const [installed, setInstalled] = useState<string[] | null>(null);
+  const mods = MODULES.filter((m) => !installed || installed.includes(m.id)),
+    menu0 = menuOf(mods),
+    PAGES: Record<string, Page> = Object.fromEntries(menu0.flatMap((g) => g.pages.map((x) => [x.key, x]))),
+    LABEL: Record<string, string> = {
+      ...Object.fromEntries(Object.values(PAGES).map((x) => [x.key, x.label])),
+      ...SPECIAL,
+    },
+    KEYS = new Set(Object.keys(LABEL)),
+    TABS = menu0.filter((g) => g.tab).map((g) => ({ key: g.group, label: g.tab!, items: g.pages.map((x) => x.key) })),
+    parts = mods.filter((m) => m.overview).map((m) => ({ ...m.overview!, id: m.id }));
   // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
   const start = (() => {
     const r = parseRoute();
     if (!r || !KEYS.has(r.view)) return null;
     if (r.view === 'dash' && !(me.role === 'admin' || me.professor || me.manager)) return null;
     if (r.view === 'users' && me.role !== 'admin') return null;
-    return r as { view: Key; id: number | null };
+    return r;
   })();
-  const [view, setView] = useState<Key>(start?.view ?? 'stk'),
-    [bid, setBid] = useState<number | null>(start?.view === 'batches' ? start.id : null),
+  const first = menu0.find((g) => g.group)?.pages[0]?.key ?? 'dash';
+  const [view, setView] = useState<string>(start?.view ?? first),
+    // the item open on each page, and what else a page was opened with (the calendar's batch to schedule)
+    [ids, setIds] = useState<Record<string, number | null>>(start ? { [start.view]: start.id } : {}),
+    [extras, setExtras] = useState<Record<string, Record<string, unknown>>>({}),
     [nav, setNav] = useState(0),
     [pal, setPal] = useState(false),
     [pop, setPop] = useState<'' | 'bell' | 'me'>(''),
     [ver, setVer] = useState(''),
-    [focus, setFocus] = useState<number | null>(
-      start && start.view !== 'batches' && start.view !== 'iv' ? start.id : null,
-    ),
     [menu, setMenu] = useState(false),
-    [ivId, setIvId] = useState<number | null>(start?.view === 'iv' ? start.id : null),
     [invite, setInvite] = useState(false),
-    [lastIn, setLastIn] = useState<Record<string, Key>>({});
+    [lastIn, setLastIn] = useState<Record<string, string>>({});
   useEffect(() => {
-    api<{ version: string }>('/version')
-      .then((v) => setVer(v.version))
+    api<{ version: string; modules?: string[] }>('/version')
+      .then((v) => {
+        setVer(v.version);
+        if (v.modules) setInstalled(v.modules);
+      })
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -190,14 +146,14 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
     if (parseRoute()?.view !== view) pushRoute(view);
   }, [view]);
   // Back and Forward: open what the address says (the page is drawn again so open sheets follow)
+  const keysRef = useRef(KEYS);
+  keysRef.current = KEYS;
   useEffect(() => {
     const f = () => {
       const r = parseRoute();
-      if (!r || !KEYS.has(r.view)) return;
-      setView(r.view as Key);
-      if (r.view === 'batches') setBid(r.id);
-      else if (r.view === 'iv') setIvId(r.id);
-      else setFocus(r.id);
+      if (!r || !keysRef.current.has(r.view)) return;
+      setView(r.view);
+      setIds((x) => ({ ...x, [r.view]: r.id }));
       setPop('');
       setMenu(false);
       setNav((n) => n + 1);
@@ -207,14 +163,21 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   }, []);
   const notes = useNotifications(),
     profs = usePresence(),
-    [schedId, setSchedId] = useState<number | null>(null),
     [pack, setPack] = useState<PackSel | null>(null);
   useEffect(() => {
     const f = (e: Event) => setPack((e as CustomEvent<PackSel>).detail);
     window.addEventListener('psc-datapack', f);
     return () => window.removeEventListener('psc-datapack', f);
   }, []);
-  const openLink = (l: { view: string; id: number }) => {
+  /** Opens a page and an item on it (search results, notifications, links between pages). */
+  const go = (k: string, id: number | null = null, extra: Record<string, unknown> = {}) => {
+    setView(k);
+    setIds((x) => ({ ...x, [k]: id }));
+    setExtras((x) => ({ ...x, [k]: extra }));
+    setPop('');
+    setMenu(false);
+  };
+  const openLink = (l: { view: string; id: number | null }) => {
     setPop('');
     if (l.view === 'users' || l.view === 'requests') {
       try {
@@ -225,73 +188,24 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       go('users');
       return;
     }
-    if (l.view === 'batches') {
-      setBid(l.id);
-      setView('batches');
-    } else if (l.view === 'iv') {
-      setIvId(l.id);
-      setView('iv');
-    } else if (l.view in LABEL) go(l.view as Key, l.id);
+    if (KEYS.has(l.view)) go(l.view, l.id);
   };
-  const tabOf = (k: Key) => TABS.find((t) => t.items.includes(k));
+  const tabOf = (k: string) => TABS.find((t) => t.items.includes(k));
   useEffect(() => {
     const t = tabOf(view);
     if (t) setLastIn((l) => ({ ...l, [t.key]: view }));
   }, [view]);
-  const go = (k: Key, id: number | null = null) => {
-    setView(k);
-    setFocus(id);
-    if (k === 'batches') setBid(null);
-    if (k === 'iv' || k === 'life') setIvId(null);
-    setPop('');
-    setMenu(false);
-  };
+  /** One search over everything the person may open; results of modules this app does not show are left out. */
   const search = async (q: string): Promise<Cmd[]> => {
     const r = await api<{
-      presets: { id: number; segment: string; name: string }[];
-      batches: { id: number; code: string; name: string }[];
-      chemicals: { id: number; name: string }[];
-      containers: { id: number; name: string; lot: string; status: string; place: string | null }[];
-      measurements: { id: number; name: string; date: string }[];
-      comparisons: { id: number; name: string }[];
+      hits: { key: string; label: string; hint: string; link: { view: string; id: number | null } }[];
     }>('/search?q=' + encodeURIComponent(q));
-    return [
-      ...r.presets.map((p) => ({
-        id: 'p' + p.id,
-        label: p.name,
-        hint: LABEL[p.segment] ?? 'Preset',
-        run: () => go(p.segment as Key, p.id),
-      })),
-      ...r.batches.map((b) => ({
-        id: 'b' + b.id,
-        label: b.code + (b.name ? ' · ' + b.name : ''),
-        hint: 'Batch',
-        run: () => {
-          setBid(b.id);
-          setView('batches');
-        },
-      })),
-      ...r.measurements.map((m) => ({
-        id: 'm' + m.id,
-        label: m.name,
-        hint: 'Measurement',
-        run: () => {
-          setView('iv');
-          setIvId(m.id);
-        },
-      })),
-      ...r.comparisons.map((c) => ({ id: 'x' + c.id, label: c.name, hint: 'Comparison', run: () => go('cmp', c.id) })),
-      ...r.containers.map((c) => ({
-        id: 'k' + c.id,
-        label: c.name + (c.lot ? `, lot ${c.lot}` : ''),
-        hint: `Container${c.place ? ', ' + c.place : ''}${c.status === 'empty' ? ' (empty)' : ''}`,
-        run: () => go('chem', c.id),
-      })),
-      ...r.chemicals.map((c) => ({ id: 'c' + c.id, label: c.name, hint: 'Chemical list', run: () => go('chem') })),
-    ];
+    return r.hits
+      .filter((h) => KEYS.has(h.link.view))
+      .map((h) => ({ id: h.key, label: h.label, hint: h.hint, run: () => go(h.link.view, h.link.id) }));
   };
   const cmds: Cmd[] = [
-    ...NAV.flatMap((g) => g.items).map(([k, l]) => ({ id: k, label: l, hint: 'Go to', run: () => go(k) })),
+    ...menu0.flatMap((g) => g.pages).map((x) => ({ id: x.key, label: x.label, hint: 'Go to', run: () => go(x.key) })),
     ...(me.role === 'admin' ? [{ id: 'users', label: 'Admin settings', hint: 'Go to', run: () => go('users') }] : []),
     ...(me.role === 'admin' || me.professor || me.manager
       ? [{ id: 'dash', label: 'Overview', hint: 'Go to', run: () => go('dash') }]
@@ -303,90 +217,8 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   ];
   const page = () => {
     switch (view) {
-      case 'stk':
-        return (
-          <Library
-            kind={KINDS.stk}
-            openId={focus}
-            onOpenBatch={(id) => {
-              setBid(id);
-              setView('batches');
-            }}
-          />
-        );
-      case 'batches':
-        return (
-          <Batches
-            openId={bid}
-            onOpen={setBid}
-            onOpenIv={(id) => {
-              setIvId(id);
-              setView('iv');
-            }}
-            onSchedule={(id) => {
-              setSchedId(id);
-              setView('cal');
-            }}
-          />
-        );
       case 'dash':
-        return (
-          <Overview
-            onOpenBatch={(id) => {
-              setBid(id);
-              setView('batches');
-            }}
-            onOpenIv={(id) => {
-              setIvId(id);
-              setView('iv');
-            }}
-          />
-        );
-      case 'cal':
-        return (
-          <Calendar
-            scheduling={schedId}
-            onEndScheduling={(back) => {
-              const id = schedId;
-              setSchedId(null);
-              if (back && id) {
-                setBid(id);
-                setView('batches');
-              }
-            }}
-            onOpenBatch={(id) => {
-              setBid(id);
-              setView('batches');
-            }}
-          />
-        );
-      case 'iv':
-        return <IvPage openId={ivId} onOpen={setIvId} />;
-      case 'life':
-        return <IvPage mode="life" openId={ivId} onOpen={setIvId} />;
-      case 'cmp':
-        return <Comparisons openId={focus} onOpen={setFocus} />;
-      case 'eq':
-        return <EquipmentPage openId={focus} onOpen={setFocus} />;
-      case 'sub':
-        return <Library kind={KINDS.sub} openId={focus} />;
-      case 'mask':
-        return <Library kind={KINDS.mask} openId={focus} />;
-      case 's0':
-      case 's1':
-      case 's2':
-      case 's3':
-      case 's4':
-        return <Library kind={KINDS[view]} openId={focus} />;
-      case 's5':
-        return (
-          <Soon
-            title="Evaporated perovskite"
-            text="Soon to be added: recipes for perovskite films made by (co-)evaporation of the precursors, with sources, rates and substrate temperature."
-          />
-        );
-      case 'chem':
-        return <Inventory canEdit={me.role === 'admin' || !!me.inventory} openId={focus} />;
+        return <Overview open={go} parts={parts} />;
       case 'users':
         return <Users meId={me.id} />;
       case 'help':
@@ -396,6 +228,13 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
       case 'profile':
         return <Profile onInvite={() => setInvite(true)} />;
     }
+    return PAGES[view]?.render({
+      me,
+      openId: ids[view] ?? null,
+      onOpen: (id) => setIds((x) => ({ ...x, [view]: id })),
+      open: go,
+      extra: extras[view] ?? {},
+    });
   };
   return (
     <div className="app">
@@ -449,12 +288,12 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
             </button>
           </div>
         )}
-        {NAV.map((g) => (
-          <div key={g.group || 'main'} style={g.group === 'Lab' ? { marginTop: 'auto' } : undefined}>
+        {menu0.map((g) => (
+          <div key={g.group || 'main'} style={g.bottom ? { marginTop: 'auto' } : undefined}>
             {g.group && <div className="glabel">{g.group}</div>}
-            {g.items.map(([k, l]) => (
-              <button key={k} className={'navitem' + (view === k ? ' on' : '')} onClick={() => go(k)}>
-                {l}
+            {g.pages.map((x) => (
+              <button key={x.key} className={'navitem' + (view === x.key ? ' on' : '')} onClick={() => go(x.key)}>
+                {x.label}
               </button>
             ))}
           </div>
@@ -476,7 +315,7 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
                 className={'chip' + (view === k ? ' on' : '')}
                 onClick={() => go(k)}
               >
-                {SHORT[k] ?? LABEL[k]}
+                {LABEL[k]}
               </button>
             ))}
           </div>
@@ -589,12 +428,12 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
                 Overview
               </button>
             )}
-            {NAV.map((g) => (
+            {menu0.map((g) => (
               <div key={g.group || 'main'}>
                 {g.group && <div className="glabel">{g.group}</div>}
-                {g.items.map(([k, l]) => (
-                  <button key={k} className={'navitem' + (view === k ? ' on' : '')} onClick={() => go(k)}>
-                    {l}
+                {g.pages.map((x) => (
+                  <button key={x.key} className={'navitem' + (view === x.key ? ' on' : '')} onClick={() => go(x.key)}>
+                    {x.label}
                   </button>
                 ))}
               </div>
