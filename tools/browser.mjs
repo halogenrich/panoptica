@@ -187,8 +187,10 @@ try {
     await dlg.getByLabel('Name').fill('Spin coater A');
     if (!CORE) await dlg.getByRole('button', { name: 'Spin coating' }).click();
     await dlg.getByRole('button', { name: 'Add equipment' }).click();
-    // the new equipment opens in its sheet
-    const sheet = page.locator('.modal-scrim').filter({ hasText: 'What it can do' });
+    // the new equipment opens in its sheet, once it is saved: the "New equipment" window closes first (it also says "What it
+    // can do", so waiting for that text alone could catch it still open while a slow server saves)
+    await page.locator('.modal.eq-new').waitFor({ state: 'detached' });
+    const sheet = page.locator('.modal-scrim').filter({ has: page.locator('.modal.eq-sheet') });
     await sheet.waitFor();
     expect(
       await sheet.evaluate((el) => [...el.querySelectorAll('input')].some((x) => x.value === 'Spin coater A')),
