@@ -104,8 +104,16 @@ const printOf = async (button) => {
       };
     };
   });
-  await button.click();
-  await page.waitForFunction(() => window.__printed !== null);
+  // a click while the window is still opening can be lost: click again if nothing was printed
+  for (let i = 0; ; i++) {
+    await button.click();
+    const done = await page
+      .waitForFunction(() => window.__printed !== null, null, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (done) break;
+    if (i === 2) throw new Error('nothing was printed after three clicks');
+  }
   // Safari's print() returns at once and lays the page out for printing afterwards: the sheet must still be there then
   await page.waitForTimeout(400);
   const after = await page.evaluate(
