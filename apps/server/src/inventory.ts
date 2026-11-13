@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { AreaIn, ShelfIn, ContainerIn, InventoryImport, OrderIn, StorageTypeIn } from '@psc/schema';
 import { db, tx } from './db.js';
 import { modules } from './modules.js';
+import { substanceFor, useBottle } from './chemicals.js';
 
 /**
  * Inventory: storage areas (cabinets, desiccators, gloveboxes, fridges…) with shelves, and the containers on them.
@@ -25,6 +26,7 @@ const cols = [
   'expires',
   'opened',
   'notes',
+  'barcode',
 ] as const;
 
 /** Find or make an area / shelf by name (import). */
@@ -67,10 +69,6 @@ function shelfByName(area: number, name: string) {
           .run(area, name, area).lastInsertRowid,
       );
 }
-const chemByName = (name: string) =>
-  (db.prepare('SELECT id FROM chemicals WHERE lower(name)=lower(?)').get(name) as { id: number } | undefined)?.id ??
-  null;
-
 export function registerInventory(app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) {
   app.get('/api/inventory', { preHandler: auth() }, async () => ({
     types: db
@@ -202,8 +200,15 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
   });
 
   // ---- containers ----
-  const write = (d: Record<string, unknown>, uid: number, id?: number) => {
-    const text = new Set(['cas', 'supplier', 'lot', 'notes']);
+  const write = (d: Record<string, unknown>, uid: number, id?: number): number => {
+    const text = new Set(['cas', 'supplier', 'lot', 'notes', 'barcode']);
+    // the substance it is of (0.44): the one picked, else found or made by CAS and name; the container carries its name
+    const chem =
+      d.chem_id && db.prepare('SELECT 1 FROM chemicals WHERE id=?').get(d.chem_id as number)
+        ? (d.chem_id as number)
+        : substanceFor(String(d.name ?? ''), String(d.cas ?? ''), (d.substance as any) ?? {});
+    const sub = db.prepare('SELECT name, cas FROM chemicals WHERE id=?').get(chem) as { name: string; cas: string };
+    d = { ...d, chem_id: chem, name: sub.name, cas: sub.cas || d.cas || '' };
     const v = cols.map((k) =>
       d[k] === undefined || d[k] === null
         ? text.has(k)
@@ -218,17 +223,20 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
     if (d.shelf_id && !d.area_id)
       v[cols.indexOf('area_id')] =
         (db.prepare('SELECT area_id FROM shelves WHERE id=?').get(d.shelf_id as number) as any)?.area_id ?? null;
-    if (!d.chem_id && d.name) v[cols.indexOf('chem_id')] = chemByName(String(d.name));
-    if (id === undefined)
-      return Number(
+    let at = id;
+    if (at === undefined)
+      at = Number(
         db
           .prepare(`INSERT INTO containers(${cols.join(',')},added_by) VALUES(${cols.map(() => '?').join(',')},?)`)
           .run(...(v as any[]), uid).lastInsertRowid,
       );
-    db.prepare(
-      `UPDATE containers SET ${cols.map((k) => k + '=?').join(',')},updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-    ).run(...(v as any[]), uid, id);
-    return id;
+    else
+      db.prepare(
+        `UPDATE containers SET ${cols.map((k) => k + '=?').join(',')},updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      ).run(...(v as any[]), uid, at);
+    if (d.use !== undefined) useBottle(at, !!d.use && d.status !== 'empty');
+    if (d.status === 'empty') useBottle(at, false);
+    return at;
   };
   app.post('/api/inventory/containers', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = ContainerIn.safeParse(req.body);
@@ -248,19 +256,29 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
     return { ok: true };
   });
 
-  /** Import rows from a CSV export (OpenEnventory or a spreadsheet); storage areas and shelves are made by name when missing. */
+  /**
+   * Import an inventory export (0.44): the substances first, found by CAS number or name or made (what the lab already knows
+   * about a substance is kept), then the containers, each of its substance. Storage places and divisions are made by name.
+   */
   app.post('/api/inventory/import', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = InventoryImport.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     return tx(() => {
+      const ids = new Map<string, number>();
+      for (const { key, name, cas, ...rest } of p.data.substances) ids.set(key, substanceFor(name, cas ?? '', rest));
       let n = 0;
-      for (const r of p.data.rows) {
-        const area = r.area ? areaByName(r.area, req.user.id) : null,
-          shelf = area && r.shelf ? shelfByName(area, r.shelf) : null;
-        write({ ...r, area_id: area, shelf_id: shelf, status: r.status ?? 'in use', unit: r.unit || 'g' }, req.user.id);
+      for (const { key, area: an, shelf: sn, ...r } of p.data.containers) {
+        const chem = ids.get(key);
+        if (!chem) continue;
+        const area = an ? areaByName(an, req.user.id) : null,
+          shelf = area && sn ? shelfByName(area, sn) : null;
+        write(
+          { ...r, chem_id: chem, area_id: area, shelf_id: shelf, status: r.status ?? 'in use', unit: r.unit || 'g' },
+          req.user.id,
+        );
         n++;
       }
-      return { imported: n };
+      return { imported: n, substances: ids.size };
     });
   });
 

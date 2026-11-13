@@ -15,7 +15,7 @@ import {
  */
 export type ChemUse = { name: string; mg?: number; ul?: number };
 /** The chemical table as recipes read it: names and roles (which solutes a mode offers), and the molar data. */
-export type ChemCtx = { chems: { name: string; role: string }[]; cl: Chem[] };
+export type ChemCtx = { chems: { name: string; role: string; roles?: string[] }[]; cl: Chem[] };
 
 // ------------------------------------------------------------------ solutions
 export type SolMode = 'Perovskite' | 'ETL' | 'HTL' | 'Custom';
@@ -64,7 +64,9 @@ export const solutionDefaults = () => ({
 export type SolutionD = ReturnType<typeof solutionDefaults>;
 
 export const solutesFor = (d: SolutionD, ctx: ChemCtx) => {
-  const by = (...r: string[]) => ctx.chems.filter((c) => r.includes(c.role)).map((c) => c.name);
+  // a substance may have several roles (0.44); a batch frozen before that has one
+  const by = (...r: string[]) =>
+    ctx.chems.filter((c) => (c.roles ?? [c.role]).some((x) => r.includes(x))).map((c) => c.name);
   return d.mode === 'ETL' ? by('etl', 'organic') : d.mode === 'HTL' ? by('htl') : ctx.chems.map((c) => c.name);
 };
 export const soluteOf = (d: SolutionD, ctx: ChemCtx) => {

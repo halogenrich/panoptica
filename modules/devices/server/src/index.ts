@@ -8,7 +8,6 @@ import { registerBatches } from './batches.js';
 import { registerComparisons } from './comparisons.js';
 import { registerIv } from './iv.js';
 import { registerPresets } from './presets.js';
-import { seedChemicals } from './chemicals.js';
 import {
   addModule,
   canSee,
@@ -32,9 +31,8 @@ import {
 /**
  * The Electronic Devices module (0.43: its own folder): batches as something bookings are for, the photovoltaics steps
  * equipment can do, the batch scheduler, recipes and stacks, batches, J–V measurements, comparisons, its records for comments,
- * trash and search, consumption, its part of the Overview, and the chemical list a new lab starts with.
+ * trash and search, consumption, its part of the Overview, (0.44: no chemical list of its own any more: substances come from the inventory's containers).
  */
-seedChemicals();
 
 const stepsOf = (eq: number) =>
   JSON.parse(

@@ -6,6 +6,7 @@
 export { db, tx, perms, tagsOf } from './db.js';
 export { migrate, add, has, meta, mark, type Migration } from './schema.js';
 export { notify } from './social.js';
+export { substances, type Substance, type Bottle } from './chemicals.js';
 export {
   addModule,
   canSee,

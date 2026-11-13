@@ -10,7 +10,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   Login,
   UserPatch,
-  ChemicalIn,
   PrefsIn,
   PasswordIn,
   FigureSettingsIn,
@@ -25,6 +24,7 @@ import { db, tx, perms, tagHas, tagsOf } from './db.js';
 import { hash, verify as verifyRaw } from './auth.js';
 import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
+import { registerChemicals } from './chemicals.js';
 import { registerCalendar } from './calendar.js';
 import { items, modules } from './modules.js';
 import { registerEquipment } from './equipment.js';
@@ -446,41 +446,8 @@ for (const m of modules()) m.register?.(app, auth, bad);
 startTrash();
 registerDashboard(app, auth);
 
-// ---- chemicals: everyone reads, admin edits ----
-app.get('/api/chemicals', { preHandler: auth() }, async () =>
-  (db.prepare('SELECT * FROM chemicals ORDER BY name').all() as any[]).map((r) => ({
-    id: r.id,
-    name: r.name,
-    ...JSON.parse(r.data),
-  })),
-);
-app.post('/api/chemicals', { preHandler: auth('inventory') }, async (req: any, reply) => {
-  const p = ChemicalIn.safeParse(req.body);
-  if (!p.success) return bad(reply, p);
-  const { name, ...rest } = p.data;
-  try {
-    return {
-      id: db.prepare('INSERT INTO chemicals(name,data) VALUES(?,?)').run(name, JSON.stringify(rest)).lastInsertRowid,
-    };
-  } catch {
-    return reply.code(409).send({ error: 'name already exists' });
-  }
-});
-app.put('/api/chemicals/:id', { preHandler: auth('inventory') }, async (req: any, reply) => {
-  const p = ChemicalIn.safeParse(req.body);
-  if (!p.success) return bad(reply, p);
-  const { name, ...rest } = p.data;
-  try {
-    db.prepare('UPDATE chemicals SET name=?,data=? WHERE id=?').run(name, JSON.stringify(rest), +req.params.id);
-    return { ok: true };
-  } catch {
-    return reply.code(409).send({ error: 'name already exists' });
-  }
-});
-app.delete('/api/chemicals/:id', { preHandler: auth('inventory') }, async (req: any) => {
-  db.prepare('DELETE FROM chemicals WHERE id=?').run(+req.params.id);
-  return { ok: true };
-});
+// ---- substances (0.44: chemicals.ts): made from the containers, edited by people with the Inventory tag ----
+registerChemicals(app, auth, bad);
 
 // ---- profile: own password, preferences; global search ----
 app.post('/api/me/password', { preHandler: auth() }, async (req: any, reply) => {
@@ -542,7 +509,7 @@ app.get('/api/search', { preHandler: auth() }, async (req: any) => {
     db
       .prepare(
         `SELECT c.id,c.name,c.lot,c.status,a.name AS place FROM containers c LEFT JOIN storage_areas a ON a.id=c.area_id
-         WHERE (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
+         WHERE (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q OR c.barcode LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
       )
       .all({ q }) as any[]
   ).map((c) => ({
@@ -552,8 +519,10 @@ app.get('/api/search', { preHandler: auth() }, async (req: any) => {
     link: { view: 'chem', id: c.id },
   }));
   const chemicals = (
-    db.prepare('SELECT id,name FROM chemicals WHERE name LIKE @q ORDER BY name LIMIT 8').all({ q }) as any[]
-  ).map((c) => ({ key: 'chemical:' + c.id, label: c.name, hint: 'Chemical list', link: { view: 'chem', id: null } }));
+    db
+      .prepare('SELECT id,name FROM chemicals WHERE name LIKE @q OR cas LIKE @q ORDER BY name LIMIT 8')
+      .all({ q }) as any[]
+  ).map((c) => ({ key: 'chemical:' + c.id, label: c.name, hint: 'Substance', link: { view: 'chem', id: null } }));
   return { hits: [...items().flatMap((k) => k.search?.(q, p) ?? []), ...containers, ...chemicals] };
 });
 

@@ -1,4 +1,5 @@
 import { add, db, has, meta, mark, migrate, type Migration } from '@psc/server/api';
+import { solutionDefaults, solutionUses, spinDefaults, spinUses } from '@psc/devices';
 import { classifySet, markShortsInSet } from './ivdata.js';
 
 /**
@@ -146,6 +147,47 @@ CREATE TABLE IF NOT EXISTS comparisons(
       db.exec(
         "UPDATE iv_sets SET system='csv' WHERE system='padrao'; UPDATE iv_sets SET system='txt' WHERE system='sun'",
       ),
+  },
+  {
+    id: 36,
+    owner: 'devices',
+    name: 'no starter chemical list (0.44): the ones no container or recipe uses go',
+    up: (d) => {
+      // a substance stays when a container is of it or a recipe takes it: named in the recipe (recipes keep names as JSON
+      // strings), or worked out from it (a perovskite's salts come from its composition)
+      const chems = (
+        d.prepare('SELECT id, name, data FROM chemicals').all() as { id: number; name: string; data: string }[]
+      ).map((c) => {
+        const x = JSON.parse(c.data || '{}');
+        return { id: c.id, name: c.name, roles: (x.roles ?? []) as string[], f: x.f ?? '', M: x.M ?? 0 };
+      });
+      const ctx = {
+          chems: chems.map((c) => ({ name: c.name, role: c.roles[0] ?? 'other', roles: c.roles })),
+          cl: chems.map((c) => ({ n: c.name, f: c.f, M: c.M })),
+        },
+        taken = new Set<string>();
+      for (const p of d.prepare("SELECT segment, data FROM presets WHERE segment IN ('s1', 's2')").all() as {
+        segment: string;
+        data: string;
+      }[])
+        try {
+          const uses =
+            p.segment === 's1'
+              ? solutionUses({ ...solutionDefaults(), ...JSON.parse(p.data) }, ctx)
+              : spinUses({ ...spinDefaults(), ...JSON.parse(p.data) });
+          for (const u of uses) taken.add(u.name);
+        } catch {
+          /* a recipe from an older version */
+        }
+      const unused = chems.filter(
+        (c) =>
+          !taken.has(c.name) &&
+          !d.prepare('SELECT 1 FROM containers WHERE chem_id=?').get(c.id) &&
+          !d.prepare('SELECT 1 FROM presets WHERE instr(data, ?) > 0').get(JSON.stringify(c.name)),
+      );
+      const del = d.prepare('DELETE FROM chemicals WHERE id=?');
+      for (const c of unused) del.run(c.id);
+    },
   },
 ];
 migrate(db, MIGRATIONS);

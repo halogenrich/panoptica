@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.44.0 (2026-11-13)
+
+- **Substances come from the containers**: the separate chemical list is gone. Adding or importing the first container of something makes its substance; the Inventory's **Substances** tab lists them with their CAS number, formula, molar mass (worked out from the formula when it can be), density, melting and boiling points, refractive index, hazard pictograms and roles. Several roles per substance are fine (a salt that is also an additive), and they still filter the lists in recipes and the inventory.
+- **Several containers of one substance**: another purity, lot or supplier is a second container of the same substance, found by CAS number, else by name. One is ticked **Used in recipes** (usually the bottle in the glovebox); with none ticked, recipes take the newest. Purity, supplier and lot belong to each container.
+- **The solution maker shows which container each mass is for**, and its purity sets the mass. With more than one in stock, people with the Inventory tag switch it right there. A salt with no container says **Not in stock** (the mass assumes 100 % purity); one the lab does not have says **Not in the inventory** and gives no mass instead of 0 mg. A batch keeps the container its recipes used, ready for 0.45.
+- **The OpenEnventory import works**: it skips the title line before the table, takes the name in English from the list of names, reads "45 g / 100 g" as 45 g left of a 100 g bottle, CAS number, formula, molar mass, density, melting and boiling points, refractive index, lot, purity, barcode, opened and expiry dates and hazard codes, and ticks **Controlled by the Federal Police** or **by the Army** from the comments. Before saving it shows each substance (name to shorten, roles to tick, and whether the lab has it already) and each place with the storage place and division it goes to ("Cabinet 2 - 07" becomes storage place Cabinet 2, division 07).
+- **Controlled substances** are two checkboxes (Federal Police, Army) and a filter, in place of free text.
+- **Spin coating dispenses**: choose **Solution** or **Solvent** first, then one from that list only; solutions and solvents no longer share one list.
+- Containers have a barcode, and search finds containers by barcode and substances by CAS number.
+- An older lab's chemical list becomes its substances: those with containers or used by a recipe stay (with their formula, molar mass and density), the purity and supplier of a chemical move to its containers that had none, and the starter entries nothing used are removed. Consumption is unchanged (checked batch by batch on an older lab database).
+
 ## 0.43.0 (2026-11-12)
 
 - **Electronic Devices is its own module** (`modules/devices`): its screens, its server routes, its calculations and its database changes moved out of the core. The core runs without it: the side menu is then Overview, Calendar, Inventory and Equipment, and none of the module's tables, routes, chemicals or screens exist.

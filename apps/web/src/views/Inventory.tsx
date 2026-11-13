@@ -5,8 +5,9 @@ import { useRefresh } from '../lib/trash';
 import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
-import { DragHandle, useReorder, type Chemical } from './common';
-import Chemicals from './Chemicals';
+import { Dialog, DragHandle, ROLES, ROLE_LABEL, useReorder, type Chemical } from './common';
+import { normCas, readInventory, splitPlace, type ImportResult } from '@psc/core';
+import Substances from './Substances';
 
 type Shelf = { id: number; name: string; pos: number };
 type Icon =
@@ -39,6 +40,9 @@ export type Box = {
   expires: string | null;
   opened: string | null;
   notes: string;
+  /** the container recipes use for its substance */
+  use: number;
+  barcode: string;
   added_by_name?: string;
   added_at: string;
   updated_by_name?: string;
@@ -171,39 +175,7 @@ const Fill = ({ b }: { b: Box }) => {
   );
 };
 
-/** A small dialog over the page; closes on Escape or a click outside. */
-function Dialog({
-  title,
-  onClose,
-  children,
-  wide,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, []);
-  return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={'dialog' + (wide ? ' wide' : '')} role="dialog" aria-label={title}>
-        <div className="dialog-head">
-          <h2>{title}</h2>
-          <button className="iconbtn" aria-label="Close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/** Inventory: storage places with divisions, containers, consumption from batches, the chemical list and the storage types. */
+/** Inventory: storage places with divisions, containers, consumption, the substances the containers are of, the storage types. */
 export default function Inventory({ canEdit, openId = null }: { canEdit: boolean; openId?: number | null }) {
   type Tab = 'storage' | 'containers' | 'use' | 'chems' | 'types';
   const [tab, setTab] = useState<Tab>(() => {
@@ -255,7 +227,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
     ['storage', 'Storage'],
     ['containers', 'Containers'],
     ['use', 'Consumption'],
-    ['chems', 'Chemical list'],
+    ['chems', 'Substances'],
     ...(canEdit ? [['types', 'Storage types'] as [Tab, string]] : []),
   ];
   return (
@@ -267,7 +239,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
       </div>
       {err && <p className="err">{err}</p>}
       {tab === 'chems' ? (
-        <Chemicals admin={canEdit} />
+        <Substances chems={chems} canEdit={canEdit} reload={load} />
       ) : !inv ? (
         <p className="mut">Loading…</p>
       ) : tab === 'storage' ? (
@@ -284,7 +256,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
           <Areas inv={inv} canEdit={canEdit} onOpen={setArea} reload={load} />
         )
       ) : tab === 'containers' ? (
-        <Containers inv={inv} canEdit={canEdit} where={where} onEdit={setEdit} reload={load} />
+        <Containers inv={inv} chems={chems} canEdit={canEdit} where={where} onEdit={setEdit} reload={load} />
       ) : tab === 'types' ? (
         <Types inv={inv} reload={load} />
       ) : (
@@ -922,12 +894,14 @@ function Types({ inv, reload }: { inv: Inv; reload: () => void }) {
 // ------------------------------------------------------------------ containers
 function Containers({
   inv,
+  chems,
   canEdit,
   where,
   onEdit,
   reload,
 }: {
   inv: Inv;
+  chems: Chemical[];
   canEdit: boolean;
   where: (b: Box) => string;
   onEdit: (b: Partial<Box>) => void;
@@ -935,22 +909,40 @@ function Containers({
 }) {
   const [q, setQ] = useState(''),
     [st, setSt] = useState<'' | Box['status']>(''),
+    [role, setRole] = useState(''),
+    [ctl, setCtl] = useState<'' | 'pf' | 'army'>(''),
     [imp, setImp] = useState(false);
-  const ql = q.toLowerCase();
+  const ql = q.toLowerCase(),
+    of = (b: Box) => chems.find((c) => c.id === b.chem_id);
   const list = inv.containers.filter(
     (b) =>
       (!st ? b.status !== 'empty' : b.status === st) &&
-      (!ql || [b.name, b.cas, b.supplier, b.lot, where(b)].some((x) => x?.toLowerCase().includes(ql))),
+      (!role || !!of(b)?.roles.includes(role)) &&
+      (!ctl || !!of(b)?.[ctl]) &&
+      (!ql || [b.name, b.cas, b.supplier, b.lot, b.barcode, where(b)].some((x) => x?.toLowerCase().includes(ql))),
   );
   return (
     <>
       <div className="inline" style={{ marginBottom: 12 }}>
         <input
           type="search"
-          placeholder="Search name, CAS, supplier, lot, place"
+          placeholder="Search name, CAS, supplier, lot, barcode, place"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role">
+          <option value="">All roles</option>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {ROLE_LABEL[r]}
+            </option>
+          ))}
+        </select>
+        <select value={ctl} onChange={(e) => setCtl(e.target.value as typeof ctl)} aria-label="Controlled">
+          <option value="">Controlled or not</option>
+          <option value="pf">Federal Police</option>
+          <option value="army">Army</option>
+        </select>
         <select value={st} onChange={(e) => setSt(e.target.value as any)}>
           <option value="">Not empty</option>
           {STATUS.map((s) => (
@@ -973,6 +965,8 @@ function Containers({
       </div>
       {imp && (
         <Import
+          inv={inv}
+          chems={chems}
           onClose={() => setImp(false)}
           onDone={() => {
             setImp(false);
@@ -1000,6 +994,9 @@ function Containers({
                 <td>
                   <b>{b.name}</b>
                   {b.cas && <div className="mut small">CAS {b.cas}</div>}
+                  {b.status !== 'empty' && of(b)?.bottle?.id === b.id && (of(b)?.bottles.length ?? 0) > 1 && (
+                    <div className="small">Used in recipes</div>
+                  )}
                 </td>
                 <td className="nowrap">
                   <Fill b={b} /> {amountText(b)}
@@ -1056,6 +1053,7 @@ function ContainerForm({
       supplier: '',
       lot: '',
       notes: '',
+      barcode: '',
       amount: null,
       size: null,
       purity: null,
@@ -1067,11 +1065,16 @@ function ContainerForm({
   const set = (p: Partial<Box>) => setF((x) => ({ ...x, ...p }));
   const area = inv.areas.find((a) => a.id === f.area_id);
   const num = (v: string) => (v === '' ? null : +v);
+  // the substance it is of: one already in the lab (by name), or a new one made with this container
+  const picked = chems.find((c) => c.name.toLowerCase() === (f.name ?? '').trim().toLowerCase()),
+    [useIt, setUseIt] = useState<boolean>(() => (init.id ? !!init.use : !picked?.bottle));
   const save = (over: Partial<Box> = {}) => {
     const g = { ...f, ...over };
     const body = {
       name: g.name,
-      chem_id: chems.find((c) => c.name.toLowerCase() === (g.name ?? '').toLowerCase())?.id ?? null,
+      chem_id: picked?.id ?? null,
+      use: useIt,
+      barcode: g.barcode ?? '',
       cas: g.cas,
       amount: g.amount,
       size: g.size,
@@ -1102,7 +1105,7 @@ function ContainerForm({
         <fieldset disabled={!canEdit}>
           <div className="grid2">
             <label className="fld span2">
-              <span>Chemical</span>
+              <span>Substance</span>
               <input
                 list="inv-chems"
                 value={f.name ?? ''}
@@ -1113,9 +1116,18 @@ function ContainerForm({
             </label>
             <datalist id="inv-chems">
               {chems.map((c) => (
-                <option key={c.id} value={c.name} />
+                <option key={c.id} value={c.name}>
+                  {[c.cas && `CAS ${c.cas}`, c.f].filter(Boolean).join(', ')}
+                </option>
               ))}
             </datalist>
+            <p className="mut small span2">
+              {!f.name?.trim()
+                ? 'Pick a substance the lab has, or type a new one.'
+                : picked
+                  ? `Of ${picked.name}${picked.cas ? `, CAS ${picked.cas}` : ''}${picked.f ? `, ${picked.f}` : ''}. ${picked.bottles.length} other container${picked.bottles.length === 1 ? '' : 's'} in stock.`
+                  : 'A new substance: it is made with this container. Set its formula and roles under Substances.'}
+            </p>
             <label className="fld">
               <span>Supplier</span>
               <input value={f.supplier ?? ''} onChange={(e) => set({ supplier: e.target.value })} />
@@ -1126,7 +1138,11 @@ function ContainerForm({
             </label>
             <label className="fld">
               <span>CAS number</span>
-              <input value={f.cas ?? ''} onChange={(e) => set({ cas: e.target.value })} />
+              <input
+                value={picked?.cas || f.cas || ''}
+                disabled={!!picked?.cas}
+                onChange={(e) => set({ cas: e.target.value })}
+              />
             </label>
             <label className="fld">
               <span>Purity</span>
@@ -1174,6 +1190,13 @@ function ContainerForm({
               </select>
             </label>
           </div>
+          <label className="check">
+            <input type="checkbox" checked={useIt} onChange={(e) => setUseIt(e.target.checked)} /> Used in recipes
+            <span className="mut small">
+              {' '}
+              (the bottle recipes take: its purity sets the masses of solutions; one per substance)
+            </span>
+          </label>
           <div className="fld">
             <span>Status</span>
             <Seg
@@ -1226,6 +1249,10 @@ function ContainerForm({
               <span>Expires</span>
               <input type="date" value={f.expires ?? ''} onChange={(e) => set({ expires: e.target.value || null })} />
             </label>
+            <label className="fld">
+              <span>Barcode</span>
+              <input value={f.barcode ?? ''} onChange={(e) => set({ barcode: e.target.value })} />
+            </label>
             <label className="fld span2">
               <span>Notes</span>
               <textarea rows={2} value={f.notes ?? ''} onChange={(e) => set({ notes: e.target.value })} />
@@ -1277,134 +1304,95 @@ function ContainerForm({
   );
 }
 
-// ------------------------------------------------------------------ import (CSV from OpenEnventory or a spreadsheet)
-const FIELDS: [string, string, string[]][] = [
-  [
-    'name',
-    'Name',
-    ['name', 'molecule_name', 'molecule', 'chemical', 'chemical name', 'substance', 'compound', 'nome', 'reagente'],
-  ],
-  ['cas', 'CAS', ['cas', 'cas_nr', 'casnr', 'cas no', 'cas number', 'cas-nr']],
-  ['amount', 'Amount left', ['actual_amount', 'amount', 'quantity', 'qty', 'quantidade', 'remaining']],
-  ['size', 'Container size', ['package_amount', 'size', 'container size', 'total amount', 'package size', 'tamanho']],
-  ['unit', 'Unit', ['amount_unit', 'unit', 'units', 'unidade']],
-  ['area', 'Storage', ['storage_name', 'storage', 'location', 'cabinet', 'room', 'local', 'armario']],
-  ['shelf', 'Division', ['compartment', 'shelf', 'division', 'tray', 'drawer', 'position', 'prateleira']],
-  ['supplier', 'Supplier', ['supplier', 'vendor', 'brand', 'manufacturer', 'fornecedor', 'marca']],
-  ['lot', 'Lot', ['lot', 'lot_no', 'batch', 'batch_no', 'lote']],
-  ['purity', 'Purity (%)', ['purity', 'pureza']],
-  ['expires', 'Expires', ['expiry_date', 'expiry', 'expires', 'expiration', 'validade']],
-  ['opened', 'Opened', ['open_date', 'opened', 'opening date', 'aberto']],
-  ['notes', 'Notes', ['comment', 'comments', 'notes', 'description', 'observacoes']],
-];
-/** CSV/TSV with quotes; the delimiter is guessed from the header line. */
-function parseCsv(text: string): string[][] {
-  const first = text.split(/\r?\n/, 1)[0],
-    d = [',', ';', '\t'].map((c) => [c, first.split(c).length] as const).sort((a, b) => b[1] - a[1])[0][0];
-  const rows: string[][] = [];
-  let row: string[] = [],
-    cell = '',
-    q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          cell += '"';
-          i++;
-        } else q = false;
-      } else cell += c;
-    } else if (c === '"') q = true;
-    else if (c === d) {
-      row.push(cell);
-      cell = '';
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++;
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else cell += c;
-  }
-  if (cell || row.length) {
-    row.push(cell);
-    rows.push(row);
-  }
-  return rows.filter((r) => r.some((x) => x.trim()));
-}
-const normDate = (v: string) => {
-  const s = v.trim();
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-  m = s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
-  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
-};
-const normUnit = (u: string) => {
-  const s = u.trim().replace('ul', 'µL').replace('uL', 'µL');
-  const k = UNITS.find((x) => x.toLowerCase() === s.toLowerCase());
-  return k;
-};
-
-function Import({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [rows, setRows] = useState<string[][] | null>(null),
-    [map, setMap] = useState<Record<string, number>>({}),
+// ------------------------------------------------------------------ import (an OpenEnventory export or a spreadsheet)
+/**
+ * Import (0.44): the export is read in the browser (packages/core inventoryCsv.ts), then checked before anything is saved: one
+ * line per substance found (its name, as the export gives it in several languages, and its roles) and one per place (which
+ * storage place and division it is). Substances already in the lab are found by CAS number or name.
+ */
+function Import({
+  inv,
+  chems,
+  onClose,
+  onDone,
+}: {
+  inv: Inv;
+  chems: Chemical[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [res, setRes] = useState<ImportResult | null>(null),
+    [subs, setSubs] = useState<Record<string, { name: string; roles: string[] }>>({}),
+    [places, setPlaces] = useState<Record<string, { area: string; shelf: string }>>({}),
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(false);
   const read = (f?: File) =>
     f &&
     f.text().then((t) => {
-      const r = parseCsv(t.replace(/^\uFEFF/, ''));
-      if (r.length < 2) return setErr('No rows found. Export a CSV with a header line.');
-      const h = r[0].map((x) => x.trim().toLowerCase()),
-        m: Record<string, number> = {};
-      for (const [k, , syn] of FIELDS) {
-        const i = syn.map((s) => h.indexOf(s)).find((i) => i >= 0);
-        if (i !== undefined) m[k] = i;
-      }
+      const r = readInventory(t);
+      if (!r.rows.length) return setErr('No containers found. Export a CSV with a header line and a name column.');
       setErr('');
-      setRows(r);
-      setMap(m);
+      setRes(r);
+      setSubs(Object.fromEntries(r.substances.map((x) => [x.key, { name: x.name, roles: [] as string[] }])));
+      setPlaces(
+        Object.fromEntries(
+          r.places.map((pl) => [
+            pl,
+            splitPlace(
+              pl,
+              inv.areas.map((a) => a.name),
+            ),
+          ]),
+        ),
+      );
     });
-  const out = useMemo(
-    () =>
-      !rows
-        ? []
-        : rows
-            .slice(1)
-            .map((r) => {
-              const g = (k: string) => (map[k] !== undefined ? (r[map[k]] ?? '').trim() : '');
-              let amount: number | null = parseFloat(g('amount').replace(',', '.'));
-              const unit = normUnit(g('unit')) ?? normUnit(g('amount').replace(/^[\d.,\s]+/, '')) ?? 'g';
-              if (!Number.isFinite(amount)) amount = null;
-              const size = parseFloat(g('size').replace(',', '.')),
-                purity = parseFloat(g('purity').replace(',', '.').replace('%', ''));
-              return {
-                name: g('name'),
-                cas: g('cas'),
-                amount,
-                size: Number.isFinite(size) ? size : null,
-                unit,
-                area: g('area') || undefined,
-                shelf: g('shelf') || undefined,
-                supplier: g('supplier'),
-                lot: g('lot'),
-                purity: Number.isFinite(purity) && purity <= 100 ? purity : null,
-                expires: normDate(g('expires')),
-                opened: normDate(g('opened')),
-                notes: g('notes'),
-                status: amount === 0 ? 'empty' : 'in use',
-              };
-            })
-            .filter((x) => x.name),
-    [rows, map],
-  );
+  const inLab = (x: ImportResult['substances'][number]) =>
+    chems.find((c) => (x.cas && normCas(c.cas) === x.cas) || c.name.toLowerCase() === subs[x.key]?.name.toLowerCase());
   const go = () => {
+    if (!res) return;
     setBusy(true);
-    api<{ imported: number }>('/inventory/import', 'POST', { rows: out })
+    api<{ imported: number }>('/inventory/import', 'POST', {
+      substances: res.substances.map((x) => ({
+        key: x.key,
+        name: subs[x.key].name.trim() || x.name,
+        cas: x.cas,
+        f: x.f,
+        M: x.M ?? undefined,
+        d: x.d,
+        mp: x.mp,
+        bp: x.bp,
+        nD: x.nD,
+        ghs: x.ghs,
+        pf: x.pf,
+        army: x.army,
+        roles: subs[x.key].roles,
+      })),
+      containers: res.rows.map((r) => ({
+        key: r.key,
+        amount: r.amount,
+        size: r.size,
+        unit: r.unit,
+        supplier: r.supplier,
+        lot: r.lot,
+        purity: r.purity,
+        expires: r.expires,
+        opened: r.opened,
+        notes: r.notes,
+        barcode: r.barcode,
+        status: r.amount === 0 ? 'empty' : 'in use',
+        area: (r.place && places[r.place]?.area.trim()) || undefined,
+        shelf: (r.place && places[r.place]?.shelf.trim()) || undefined,
+      })),
+    })
       .then(onDone)
       .catch((e) => setErr(e.message))
       .finally(() => setBusy(false));
   };
+  const toggle = (k: string, r: string) =>
+    setSubs((x) => ({
+      ...x,
+      [k]: { ...x[k], roles: x[k].roles.includes(r) ? x[k].roles.filter((y) => y !== r) : [...x[k].roles, r] },
+    }));
   return (
     <section className="group import">
       <div className="inline">
@@ -1415,66 +1403,132 @@ function Import({ onClose, onDone }: { onClose: () => void; onDone: () => void }
         </button>
       </div>
       <p className="mut small">
-        A CSV export from OpenEnventory or any spreadsheet (save as CSV). Columns are matched by their header; check
-        them below. Storage places and divisions are created by name.
+        A CSV export from OpenEnventory, or any spreadsheet saved as CSV with a header line. Nothing is saved until you
+        check the substances and places below.
       </p>
       <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={(e) => read(e.target.files?.[0])} />
-      {rows && (
+      {res && (
         <>
-          <div className="map-grid">
-            {FIELDS.map(([k, label]) => (
-              <label key={k}>
-                {label}
-                <select
-                  value={map[k] ?? ''}
-                  onChange={(e) =>
-                    setMap({ ...map, [k]: e.target.value === '' ? (undefined as any) : +e.target.value })
-                  }
-                >
-                  <option value="">—</option>
-                  {rows[0].map((h, i) => (
-                    <option key={i} value={i}>
-                      {h || `Column ${i + 1}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
+          <p className="small">
+            {res.rows.length} container{res.rows.length === 1 ? '' : 's'} of {res.substances.length} substance
+            {res.substances.length === 1 ? '' : 's'}
+            {res.skipped ? `; ${res.skipped} line${res.skipped === 1 ? '' : 's'} that are not containers left out` : ''}
+            .<span className="mut"> Read from: {Object.values(res.columns).join(', ')}.</span>
+          </p>
+          <h4 className="form-h">Substances</h4>
           <div className="scroll">
-            <table className="list small">
+            <table className="list small import-subs">
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Left</th>
-                  <th>Storage, division</th>
-                  <th>Supplier</th>
-                  <th>Lot</th>
-                  <th>Expires</th>
+                  <th>CAS</th>
+                  <th>Formula</th>
+                  <th>M (g/mol)</th>
+                  <th>Roles</th>
+                  <th>In the lab</th>
                 </tr>
               </thead>
               <tbody>
-                {out.slice(0, 6).map((r, i) => (
-                  <tr key={i}>
-                    <td>{r.name}</td>
-                    <td>
-                      {r.amount ?? '—'}
-                      {r.size ? ` / ${r.size}` : ''} {r.unit}
-                    </td>
-                    <td>{[r.area, r.shelf].filter(Boolean).join(', ') || '—'}</td>
-                    <td>{r.supplier}</td>
-                    <td>{r.lot}</td>
-                    <td>{r.expires ?? ''}</td>
-                  </tr>
-                ))}
+                {res.substances.map((x) => {
+                  const had = inLab(x);
+                  return (
+                    <tr key={x.key}>
+                      <td>
+                        <input
+                          aria-label={'Name of ' + x.name}
+                          value={subs[x.key]?.name ?? ''}
+                          onChange={(e) => setSubs({ ...subs, [x.key]: { ...subs[x.key], name: e.target.value } })}
+                        />
+                        <div className="mut">
+                          {x.containers} container{x.containers === 1 ? '' : 's'}
+                          {x.pf ? ', Federal Police' : ''}
+                          {x.army ? ', Army' : ''}
+                        </div>
+                      </td>
+                      <td>{x.cas || '—'}</td>
+                      <td>{x.f || '—'}</td>
+                      <td>{x.M ? x.M.toFixed(2) : <span className="err">missing</span>}</td>
+                      <td>
+                        <div className="chips compact">
+                          {ROLES.filter((r) => r !== 'other').map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              className={'chip' + (subs[x.key]?.roles.includes(r) ? ' on' : '')}
+                              aria-pressed={subs[x.key]?.roles.includes(r)}
+                              onClick={() => toggle(x.key, r)}
+                            >
+                              {ROLE_LABEL[r]}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                      <td>{had ? `Yes, as ${had.name}` : <span className="mut">New</span>}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {res.places.length > 0 && (
+            <>
+              <h4 className="form-h">Places</h4>
+              <p className="mut small">
+                Which storage place and division each place in the export is ("Cabinet 2 - 07" is read as storage place
+                Cabinet 2, division 07). A name that is not a storage place yet makes a new one:{' '}
+                {
+                  new Set(
+                    Object.values(places)
+                      .map((x) => x.area.trim().toLowerCase())
+                      .filter((a) => a && !inv.areas.some((y) => y.name.toLowerCase() === a)),
+                  ).size
+                }{' '}
+                new storage places as it stands.
+              </p>
+              <datalist id="imp-areas">
+                {inv.areas.map((a) => (
+                  <option key={a.id} value={a.name} />
+                ))}
+              </datalist>
+              <div className="scroll">
+                <table className="list small">
+                  <thead>
+                    <tr>
+                      <th>In the export</th>
+                      <th>Storage place</th>
+                      <th>Division</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {res.places.map((pl) => (
+                      <tr key={pl}>
+                        <td>{pl}</td>
+                        <td>
+                          <input
+                            list="imp-areas"
+                            aria-label={'Storage place for ' + pl}
+                            value={places[pl]?.area ?? ''}
+                            onChange={(e) => setPlaces({ ...places, [pl]: { ...places[pl], area: e.target.value } })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label={'Division for ' + pl}
+                            value={places[pl]?.shelf ?? ''}
+                            onChange={(e) => setPlaces({ ...places, [pl]: { ...places[pl], shelf: e.target.value } })}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
           <div className="inline">
-            <button className="btn" disabled={busy || !out.length || map.name === undefined} onClick={go}>
-              Import {out.length} container{out.length === 1 ? '' : 's'}
+            <button className="btn" disabled={busy} onClick={go}>
+              Import {res.rows.length} container{res.rows.length === 1 ? '' : 's'}
             </button>
-            {map.name === undefined && <span className="err small">Choose the Name column</span>}
           </div>
         </>
       )}
@@ -1591,7 +1645,7 @@ function Consumption({ inv, chems }: { inv: Inv; chems: Chemical[] }) {
           <table className="list use-table">
             <thead>
               <tr>
-                <th>Chemical</th>
+                <th>Substance</th>
                 <th>Use per {label}</th>
                 <th>This {label}</th>
                 <th>Average</th>

@@ -16,7 +16,7 @@ A web app for one research group: recipes and designs for perovskite solar cell 
 | Data | Examples | Sensitivity |
 |---|---|---|
 | Research records | recipes, stacks, batches, run data, J–V curves, comments | Unpublished research: confidential to the group |
-| Inventory | chemicals, containers, amounts, places | Internal |
+| Inventory | substances, containers, amounts, places | Internal |
 | Calendar | equipment bookings and their outcome | Internal |
 | Accounts | username, names, institutional email, birth date, department, supervisors, photo, tags, equipment training, password hash | Personal data |
 | Usage | last time seen online, activity log (who changed what, when, from which network address) | Personal data |
@@ -34,7 +34,7 @@ Admins make tags; a tag can give permissions:
 | Role or permission | Can |
 |---|---|
 | Member | Create and edit their own work; read work others marked **Shared**; book equipment they are trained on; open their own overview (and their students', for supervisors) |
-| **Inventory management** | Edit the chemicals and the inventory |
+| **Inventory management** | Edit the substances and the inventory |
 | **Equipment management** | Add, arrange and move places and equipment |
 | **Equipment training** | Record who is trained on which equipment |
 | **Lab overview** | Open the lab's overview and anyone's (activity, people's pages, equipment use) |

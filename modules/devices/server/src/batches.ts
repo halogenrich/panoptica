@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { BatchIn, BatchPatch, VariantsIn } from '@psc/devices/schema';
 import { CORE_VERSION } from '@psc/devices';
-import { canSee, db, type User } from '@psc/server/api';
+import { canSee, db, substances, type User } from '@psc/server/api';
 import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
 
 /** Batches (0.43, from the core's entry file): a stack frozen when the run starts, the values recorded during it, its variants. */
@@ -57,6 +57,25 @@ const resolveStack = (u: User, stack: { sl?: { a: string; b: string }[] }, stric
   return resolved;
 };
 
+/**
+ * The substances as a batch freezes them (0.44): identity, roles, and the container recipes use, whose purity the masses are
+ * for (its supplier and lot are kept with the batch).
+ */
+const frozenChems = () =>
+  substances().map((c) => ({
+    name: c.name,
+    role: c.role,
+    roles: c.roles,
+    f: c.f,
+    M: c.M,
+    d: c.d,
+    pur: c.pur,
+    brand: c.brand,
+    bottle: c.bottle
+      ? { id: c.bottle.id, supplier: c.bottle.supplier, lot: c.bottle.lot, purity: c.bottle.purity }
+      : null,
+  }));
+
 export function registerBatches(app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) {
   app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
     const rows = db
@@ -107,10 +126,7 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
     if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     const stack = JSON.parse(r.data),
       resolved = resolveStack(req.user, stack);
-    const chems = (db.prepare('SELECT name,data FROM chemicals').all() as any[]).map((c) => ({
-      name: c.name,
-      ...JSON.parse(c.data),
-    }));
+    const chems = frozenChems();
     return { id: r.id, code: r.name, snapshot: { stack, resolved, chems } };
   });
   app.post('/api/batches', { preHandler: auth() }, async (req: any, reply) => {
@@ -124,10 +140,7 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
     } catch (e) {
       return reply.code(400).send({ error: (e as Error).message });
     }
-    const chems = (db.prepare('SELECT name,data FROM chemicals').all() as any[]).map((r) => ({
-      name: r.name,
-      ...JSON.parse(r.data),
-    }));
+    const chems = frozenChems();
     // batches are started by name; the code is the next free number of the day (trashed batches keep theirs)
     let code = p.data.code.trim();
     if (!code) {

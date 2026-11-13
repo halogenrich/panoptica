@@ -375,6 +375,53 @@ try {
       expect((await api('GET', '/presets/' + stackId)).s === 200, 'the stack is not back');
     });
 
+  await step('a container makes its substance; an export is reviewed before it is imported', async () => {
+    await nav('Inventory');
+    await page.getByRole('tab', { name: 'Containers', exact: true }).click();
+    await page.getByRole('button', { name: 'Add container' }).click();
+    const dlg = page.getByRole('dialog', { name: 'Add container' });
+    await dlg.getByRole('combobox', { name: 'Substance' }).fill('Browser salt');
+    await dlg.getByText('A new substance', { exact: false }).waitFor();
+    await dlg.getByLabel('Supplier').fill('Acme');
+    await dlg.getByLabel('CAS number').fill('7681-82-5');
+    await dlg.getByRole('button', { name: 'Add container' }).click();
+    await dlg.waitFor({ state: 'detached' });
+    await page.getByRole('tab', { name: 'Substances', exact: true }).click();
+    await page.locator('tr').filter({ hasText: 'Browser salt' }).filter({ hasText: '7681-82-5' }).waitFor();
+    // a made-up export in OpenEnventory's layout: a title line, "left / size" amounts, places as "compartment X"
+    const csv = [
+      'name,empirical formula,CAS number,purity/concentration,MW,amount,Lot no.,storage,supplier,comment on chemical',
+      'Results from own database',
+      '"Browser salt; sodium iodide (German: Natriumiodid)",INa,7681-82-5,99.5 %,149.89,"20 g / 50 g",BX-1,compartment Shelf 9,Beta,',
+      '"Browser solvent",C2H6O,64-17-5,,,"0.5 l / 1 l",BX-2,compartment Shelf 9,Gamma,controlled by the Federal Police',
+    ].join('\n');
+    await page.getByRole('tab', { name: 'Containers', exact: true }).click();
+    await page.getByRole('button', { name: 'Import CSV' }).click();
+    await page
+      .locator('section.import input[type=file]')
+      .setInputFiles({ name: 'export.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+    await page.getByText(/2 containers of 2 substances; 1 line/).waitFor();
+    await page
+      .locator('.import-subs tr')
+      .filter({ hasText: '7681-82-5' })
+      .getByText(/Yes, as Browser salt/)
+      .waitFor();
+    await page.getByLabel('Storage place for Shelf 9').fill('Browser cabinet');
+    await page
+      .locator('section.import')
+      .getByRole('button', { name: /^Import/ })
+      .click();
+    await page.locator('section.import').waitFor({ state: 'detached' });
+    const subs = (await api('GET', '/chemicals')).j;
+    const salt = subs.find((x) => x.name === 'Browser salt'),
+      solv = subs.find((x) => x.name === 'Browser solvent');
+    expect(salt?.bottles.length === 2 && salt.M === 149.89, 'the imported container did not join its substance');
+    expect(
+      solv?.pf && solv.bottle?.place === 'Browser cabinet',
+      'the new substance, its control or its place is wrong',
+    );
+  });
+
   await step(
     CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
     async () => {
