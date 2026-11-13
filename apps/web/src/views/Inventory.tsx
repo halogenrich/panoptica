@@ -2,7 +2,7 @@ import { useItemRoute } from '../lib/route';
 import CopyLink from '../lib/CopyLink';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRefresh } from '../lib/trash';
-import { fmtAmount, forecast, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
+import { fmtAmount, forecast, isMass, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
 import { Dialog, DragHandle, ROLES, ROLE_LABEL, useReorder, type Chemical } from './common';
@@ -1032,6 +1032,46 @@ function Containers({
   );
 }
 
+/** What records (batches) took from a container (0.45), newest first; its amount went down by these. */
+function ContainerTakes({ id }: { id: number }) {
+  const [list, setList] = useState<
+    {
+      id: number;
+      at: string;
+      what: string;
+      link: { view: string; id: number | null } | null;
+      amount: number | null;
+      unit: string;
+      note: string;
+    }[]
+  >([]);
+  useEffect(() => {
+    api<typeof list>(`/inventory/containers/${id}/draws`)
+      .then(setList)
+      .catch(() => {});
+  }, [id]);
+  if (!list.length) return null;
+  return (
+    <div className="takes-of">
+      <h3 className="form-h">Taken by</h3>
+      <ul className="plain small">
+        {list.map((d) => (
+          <li key={d.id}>
+            <span className="mut">{fmtDate(d.at)}</span>{' '}
+            {d.link ? <a href={`#/${d.link.view}/${d.link.id}`}>{d.what}</a> : d.what}
+            {' · '}
+            {d.amount !== null ? (
+              fmtAmount(toBase(d.amount, d.unit, isMass(d.unit) ? 'mg' : 'µL') ?? 0, isMass(d.unit) ? 'mg' : 'µL')
+            ) : (
+              <span className="err">not taken: {d.note}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ContainerForm({
   init,
   inv,
@@ -1265,6 +1305,7 @@ function ContainerForm({
             {f.updated_at ? `. Last changed by ${f.updated_by_name} on ${fmtDate(f.updated_at)}.` : '.'}
           </p>
         )}
+        {f.id && <ContainerTakes id={f.id} />}
         {err && <p className="err small">{err}</p>}
         {!canEdit && f.id && (
           <div className="dialog-actions">

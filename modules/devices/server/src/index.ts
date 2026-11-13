@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { ScheduleIn } from '@psc/devices/schema';
 import { STEP_KINDS, roleFromSteps, snapshotUses, stepsFromRole } from '@psc/devices';
 import { lockedById, markDone } from './batchlock.js';
+import { takeForBatch } from './takes.js';
 import { devicesOverview } from './overview.js';
 import { registerBatches } from './batches.js';
 import { registerComparisons } from './comparisons.js';
@@ -45,7 +46,7 @@ const stepsOf = (eq: number) =>
  * Bookings on measuring equipment (J–V measurement of finished devices) are not steps of the batch.
  */
 export function settleBatch(id: number) {
-  const b = db.prepare('SELECT status, code, owner_id, plan_steps FROM batches WHERE id=?').get(id) as any;
+  const b = db.prepare('SELECT status, name, owner_id, plan_steps FROM batches WHERE id=?').get(id) as any;
   const ks = (
     db.prepare("SELECT outcome, step, equipment_id FROM bookings WHERE subject='batch' AND subject_id=?").all(id) as {
       outcome: string | null;
@@ -59,12 +60,13 @@ export function settleBatch(id: number) {
   if (plan.some((st) => !ks.some((k) => k.step === st && (k.outcome === 'done' || k.outcome === 'canceled')))) return;
   db.prepare("UPDATE batches SET status='done', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
   markDone(id);
+  takeForBatch(id);
   notify(
     [b.owner_id],
     'batch',
     ks.some((k) => k.outcome === 'done')
-      ? `Batch ${b.code} is Done: every scheduled step is concluded`
-      : `Batch ${b.code} was closed: its steps were canceled`,
+      ? `Batch ${b.name} is Done: every scheduled step is concluded`
+      : `Batch ${b.name} was closed: its steps were canceled`,
     { view: 'batches', id },
   );
 }
@@ -74,7 +76,7 @@ export function startDueBatches() {
   const now = new Date().toISOString();
   const due = db
     .prepare(
-      `SELECT b.id, b.code, b.owner_id, MIN(k.start) AS first,
+      `SELECT b.id, b.name, b.owner_id, MIN(k.start) AS first,
          (SELECT e.name FROM bookings k2 JOIN equipment e ON e.id=k2.equipment_id
            WHERE k2.subject='batch' AND k2.subject_id=b.id ORDER BY k2.start LIMIT 1) AS eq
        FROM batches b JOIN bookings k ON k.subject='batch' AND k.subject_id=b.id
@@ -83,7 +85,8 @@ export function startDueBatches() {
     .all(now) as any[];
   for (const b of due) {
     db.prepare("UPDATE batches SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(b.id);
-    notify([b.owner_id], 'batch', `Batch ${b.code} is now Running: its first booking (${b.eq}) has started`, {
+    takeForBatch(b.id);
+    notify([b.owner_id], 'batch', `Batch ${b.name} is now Running: its first booking (${b.eq}) has started`, {
       view: 'batches',
       id: b.id,
     });
@@ -157,7 +160,7 @@ function registerDevicesCalendar(app: FastifyInstance, auth: (need?: any) => any
   app.post('/api/bookings/:id/runs-later', { preHandler: auth() }, async (req: any, reply) => {
     const k = db
       .prepare(
-        "SELECT k.*, b.owner_id, b.code FROM bookings k JOIN batches b ON k.subject='batch' AND b.id=k.subject_id WHERE k.id=? AND b.deleted_at IS NULL",
+        "SELECT k.*, b.owner_id, b.name AS batch FROM bookings k JOIN batches b ON k.subject='batch' AND b.id=k.subject_id WHERE k.id=? AND b.deleted_at IS NULL",
       )
       .get(+req.params.id) as any;
     if (!k) return reply.code(404).send({ error: 'not found' });
@@ -166,7 +169,7 @@ function registerDevicesCalendar(app: FastifyInstance, auth: (need?: any) => any
     notify(
       [k.user_id],
       'runs',
-      `Run data for ${k.step || 'a concluded step'} of batch ${k.code} is still missing. Add it from the batch page.`,
+      `Run data for ${k.step || 'a concluded step'} of batch ${k.batch} is still missing. Add it from the batch page.`,
       { view: 'batches', id: k.subject_id },
     );
     return { ok: true };
@@ -284,7 +287,6 @@ const ONE: Record<string, string> = {
   s3: 'Organic evaporation',
   s4: 'Metal evaporation',
 };
-const batchName = (r: { code: string; name: string }) => r.code + (r.name ? ' · ' + r.name : '');
 const ITEMS: ItemKind[] = [
   {
     kind: 'preset',
@@ -316,22 +318,24 @@ const ITEMS: ItemKind[] = [
     kind: 'batch',
     module: 'devices',
     table: 'batches',
-    cols: 'code,name',
+    cols: 'name',
     describe: (r) => ({
-      name: batchName(r),
+      name: r.name,
       type: 'Batch',
-      title: 'batch ' + batchName(r),
+      title: 'batch ' + r.name,
       link: { view: 'batches', id: r.id },
     }),
     comments: true,
+    // back from the trash, a batch that had started takes its amounts again
+    restored: takeForBatch,
     search: (_q, p) =>
       (
         db
           .prepare(
-            `SELECT id,code,name FROM batches WHERE deleted_at IS NULL AND (code LIKE @q OR name LIKE @q) AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY id DESC LIMIT 8`,
+            `SELECT id,name FROM batches WHERE deleted_at IS NULL AND name LIKE @q AND (owner_id=@uid OR visibility='shared' OR @all=1) ORDER BY id DESC LIMIT 8`,
           )
           .all(p) as any[]
-      ).map((r) => ({ key: 'batch:' + r.id, label: batchName(r), hint: 'Batch', link: { view: 'batches', id: r.id } })),
+      ).map((r) => ({ key: 'batch:' + r.id, label: r.name, hint: 'Batch', link: { view: 'batches', id: r.id } })),
   },
   {
     kind: 'iv',
@@ -380,11 +384,11 @@ addModule({
       (
         db
           .prepare(
-            `SELECT code,owner_id,visibility,snapshot,created_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
+            `SELECT name,owner_id,visibility,snapshot,created_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
           )
           .all() as any[]
       ).map((b) => ({
-        label: b.code,
+        label: b.name,
         date: b.created_at,
         owner_id: b.owner_id,
         shared: b.visibility === 'shared',
@@ -416,7 +420,7 @@ addModule({
     },
     names: [
       ['/api/presets/', 'SELECT name AS n FROM presets WHERE id=?'],
-      ['/api/batches/', 'SELECT code AS n FROM batches WHERE id=?'],
+      ['/api/batches/', 'SELECT name AS n FROM batches WHERE id=?'],
       ['/api/comparisons/', 'SELECT name AS n FROM comparisons WHERE id=?'],
       ['/api/iv/:id', 'SELECT name AS n FROM iv_sets WHERE id=?'],
     ],

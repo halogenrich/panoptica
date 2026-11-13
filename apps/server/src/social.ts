@@ -370,6 +370,7 @@ export function registerSocial(app: FastifyInstance, auth: (admin?: boolean) => 
     const k = trashed(req, reply);
     if (!k) return;
     db.prepare(`UPDATE ${k.table} SET deleted_at=NULL WHERE id=?`).run(+req.params.id);
+    k.restored?.(+req.params.id);
     return { ok: true };
   });
   app.delete('/api/trash/:kind/:id', { preHandler: auth() }, async (req: any, reply) => {

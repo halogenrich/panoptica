@@ -122,7 +122,7 @@ function Details({ m, open }: SumProps<Dev>) {
               <li key={'f' + b.id}>
                 <span className="status-pill st-done">Done</span>
                 <button className="link" onClick={() => open('batches', b.id)}>
-                  {b.code}
+                  {b.name}
                 </button>
                 <span className="mut small">{b.owner}</span>
               </li>
@@ -133,7 +133,7 @@ function Details({ m, open }: SumProps<Dev>) {
                 <li key={'s' + b.id}>
                   <span className={'status-pill st-' + b.status}>{STATUS[b.status]}</span>
                   <button className="link" onClick={() => open('batches', b.id)}>
-                    {b.code}
+                    {b.name}
                   </button>
                   <span className="mut small">{b.owner}</span>
                 </li>
@@ -286,10 +286,9 @@ function Person({ m: p, open }: PersonProps<PersonPage>) {
             <ul className="ov-list">
               {p.batches.slice(0, 6).map((b) => (
                 <li key={b.id}>
-                  <button className="link" onClick={() => open('batches', b.id)}>
-                    {b.code}
+                  <button className="link ov-clip" onClick={() => open('batches', b.id)}>
+                    {b.name}
                   </button>
-                  <span className="mut small ov-clip">{b.name}</span>
                   <span className="grow" />
                   <span className={'status-pill st-' + b.status}>{STATUS[b.status]}</span>
                 </li>

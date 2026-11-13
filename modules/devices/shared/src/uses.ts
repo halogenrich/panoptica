@@ -13,7 +13,8 @@ import {
  * What a recipe takes from the inventory (0.42). The solution and spin-coating recipes compute here, so the app's recipe screens
  * and the server's consumption report (inventory) use one calculation.
  */
-export type ChemUse = { name: string; mg?: number; ul?: number };
+/** `box`: the container it is taken from, when the batch recorded one (0.45). */
+export type ChemUse = { name: string; mg?: number; ul?: number; box?: number | null };
 /** The chemical table as recipes read it: names and roles (which solutes a mode offers), and the molar data. */
 export type ChemCtx = { chems: { name: string; role: string; roles?: string[] }[]; cl: Chem[] };
 
@@ -136,7 +137,7 @@ export const spinUses = (d: SpinD): ChemUse[] =>
 export type UseSnapshot = {
   stack: { sl: { m: string }[] };
   resolved: Record<number, { a?: { data: unknown } | null; b?: { data: unknown } | null } | undefined>;
-  chems: { name: string; role: string; f: string; M: number; pur?: number }[];
+  chems: { name: string; role: string; f: string; M: number; pur?: number; bottle?: { id: number } | null }[];
 };
 /**
  * Reagents a batch took, from its frozen recipes: each solution prepared once (salts, additives, solvents) and the solvents
@@ -163,5 +164,7 @@ export function snapshotUses(s: UseSnapshot): ChemUse[] {
       /* older recipe */
     }
   });
-  return out;
+  // each use names the container the batch was started with (0.44 snapshots record it)
+  const box = new Map(s.chems.map((c) => [c.name.toLowerCase(), c.bottle?.id ?? null]));
+  return out.map((u) => ({ ...u, box: box.get(u.name.trim().toLowerCase()) ?? null }));
 }

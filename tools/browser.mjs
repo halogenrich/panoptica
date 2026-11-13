@@ -273,20 +273,25 @@ try {
       await page.getByRole('button', { name: 'Start batch' }).click();
       await page.getByLabel('Batch name').fill('Browser batch');
       await page.locator('.start-batch').getByRole('button', { name: 'Start batch' }).click();
-      await page
-        .getByText(/^B-\d{6}-\d+$/)
-        .first()
-        .waitFor(); // the batch page, under the code the app gave it
-      const b = (await api('GET', '/batches')).j;
-      const mine = (b.batches ?? b).find((x) => x.name === 'Browser batch');
-      expect(mine && /^B-\d{6}-\d+$/.test(mine.code), 'the batch was not numbered by the app');
+      // the batch page, with its name as the title; no code anywhere (0.45)
+      await page.getByRole('textbox', { name: 'Batch name' }).waitFor();
+      expect(
+        (await page.getByRole('textbox', { name: 'Batch name' }).inputValue()) === 'Browser batch',
+        'the batch page is not titled by its name',
+      );
+      expect(!/\bB-\d{6}-\d+\b/.test(await page.locator('main').innerText()), 'a batch code is shown');
+      // what it will take from the inventory (0.45)
+      await page.getByRole('heading', { name: 'From the inventory' }).waitFor();
     });
 
   if (!CORE)
     await step('the batch prints its run sheet, not the page', async () => {
       const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
       expect(pr.mode && pr.after, 'the page, not the run sheet, would be printed');
-      expect(/Batch B-\d{6}-\d+/.test(pr.text), 'the run sheet does not name the batch');
+      expect(
+        pr.text.includes('Browser batch') && !/B-\d{6}-\d+/.test(pr.text),
+        'the run sheet does not name the batch',
+      );
       await page.waitForTimeout(1100);
       await page.keyboard.press('Shift');
     });
@@ -323,10 +328,7 @@ try {
       await page.getByPlaceholder('Search, or go to a page…').fill('Browser batch');
       const hit = page.locator('.palette .pitem').filter({ hasText: 'Batch' }).filter({ hasText: 'Browser batch' });
       await hit.first().click();
-      await page
-        .getByText(/^B-\d{6}-\d+$/)
-        .first()
-        .waitFor();
+      await page.getByRole('textbox', { name: 'Batch name' }).waitFor();
       expect(/#\/batches\/\d+$/.test(page.url()), 'the address is not the batch’s: ' + page.url());
     });
 

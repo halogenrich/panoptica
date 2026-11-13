@@ -450,7 +450,7 @@ function DraftCard({
                   ? (() => {
                       const b = targets.batches.find((x) => x.id === l.id),
                         v = b?.variants?.find((x) => x.id === l.variant);
-                      return b ? b.code + (v ? ` · ${v.name}` : '') : undefined;
+                      return b ? b.name + (v ? ` · ${v.name}` : '') : undefined;
                     })()
                   : targets.stacks.find((x) => x.id === l.id)?.name) ?? s)
               : s.replace(/_/g, ' ');

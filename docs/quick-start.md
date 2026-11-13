@@ -21,7 +21,7 @@ Five minutes to your first batch. The full user guide (the other tab) explains e
 
 ## 4. Start a batch and work at the bench
 
-- In the stack, type a batch code (or leave it empty for an automatic one) and press **Start batch**.
+- In the stack, press **Start batch** and give the batch a name.
 - **Print sheet** gives a blank sheet for the bench, or use the batch on your phone.
 - Tick each layer when it is done. **Add run data** next to a recipe records what really happened (masses, volumes, rates, thicknesses, deviations).
 

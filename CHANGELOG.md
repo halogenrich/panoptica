@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.45.0 (2026-11-13)
+
+- **No batch codes**: a batch is known by its name everywhere (batch list, batch page, calendar, outcomes, search, notifications, Overview, J–V links, run sheets, report, spreadsheet, data package, trash). Two batches cannot share a name; the batch page's title is its name and renames it. Run data choose their batch from a list of names instead of a typed code. Older batches without a name take their old code as their name, and repeated names get " (2)", " (3)".
+- **Batches take their amounts from the containers**: when a batch starts running, the amounts its recipes plan (solutions as prepared, solvents dispensed in spin programs) are taken from the containers it was started with, so their amount left goes down. If that container is empty by then, the substance's container used in recipes gives instead. Moving the batch to the trash, or back to Planned, puts the amounts back; restoring it takes them again.
+- The batch page shows **From the inventory**: while Planned, what it will take and from which container; once running, what it took, and what it could not (no container in stock, or mass to volume without a density).
+- Each container lists **Taken by**: the batches that took from it, when, and how much.
+- Batches started before 0.45 take nothing, so the amounts people typed for their containers stay as they are. Consumption is unchanged.
+
 ## 0.44.0 (2026-11-13)
 
 - **Substances come from the containers**: the separate chemical list is gone. Adding or importing the first container of something makes its substance; the Inventory's **Substances** tab lists them with their CAS number, formula, molar mass (worked out from the formula when it can be), density, melting and boiling points, refractive index, hazard pictograms and roles. Several roles per substance are fine (a salt that is also an additive), and they still filter the lists in recipes and the inventory.

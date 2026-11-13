@@ -71,7 +71,7 @@ export default function DataPackage({ initial, onClose }: { initial: PackSel; on
             ...cat.batches.map((b) => ({
               kind: 'batches' as const,
               id: b.id,
-              label: b.code + (b.name ? ` · ${b.name}` : ''),
+              label: b.name,
               sub: `started ${fmtDate(b.created_at)}`,
               owner: b.owner,
             })),

@@ -30,7 +30,7 @@ export function linkNames(links: Record<string, Link>) {
             kind: 'batch',
             id: l.id,
             ...(v ? { variant: v.id } : {}),
-            label: v ? `${r.code} · ${v.name}` : `${r.code}${r.name ? ' · ' + r.name : ''}`,
+            label: v ? `${r.name} · ${v.name}` : r.name,
           }
         : null;
       continue;

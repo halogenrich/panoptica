@@ -3,6 +3,7 @@ import { BatchIn, BatchPatch, VariantsIn } from '@psc/devices/schema';
 import { CORE_VERSION } from '@psc/devices';
 import { canSee, db, substances, type User } from '@psc/server/api';
 import { lockOf, lockText, markDone, UNLOCK_DAYS } from './batchlock.js';
+import { giveBackForBatch, takeForBatch } from './takes.js';
 
 /** Batches (0.43, from the core's entry file): a stack frozen when the run starts, the values recorded during it, its variants. */
 const preset = (u: User, id: string) => {
@@ -76,6 +77,16 @@ const frozenChems = () =>
       : null,
   }));
 
+/** Why `name` cannot be used for a batch (another one has it, in the trash too), or null. Names tell batches apart. */
+function nameTaken(name: string, self = 0) {
+  const r = db.prepare('SELECT deleted_at FROM batches WHERE name=? COLLATE NOCASE AND id<>?').get(name, self) as
+    { deleted_at: string | null } | undefined;
+  if (!r) return null;
+  return r.deleted_at
+    ? 'a batch in the trash has this name: restore it, or empty it from the trash first'
+    : 'another batch has this name';
+}
+
 export function registerBatches(app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) {
   app.get('/api/batches', { preHandler: auth() }, async (req: any) => {
     const rows = db
@@ -97,7 +108,7 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
         id: v.id,
         name: v.name,
       })),
-      locked: lockOf({ code: r.code, status: r.status, done_at, unlocked_until }).locked,
+      locked: lockOf({ status: r.status, done_at, unlocked_until }).locked,
     }));
   });
   /** Run-data entries recorded under this batch's code, on any preset the user can see. */
@@ -141,9 +152,13 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
       return reply.code(400).send({ error: (e as Error).message });
     }
     const chems = frozenChems();
-    // batches are started by name; the code is the next free number of the day (trashed batches keep theirs)
-    let code = p.data.code.trim();
-    if (!code) {
+    // a batch is known by its name; the code is only the key run data keeps (the next free number of the day), never shown
+    const name = p.data.name.trim();
+    if (!name) return reply.code(400).send({ error: 'give the batch a name' });
+    const clash = nameTaken(name);
+    if (clash) return reply.code(409).send({ error: clash });
+    let code = '';
+    {
       const t = new Date(),
         day = `B-${String(t.getFullYear()).slice(2)}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}-`,
         taken = new Set(
@@ -155,24 +170,25 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
       while (taken.has(day + n)) n++;
       code = day + n;
     }
-    if (!p.data.name.trim() && !p.data.code.trim()) return reply.code(400).send({ error: 'give the batch a name' });
     try {
-      const r = db
-        .prepare('INSERT INTO batches(owner_id,code,name,visibility,snapshot) VALUES(?,?,?,?,?)')
-        .run(
-          req.user.id,
-          code,
-          p.data.name,
-          p.data.visibility,
-          JSON.stringify({ stack: p.data.stack, resolved, chems, coreVersion: CORE_VERSION, source: p.data.source }),
-        );
+      const r = db.prepare('INSERT INTO batches(owner_id,code,name,visibility,snapshot) VALUES(?,?,?,?,?)').run(
+        req.user.id,
+        code,
+        name,
+        p.data.visibility,
+        // takes: started in 0.45 or later, so it takes its amounts from the containers it names
+        JSON.stringify({
+          stack: p.data.stack,
+          resolved,
+          chems,
+          coreVersion: CORE_VERSION,
+          source: p.data.source,
+          takes: true,
+        }),
+      );
       return { id: r.lastInsertRowid };
     } catch {
-      return reply.code(409).send({
-        error: (db.prepare('SELECT deleted_at FROM batches WHERE code=?').get(code) as any)?.deleted_at
-          ? 'a batch with this code is in the trash: restore it or empty it from the trash first'
-          : 'batch code already exists',
-      });
+      return reply.code(409).send({ error: nameTaken(name) ?? 'another batch is called this' });
     }
   });
   app.patch('/api/batches/:id', { preHandler: auth() }, async (req: any, reply) => {
@@ -188,10 +204,18 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
       if (!(b.owner_id === req.user.id || req.user.role === 'admin'))
         return reply.code(403).send({ error: 'not your batch' });
     } else if (!batchOf(req, reply, true)) return;
-    if (d.name !== undefined) db.prepare('UPDATE batches SET name=? WHERE id=?').run(d.name, id);
+    if (d.name !== undefined) {
+      const name = d.name.trim();
+      if (!name) return reply.code(400).send({ error: 'a batch needs a name' });
+      const clash = nameTaken(name, id);
+      if (clash) return reply.code(409).send({ error: clash });
+      db.prepare('UPDATE batches SET name=? WHERE id=?').run(name, id);
+    }
     if (d.status) {
       db.prepare('UPDATE batches SET status=? WHERE id=?').run(d.status, id);
       markDone(id);
+      if (d.status === 'planned') giveBackForBatch(id);
+      else takeForBatch(id);
     }
     if (d.visibility) db.prepare('UPDATE batches SET visibility=? WHERE id=?').run(d.visibility, id);
     if (d.record) db.prepare('UPDATE batches SET record=? WHERE id=?').run(JSON.stringify(d.record), id);
@@ -201,6 +225,7 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
   app.delete('/api/batches/:id', { preHandler: auth() }, async (req: any, reply) => {
     if (!batchOf(req, reply, true)) return;
     db.prepare('UPDATE batches SET deleted_at=? WHERE id=?').run(new Date().toISOString(), +req.params.id); // to the trash
+    giveBackForBatch(+req.params.id); // what it took goes back to the containers
     return { ok: true, trash: true };
   });
   /**

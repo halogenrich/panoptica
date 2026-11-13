@@ -754,11 +754,11 @@ export function StatsFor({ sets }: { sets: IvSetFull[] }) {
 /** On a batch page: the measurements linked to it. */
 export function BatchMeasurements({
   batchId,
-  code,
+  name,
   onOpen,
 }: {
   batchId: number;
-  code: string;
+  name: string;
   onOpen: (id: number) => void;
 }) {
   const [list, setList] = useState<(IvSet & { linkedSamples: string[] })[] | null>(null),
@@ -778,7 +778,7 @@ export function BatchMeasurements({
   return (
     <>
       <div className="inline">
-        <h3 className="sub">Measurements for {code}</h3>
+        <h3 className="sub">Measurements</h3>
         <div className="grow" />
         <button className="link" onClick={() => setImp(true)}>
           Import measurements
@@ -786,7 +786,7 @@ export function BatchMeasurements({
       </div>
       {list === null ? null : list.length === 0 ? (
         <p className="mut">
-          None yet. Import the J–V files here (the samples are linked to this batch), or link a sample to {code} on the
+          None yet. Import the J–V files here (the samples are linked to this batch), or link a sample to {name} on the
           J–V curves page.
         </p>
       ) : (
