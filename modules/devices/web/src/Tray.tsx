@@ -12,6 +12,7 @@ const STEP_LABEL: Record<string, string> = Object.fromEntries(STEP_KINDS.map((s)
 type Sched = {
   id: number;
   code: string;
+  name: string;
   snapshot: { stack: StackD; resolved?: Record<number, any> };
   status: string;
   plan_split?: string;
@@ -69,9 +70,9 @@ export default function Tray({ id, eqs, trained, isAdmin, narrow, version, onDra
     blocks = bundlesOf(batch.snapshot.stack, batch.snapshot.resolved, split),
     left = blocks.filter((b) => !placedOf(b, books)).length;
   return (
-    <section className="tray" aria-label={`Equipment blocks for batch ${batch.code}`}>
+    <section className="tray" aria-label={`Equipment blocks for batch ${batch.name}`}>
       <div className="tray-head">
-        <h3>Schedule {batch.code}</h3>
+        <h3>Schedule {batch.name}</h3>
         <span className="mut small">
           {left
             ? `Drag each block to its day and time. ${left} of ${blocks.length} left.`

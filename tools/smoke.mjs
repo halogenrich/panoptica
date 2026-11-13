@@ -554,7 +554,7 @@ if (DEV) {
 if (DEV) {
   console.log('Calendar: shortest booking and cleanup');
   const b = await call('POST', '/api/batches', {
-    code: 'SMOKE-CAL',
+    name: 'Smoke calendar',
     visibility: 'shared',
     stack: { arch: 'n-i-p', sl: [] },
   });
@@ -627,7 +627,7 @@ if (DEV) {
   // a batch is not Done while a block of its plan is not booked and answered
   {
     const pb = await call('POST', '/api/batches', {
-      code: 'SMOKE-PLAN',
+      name: 'Smoke plan',
       visibility: 'shared',
       stack: { arch: 'n-i-p', sl: [] },
     });
@@ -698,7 +698,7 @@ if (DEV) {
     { n: 'BCP', m: 'Organic evap', a: '', b: '', t: '' },
   ];
   const b = await call('POST', '/api/batches', {
-    code: 'SMOKE-VAR',
+    name: 'Smoke variants',
     visibility: 'shared',
     stack: { arch: 'p-i-n', sl },
   });
@@ -756,14 +756,26 @@ if (DEV) {
   console.log('Batches by name, equipment, training, atmosphere and overviews (0.38)');
   const stack = { arch: 'n-i-p', sl: [] };
   const n1 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
-  const n2 = await call('POST', '/api/batches', { name: 'Smoke named', visibility: 'shared', stack });
-  const c1 = (await call('GET', '/api/batches/' + n1.j.id)).j.code,
-    c2 = (await call('GET', '/api/batches/' + n2.j.id)).j.code;
+  ok(n1.s === 200, 'a batch is started by name');
+  const twin = await call('POST', '/api/batches', { name: 'smoke NAMED ', visibility: 'shared', stack });
+  ok(twin.s === 409 && /another batch has this name/.test(twin.j.error), 'names tell batches apart (0.45: no codes)');
   ok(
-    n1.s === 200 && /^B-\d{6}-\d+$/.test(c1) && c1 !== c2,
-    `a batch started by name is numbered by the app (${c1}, ${c2})`,
+    (await call('POST', '/api/batches', { name: ' ', visibility: 'shared', stack })).s === 400,
+    'a batch needs a name',
   );
-  ok((await call('POST', '/api/batches', { visibility: 'shared', stack })).s === 400, 'a batch needs a name');
+  const n2 = await call('POST', '/api/batches', { name: 'Smoke named 2', visibility: 'shared', stack });
+  ok((await call('PATCH', '/api/batches/' + n2.j.id, { name: 'Smoke Named' })).s === 409, 'nor renamed to one in use');
+  ok(
+    (await call('PATCH', '/api/batches/' + n2.j.id, { name: ' Smoke renamed ' })).s === 200 &&
+      (await call('GET', '/api/batches/' + n2.j.id)).j.name === 'Smoke renamed',
+    'renamed',
+  );
+  ok(
+    (await call('GET', '/api/search?q=Smoke renamed')).j.hits.some(
+      (h) => h.key === 'batch:' + n2.j.id && h.label === 'Smoke renamed',
+    ),
+    'search finds a batch by its name and shows only the name',
+  );
   ok(
     (await call('PUT', `/api/batches/${n1.j.id}/plan`, { steps: ['Spin', 'Spin anneal'], split: ['s1'] })).s === 200 &&
       (await call('GET', '/api/batches/' + n1.j.id)).j.plan_split === '["s1"]',
@@ -869,6 +881,79 @@ ok(
   db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='update'").get().n === 0,
   'no notification for a version found while saving settings',
 );
+
+if (DEV) {
+  console.log('Batches take their amounts from the containers (0.45)');
+  const box = (b) =>
+    call('POST', '/api/inventory/containers', { name: 'Smoke antisolvent', amount: 50, size: 100, unit: 'mL', ...b });
+  const main = await box({ supplier: 'Main', use: true }),
+    spare = await box({ supplier: 'Spare', amount: 80 });
+  const left = (id) => db.prepare('SELECT amount FROM containers WHERE id=?').get(id).amount;
+  // a spin program that dispenses 100 µL of antisolvent on each of 10 substrates: 1 mL
+  const spin = await call('POST', '/api/presets', {
+    segment: 's2',
+    name: 'Smoke quench',
+    visibility: 'shared',
+    data: { steps: [], dp: [{ src: 'Solvent: Smoke antisolvent', v: 100, when: 'before', at: 0 }], N: 10, ov: 0 },
+  });
+  const tk = await call('POST', '/api/batches', {
+    name: 'Smoke takes',
+    visibility: 'shared',
+    stack: { arch: 'n-i-p', sl: [{ n: 'Quench', m: 'Spin', a: '', b: String(spin.j.id), t: '' }] },
+  });
+  const snap = (await call('GET', '/api/batches/' + tk.j.id)).j.snapshot;
+  ok(
+    snap.takes && snap.chems.find((c) => c.name === 'Smoke antisolvent')?.bottle?.id === main.j.id,
+    'a batch records the container its recipes use when it starts',
+  );
+  ok(left(main.j.id) === 50, 'a planned batch takes nothing yet');
+  const status = (s) => call('PATCH', '/api/batches/' + tk.j.id, { status: s });
+  await status('running');
+  ok(left(main.j.id) === 49 && left(spare.j.id) === 80, 'running, it takes 1 mL from that container only');
+  const took = (await call('GET', '/api/inventory/draws/batch/' + tk.j.id)).j;
+  ok(
+    took.length === 1 && took[0].container_id === main.j.id && took[0].amount === 1 && took[0].unit === 'mL',
+    'what it took is recorded, in the container’s unit',
+  );
+  await status('done');
+  ok(left(main.j.id) === 49, 'once: Done takes nothing more');
+  const hist = (await call('GET', `/api/inventory/containers/${main.j.id}/draws`)).j;
+  ok(
+    hist[0]?.what === 'batch Smoke takes' && hist[0].link?.view === 'batches',
+    'the container lists what took from it',
+  );
+  await call('DELETE', '/api/batches/' + tk.j.id);
+  ok(left(main.j.id) === 50, 'a batch moved to the trash puts it back');
+  ok(
+    (await call('POST', `/api/trash/batch/${tk.j.id}/restore`, {})).s === 200 && left(main.j.id) === 49,
+    'restored, it takes it again',
+  );
+  await status('planned');
+  ok(left(main.j.id) === 50, 'back to Planned, it puts it back');
+  await call('PUT', '/api/inventory/containers/' + main.j.id, {
+    name: 'Smoke antisolvent',
+    amount: 0,
+    size: 100,
+    unit: 'mL',
+    status: 'empty',
+  });
+  await status('running');
+  ok(left(spare.j.id) === 79, 'its container empty, it takes from the one recipes use now');
+  // a batch started before 0.45 takes nothing: its containers' amounts are what people typed
+  const old = db
+    .prepare("INSERT INTO batches(owner_id,code,name,visibility,snapshot) VALUES(?,?,?,'shared',?)")
+    .run(
+      db.prepare("SELECT id FROM users WHERE username='admin'").get().id,
+      'OLD-1',
+      'Smoke older batch',
+      JSON.stringify({ ...snap, takes: undefined }),
+    ).lastInsertRowid;
+  await call('PATCH', '/api/batches/' + old, { status: 'running' });
+  ok(
+    left(spare.j.id) === 79 && !(await call('GET', '/api/inventory/draws/batch/' + old)).j.length,
+    'an older batch takes nothing',
+  );
+}
 
 console.log('Database changes in order (0.40)');
 {

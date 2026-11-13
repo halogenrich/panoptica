@@ -189,5 +189,28 @@ CREATE TABLE IF NOT EXISTS comparisons(
       for (const c of unused) del.run(c.id);
     },
   },
+  {
+    id: 38,
+    owner: 'devices',
+    name: 'batches are known by name (0.45): every batch has one, and no two share it',
+    up: (d) => {
+      // older batches were known by their code: one without a name is called by it; a repeated name gets " (2)", " (3)"…
+      const rows = d.prepare('SELECT id, code, name FROM batches ORDER BY id').all() as {
+        id: number;
+        code: string;
+        name: string;
+      }[];
+      const seen = new Set<string>(),
+        set = d.prepare('UPDATE batches SET name=? WHERE id=?');
+      for (const r of rows) {
+        const base = r.name.trim() || r.code;
+        let name = base;
+        for (let n = 2; seen.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+        seen.add(name.toLowerCase());
+        if (name !== r.name) set.run(name, r.id);
+      }
+      d.exec('CREATE UNIQUE INDEX IF NOT EXISTS batches_name ON batches(name COLLATE NOCASE)');
+    },
+  },
 ];
 migrate(db, MIGRATIONS);

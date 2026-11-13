@@ -128,7 +128,9 @@ export default function Outcomes({
                   <div>
                     <b>{b.equipment}</b>
                     <i className="cbar" />
-                    <span>{b.subject ? `${b.subject_code}${b.step ? ` (${b.step})` : ''}` : b.purpose}</span>
+                    <span>
+                      {b.subject ? `${b.subject_name || b.subject_code}${b.step ? ` (${b.step})` : ''}` : b.purpose}
+                    </span>
                     <span className="mut small">{when(b)}</span>
                   </div>
                 </div>
@@ -148,7 +150,7 @@ export default function Outcomes({
                   <b>{b.equipment}</b>
                   <i className="cbar" />
                   <span>
-                    {b.subject_code}
+                    {b.subject_name || b.subject_code}
                     {b.step ? ` (${b.step})` : ''}
                   </span>
                   <span className="mut small">{when(b)}</span>

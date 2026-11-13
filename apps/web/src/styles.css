@@ -2410,6 +2410,28 @@ table.list td {
   width: 280px;
   height: 32px;
 }
+/* the batch's name is its title, edited in place (0.45: batches have no code) */
+.batch-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  height: 38px;
+  width: min(420px, 100%);
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  padding: 0 8px;
+  margin-left: -8px;
+}
+.batch-title:hover:not(:disabled),
+.batch-title:focus {
+  border-color: var(--sep);
+  background: var(--bg-input, var(--card));
+}
+.batch-title:disabled {
+  color: inherit;
+  opacity: 1;
+}
 .batch-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -8488,4 +8510,16 @@ input[type='color']:focus-visible {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* what took from a container (0.45) */
+.takes-of ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+.takes-of li {
+  padding: 2px 0;
+}
+.takes-of .form-h {
+  margin-bottom: 6px;
 }

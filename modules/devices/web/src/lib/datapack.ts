@@ -94,13 +94,14 @@ async function packBatch(f: Files, id: number) {
     api<Booking[]>(`/batches/${id}/bookings`).catch(() => []),
     batchMeasurements(id),
   ]);
-  const dir = `batches/${slug(b.code)}`;
+  // names tell batches apart; two that only differ in characters a file name drops keep apart by their number
+  let dir = `batches/${slug(b.name)}`;
+  if (Object.keys(f).some((k) => k.startsWith(dir + '/'))) dir += `-${b.id}`;
   put(
     f,
     `${dir}/batch.json`,
     json({
-      code: b.code,
-      description: b.name,
+      name: b.name,
       status: b.status,
       owner: b.owner,
       started: b.created_at,
@@ -120,7 +121,7 @@ async function packBatch(f: Files, id: number) {
     }),
   );
   sheetsAsCsv(f, dir, batchSheets(b, snapCtx(b), runs, sets, books));
-  return { code: b.code, name: b.name, owner: b.owner, date: day(b.created_at) };
+  return { name: b.name, owner: b.owner, date: day(b.created_at) };
 }
 
 async function packSet(f: Files, id: number) {
@@ -334,7 +335,7 @@ function readme(
   meta: PackMeta,
   authors: string[],
   keywords: string[],
-  b: { code: string; name: string; owner: string; date: string }[],
+  b: { name: string; owner: string; date: string }[],
   m: { name: string; owner: string; date: string; system: string }[],
   c: { name: string; owner: string }[],
   dates: string[],
@@ -360,7 +361,7 @@ function readme(
   );
   if (b.length) {
     L.push(`Batches (${b.length}), folder \`batches/\`:`, '');
-    b.forEach((x) => L.push(`- ${x.code}${x.name ? ` (${x.name})` : ''}, started ${x.date} by ${x.owner}`));
+    b.forEach((x) => L.push(`- ${x.name}, started ${x.date} by ${x.owner}`));
     L.push('');
   }
   if (m.length) {
@@ -376,8 +377,8 @@ function readme(
   L.push(
     '## Files',
     '',
-    '- `batches/<code>/batch.json`: the batch as started (stack and recipes frozen at the start), its variants, bookings, record and run data.',
-    '- `batches/<code>/*.csv`: the same as tables: batch, layers, variants, recipes (one row per recipe value), run data (recipe value against the actual value), J–V pixels and statistics of its measurements.',
+    '- `batches/<name>/batch.json`: the batch as started (stack and recipes frozen at the start), its variants, bookings, record and run data.',
+    '- `batches/<name>/*.csv`: the same as tables: batch, layers, variants, recipes (one row per recipe value), run data (recipe value against the actual value), J–V pixels and statistics of its measurements.',
     '- `measurements/<id>-<name>/measurement.json`: system, date, owner, links of each sample to a batch or stack, device groups.',
     '- `measurements/<id>-<name>/pixels.csv`: one row per J–V curve with its parameters, whether it is a check sweep and whether it counts in the statistics. For a lifetime run (the same pixels scanned over time), `time_s` is the time since the start and each reading is a scan; its run settings are in measurement.json (`lifeRun`).',
     '- `measurements/<id>-<name>/curves/*.csv`: the curves, one file per pixel, scan and direction (named in `pixels.csv`, column `curve_file`).',

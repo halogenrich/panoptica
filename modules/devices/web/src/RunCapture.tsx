@@ -39,7 +39,7 @@ export default function RunCapture({ booking, onClose }: { booking: Booking; onC
           )}
         </div>
         <p className="mut small">
-          {booking.subject_code}, {it.layer}. The step is concluded; write down what the run actually was. If the
+          {booking.subject_name}, {it.layer}. The step is concluded; write down what the run actually was. If the
           notebook is not at hand, choose Add it later: the batch page keeps asking for it and you get a reminder.
         </p>
         <RunForm

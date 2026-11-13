@@ -28,7 +28,7 @@ type FamNode = {
 type Detail = Row & {
   usage: {
     stacks: { id: number; name: string }[];
-    batches: { id: number; code: string }[];
+    batches: { id: number; code: string; name: string }[];
     presets: { id: number; name: string; segment: string }[];
   };
   family: FamNode[];
@@ -393,7 +393,7 @@ export function PresetSheet({
         {forks && (
           <div className="notice">
             {uses > 0
-              ? `Used by ${[...usage!.stacks.map((s) => 'stack ' + s.name), ...usage!.batches.map((b) => 'batch ' + b.code), ...(usage!.presets ?? []).map((p) => p.name)].join(', ')}`
+              ? `Used by ${[...usage!.stacks.map((s) => 'stack ' + s.name), ...usage!.batches.map((b) => 'batch ' + b.name), ...(usage!.presets ?? []).map((p) => p.name)].join(', ')}`
               : `Owned by ${det!.owner}`}
             : saving creates a new version and keeps the original unchanged.
           </div>
@@ -592,7 +592,7 @@ export function PresetSheet({
                   Used by{' '}
                   {[
                     ...usage!.stacks.map((s) => 'stack ' + s.name),
-                    ...usage!.batches.map((b) => 'batch ' + b.code),
+                    ...usage!.batches.map((b) => 'batch ' + b.name),
                     ...(usage!.presets ?? []).map((p) => p.name),
                   ].join(', ')}
                 </div>
@@ -649,14 +649,13 @@ export function RunForm({
 }) {
   const [form, setForm] = useState<RunDraft>({ batch, values: {}, notes: '', deviation: '' }),
     [err, setErr] = useState(''),
-    [codes, setCodes] = useState<string[]>([]);
+    [batches, setBatches] = useState<{ code: string; name: string }[]>([]);
   useEffect(() => {
-    api<{ code: string }[]>('/batches')
-      .then((l) => setCodes(l.map((x) => x.code)))
+    api<{ code: string; name: string }[]>('/batches')
+      .then(setBatches)
       .catch(() => {});
   }, []);
   const fields = kind.runFields(d, ctx),
-    listId = 'codes' + presetId,
     g = splitFields(kind, d, fields);
   const val = (k: string) => form.values[k] ?? '',
     put = (k: string) => (v: string) => setForm((f) => ({ ...f, values: { ...f.values, [k]: v } }));
@@ -698,19 +697,16 @@ export function RunForm({
     <div className="run-form">
       <div className="inline">
         <label className="inline">
-          Batch code{' '}
-          <input
-            list={listId}
-            value={form.batch}
-            onChange={(e) => setForm({ ...form, batch: e.target.value })}
-            placeholder="optional"
-          />
+          Batch {/* run data keeps the batch's hidden key; people choose it by name */}
+          <select value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })}>
+            <option value="">None</option>
+            {batches.map((x) => (
+              <option key={x.code} value={x.code}>
+                {x.name}
+              </option>
+            ))}
+          </select>
         </label>
-        <datalist id={listId}>
-          {codes.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
       </div>
       {g.stages.length > 0 && (
         <div className="run-stages">
@@ -795,6 +791,8 @@ export function RunForm({
 export type Run = {
   id: number;
   batch?: string;
+  /** the batch's name (run data keeps its hidden key) */
+  batch_name?: string | null;
   created_at: string;
   author: string;
   mine: number;
@@ -829,7 +827,7 @@ export function RunEntry({
         {title}
         <b>{fmtDate(r.created_at)}</b>
         <span className="mut">{r.author}</span>
-        {r.batch && <Badge>{r.batch}</Badge>}
+        {r.batch && <Badge>{r.batch_name || 'A batch in the trash'}</Badge>}
         <div className="grow" />
         {r.mine && onDelete ? (
           <button

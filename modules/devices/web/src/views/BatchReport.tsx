@@ -64,10 +64,7 @@ export function BatchReport({
   return (
     <div className="report">
       <header className="report-head">
-        <h1>
-          Batch {b.code}
-          {b.name ? ` · ${b.name}` : ''}
-        </h1>
+        <h1>Batch {b.name}</h1>
         <p>
           {STATUS[b.status]} · {st.arch} · started {fmtDate(b.created_at)} by {b.owner} · report of{' '}
           {new Date().toLocaleString('en-GB')}
@@ -330,7 +327,7 @@ function variantRecipes(b: Batch) {
 }
 
 export function batchSpreadsheet(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []) {
-  downloadBytes(`batch-${b.code.replace(/[^\w.-]+/g, '_')}.xlsx`, xlsx(batchSheets(b, ctx, runs, sets, books)));
+  downloadBytes(`batch-${b.name.replace(/[^\w.-]+/g, '_')}.xlsx`, xlsx(batchSheets(b, ctx, runs, sets, books)));
 }
 /** The batch record as tables (the spreadsheet's sheets; the data package writes them as CSV files). */
 export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[], books: Booking[] = []): Sheet[] {
@@ -342,8 +339,7 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
     name: 'Batch',
     rows: [
       ['Field', 'Value'],
-      ['Code', b.code],
-      ['Description', b.name],
+      ['Name', b.name],
       ['Status', STATUS[b.status]],
       ['Architecture', st.arch],
       ['Owner', b.owner],

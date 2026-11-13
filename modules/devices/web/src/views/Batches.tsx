@@ -20,6 +20,7 @@ import { layerState, stepPresets } from '../lib/stepRuns';
 import type { Booking } from '@web/views/Calendar';
 import { FIT_BATCH, StackIcon, View3D } from '../stacks/stack';
 import { BatchMeasurements } from '../iv/IvPage';
+import { BatchTakes } from './BatchTakes';
 import type { Variants as VariantsD } from '@psc/devices';
 import Variants from './Variants';
 
@@ -119,7 +120,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
   useRefresh(load, ['batches', 'calendar']);
   const count = (s: Status) => (rows ?? []).filter((r) => r.status === s).length;
   const shown = (rows ?? []).filter(
-    (r) => (f === 'all' || r.status === f) && (r.code + ' ' + r.name).toLowerCase().includes(q.toLowerCase()),
+    (r) => (f === 'all' || r.status === f) && r.name.toLowerCase().includes(q.toLowerCase()),
   );
   return (
     <>
@@ -171,10 +172,8 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
                 {r.thumb ? <img className="thumb" src={r.thumb} alt="" /> : <StackIcon />}
               </div>
               <div className="pcard-body">
-                <div className="pcard-name">{r.code}</div>
-                <div className="pcard-sum">
-                  {r.name || r.arch} · {r.arch}
-                </div>
+                <div className="pcard-name">{r.name}</div>
+                <div className="pcard-sum">{r.arch}</div>
                 <div className="progress" title={progressText(r)}>
                   <i style={{ width: `${r.steps ? (100 * r.concluded) / r.steps : 0}%` }} />
                 </div>
@@ -204,7 +203,7 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
             <thead>
               <tr>
                 <th>Batch</th>
-                <th>Name</th>
+                <th>Architecture</th>
                 <th>Status</th>
                 <th>Steps</th>
                 <th>Owner</th>
@@ -215,11 +214,9 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
               {shown.map((r) => (
                 <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
                   <td>
-                    <b>{r.code}</b>
+                    <b>{r.name}</b>
                   </td>
-                  <td className="mut">
-                    {r.name || r.arch}, {r.arch}
-                  </td>
+                  <td className="mut">{r.arch}</td>
                   <td>
                     <span className={'status ' + r.status}>
                       {STATUS[r.status]}
@@ -293,6 +290,7 @@ function Detail({
   useItemRoute('batches', id);
   const pr = usePrint(),
     saved = useRef(''),
+    named = useRef(''),
     [busyRep, setBusyRep] = useState<'' | 'pdf' | 'xlsx'>('');
   const loadRuns = () =>
     api<BRun[]>(`/batches/${id}/runs`)
@@ -381,14 +379,29 @@ function Detail({
         <button className="link" onClick={onBack}>
           ‹ Batches
         </button>
-        <h2>{b.code}</h2>
         <input
-          className="batch-name"
-          placeholder="Description"
+          className="batch-title"
+          aria-label="Batch name"
           value={b.name}
           disabled={!b.editable}
           onChange={(e) => setB({ ...b, name: e.target.value })}
-          onBlur={() => patch({ name: b.name })}
+          onFocus={() => (named.current = b.name)}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          onBlur={() => {
+            const was = named.current,
+              name = b.name.trim();
+            if (name === was) return;
+            if (!name) return setB({ ...b, name: was });
+            api('/batches/' + id, 'PATCH', { name })
+              .then(() => {
+                setB({ ...b, name });
+                batchesChanged();
+              })
+              .catch((e) => {
+                setB({ ...b, name: was });
+                setMsg(e.message);
+              });
+          }}
         />
         <div className="grow" />
         <span
@@ -406,7 +419,7 @@ function Detail({
             ['shared', 'Shared'],
           ]}
         />
-        <CopyLink view="batches" id={b.id} what={`batch ${b.code}`} />
+        <CopyLink view="batches" id={b.id} what={`batch ${b.name}`} />
         <ExportMenu
           label={busyRep ? 'Preparing…' : 'Export'}
           disabled={!!busyRep}
@@ -458,7 +471,7 @@ function Detail({
             onClick={() =>
               api('/batches/' + id, 'DELETE').then(() => {
                 batchesChanged();
-                trashed('batch', id, b.code);
+                trashed('batch', id, b.name);
                 onBack();
               })
             }
@@ -524,7 +537,7 @@ function Detail({
             <button
               className="btn secondary"
               onClick={() =>
-                pr.print(<RunSheet st={st} ctx={ctx} name={b.name || st.arch} batch={b.code} variants={b.variants} />)
+                pr.print(<RunSheet st={st} ctx={ctx} name={b.name} batch={b.name} variants={b.variants} />)
               }
             >
               Print run sheet
@@ -606,13 +619,15 @@ function Detail({
         />
       </section>
 
-      <BatchMeasurements batchId={b.id} code={b.code} onOpen={(i) => onOpenIv?.(i)} />
+      <BatchTakes b={b} />
+
+      <BatchMeasurements batchId={b.id} name={b.name} onOpen={(i) => onOpenIv?.(i)} />
 
       <BatchBookings list={books} />
-      <h3 className="sub">Run data for {b.code}</h3>
+      <h3 className="sub">Run data</h3>
       {runs.length === 0 ? (
         <p className="mut">
-          No run data yet. Use Add run data on a layer, or enter the batch code when adding run data to a recipe.
+          No run data yet. Use Add run data on a layer, or choose this batch when adding run data to a recipe.
         </p>
       ) : (
         runs.map((r) => {

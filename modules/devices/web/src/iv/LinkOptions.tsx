@@ -21,13 +21,13 @@ export default function LinkOptions({ t }: { t: LinkTargets | null }) {
         <optgroup label="Batches">
           {t.batches.flatMap((b) => [
             <option key={'b' + b.id} value={`batch:${b.id}`}>
-              {b.code}
+              {b.name}
               {b.name ? ` · ${b.name}` : ''}
               {b.variants?.length ? ' (default device)' : ''}
             </option>,
             ...(b.variants ?? []).map((v) => (
               <option key={`b${b.id}:${v.id}`} value={`batch:${b.id}:${v.id}`}>
-                {b.code}, variant {v.name}
+                {b.name}, variant {v.name}
               </option>
             )),
           ])}

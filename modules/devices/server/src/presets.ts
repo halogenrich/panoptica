@@ -21,7 +21,7 @@ const SELECT = `SELECT p.id,p.segment,p.name,p.visibility,p.data,p.owner_id,p.pa
 /** Where each preset is referenced: stacks (live references) and batches (frozen snapshots). */
 type Usage = {
   stacks: { id: number; name: string }[];
-  batches: { id: number; code: string }[];
+  batches: { id: number; code: string; name: string }[];
   presets: { id: number; name: string; segment: string }[];
 };
 const REF_KEYS = ['subId', 'maskId']; // design references inside other presets (masks -> substrate, recipes -> substrate/mask)
@@ -44,15 +44,16 @@ function usageMap() {
   }[])
     for (const k of new Set((JSON.parse(r.data).sl ?? []).flatMap((x: any) => [x.a, x.b]).filter(Boolean) as string[]))
       at(k).stacks.push({ id: r.id, name: r.name });
-  for (const r of db.prepare('SELECT id,code,snapshot FROM batches WHERE deleted_at IS NULL').all() as {
+  for (const r of db.prepare('SELECT id,code,name,snapshot FROM batches WHERE deleted_at IS NULL').all() as {
     id: number;
     code: string;
+    name: string;
     snapshot: string;
   }[])
     for (const k of new Set(
       (JSON.parse(r.snapshot).stack?.sl ?? []).flatMap((x: any) => [x.a, x.b]).filter(Boolean) as string[],
     ))
-      at(k).batches.push({ id: r.id, code: r.code });
+      at(k).batches.push({ id: r.id, code: r.code, name: r.name });
   return (id: number): Usage => m.get(String(id)) ?? { stacks: [], batches: [], presets: [] };
 }
 
@@ -221,7 +222,7 @@ export function registerPresets(
     return (
       db
         .prepare(
-          'SELECT r.id,r.batch,r.data,r.created_at,r.owner_id,u.name AS author FROM run_data r JOIN users u ON u.id=r.owner_id WHERE r.preset_id=? ORDER BY r.id DESC',
+          'SELECT r.id,r.batch,b.name AS batch_name,r.data,r.created_at,r.owner_id,u.name AS author FROM run_data r JOIN users u ON u.id=r.owner_id LEFT JOIN batches b ON b.code=r.batch AND b.deleted_at IS NULL WHERE r.preset_id=? ORDER BY r.id DESC',
         )
         .all(+req.params.id) as any[]
     ).map((r) => ({ ...r, ...JSON.parse(r.data), data: undefined, mine: r.owner_id === req.user.id ? 1 : 0 }));

@@ -45,11 +45,10 @@ const Appearance = z
   })
   .optional();
 export const BatchIn = z.object({
-  /** 0.38: optional; the server numbers batches by date (B-yymmdd-n) when none is given. */
-  code: z.string().max(40).default(''),
   /** The stack the batch was started from (its variations are offered as variants). */
   source: z.number().int().positive().optional(),
-  name: z.string().max(120).default(''),
+  /** what the batch is called; names tell batches apart (0.45: there are no batch codes to type or read) */
+  name: z.string().max(120),
   visibility: Visibility,
   stack: z.object({
     arch: z.string(),

@@ -25,6 +25,7 @@ import { hash, verify as verifyRaw } from './auth.js';
 import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
 import { registerChemicals } from './chemicals.js';
+import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
 import { items, modules } from './modules.js';
 import { registerEquipment } from './equipment.js';
@@ -448,6 +449,7 @@ registerDashboard(app, auth);
 
 // ---- substances (0.44: chemicals.ts): made from the containers, edited by people with the Inventory tag ----
 registerChemicals(app, auth, bad);
+registerDraws(app, auth);
 
 // ---- profile: own password, preferences; global search ----
 app.post('/api/me/password', { preHandler: auth() }, async (req: any, reply) => {

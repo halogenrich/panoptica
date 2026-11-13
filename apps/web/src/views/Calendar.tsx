@@ -149,7 +149,9 @@ function namer(list: Booking[]) {
 /** Bookings start from now on: a minute of grace for the time it takes to drop a block. */
 const PAST_GRACE = 60_000;
 const PAST = 'That time has passed: bookings start from now on';
-const what = (b: Booking) => (b.subject ? `${b.subject_code}${b.step ? ` (${b.step})` : ''}` : b.purpose);
+/** What a booking is for, by name (a batch's name; 0.45: no codes). */
+const subjectText = (b: { subject_name: string; subject_code: string }) => b.subject_name || b.subject_code;
+const what = (b: Booking) => (b.subject ? `${subjectText(b)}${b.step ? ` (${b.step})` : ''}` : b.purpose);
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 /** Equipment that can do a measuring step (J–V measurement, say) takes finished work. */
 const measuringEq = (e: Eq | undefined, steps: StepDef[]) =>
@@ -1440,7 +1442,7 @@ function BookingForm({
             </p>
             <p>
               {draft.subject
-                ? `${cap(draft.subject_noun ?? '')} ${draft.subject_code}${draft.step ? `, ${draft.step}` : ''}`
+                ? `${cap(draft.subject_noun ?? '')} ${subjectText(draft as Booking)}${draft.step ? `, ${draft.step}` : ''}`
                 : draft.purpose}
               . Booked by {draft.user_name}.
             </p>
@@ -1484,8 +1486,7 @@ function BookingForm({
                     {choices.map((b) => (
                       <option key={key(b)} value={key(b)}>
                         {kinds.length > 1 ? `${cap(b.noun)} ` : ''}
-                        {b.code}
-                        {b.name ? ` (${b.name})` : ''}
+                        {b.name || b.code}
                         {b.status === 'running' ? ', running' : ''}
                       </option>
                     ))}
@@ -1562,7 +1563,7 @@ function BookingForm({
             {clash && (
               <div className="clash" role="alert">
                 <b>{clash.equipment}</b> is booked by {clash.user_name} for{' '}
-                {clash.subject ? `${clash.subject_noun} ${clash.subject_code}` : clash.purpose},{' '}
+                {clash.subject ? `${clash.subject_noun} ${subjectText(clash)}` : clash.purpose},{' '}
                 {hm(new Date(clash.start))}–{hm(new Date(clash.end))}
                 {eq?.cleanup ? `, and needs ${eq.cleanup} min of cleanup between bookings` : ''}.
                 {isAdmin ? (

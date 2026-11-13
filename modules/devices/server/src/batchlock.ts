@@ -8,7 +8,7 @@ import { db } from '@psc/server/api';
 export const LOCK_DAYS = 14;
 export const UNLOCK_DAYS = 7;
 
-type B = { code: string; status: string; done_at: string | null; unlocked_until: string | null };
+type B = { name?: string; status: string; done_at: string | null; unlocked_until: string | null };
 const iso = (s: string) => (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + 'Z');
 
 export function lockOf(b: B, now = Date.now()) {
@@ -21,21 +21,21 @@ export function lockOf(b: B, now = Date.now()) {
     unlockedUntil,
   };
 }
-export const lockText = (code: string) =>
-  `batch ${code} is locked: it finished more than ${LOCK_DAYS} days ago. An admin can unlock it`;
+export const lockText = (name: string) =>
+  `batch ${name} is locked: it finished more than ${LOCK_DAYS} days ago. An admin can unlock it`;
 
 const row = (where: string, v: number | string) =>
-  db.prepare(`SELECT code,status,done_at,unlocked_until FROM batches WHERE ${where} AND deleted_at IS NULL`).get(v) as
+  db.prepare(`SELECT name,status,done_at,unlocked_until FROM batches WHERE ${where} AND deleted_at IS NULL`).get(v) as
     B | undefined;
-/** The error to send when the batch (by id or by code) is locked, else null. */
+/** The error to send when the batch (by id, or by the hidden code run data keeps) is locked, else null. */
 export function lockedById(id: number) {
   const b = row('id=?', id);
-  return b && lockOf(b).locked ? lockText(b.code) : null;
+  return b && lockOf(b).locked ? lockText(b.name!) : null;
 }
 export function lockedByCode(code: string) {
   if (!code) return null;
   const b = row('code=?', code);
-  return b && lockOf(b).locked ? lockText(b.code) : null;
+  return b && lockOf(b).locked ? lockText(b.name!) : null;
 }
 /** Status changes keep done_at in step: set when a batch becomes Done, cleared when it is reopened. */
 export function markDone(id: number) {

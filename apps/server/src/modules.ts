@@ -74,6 +74,8 @@ export interface ItemKind {
   comments?: boolean;
   /** what else goes when it is removed for good (its comments and bookings are removed by the core) */
   purge?(id: number): void;
+  /** it came back from the trash (a batch that had started takes its amounts from the containers again, 0.45) */
+  restored?(id: number): void;
   /** search hits among the records `p` may open (newest or best first, a few) */
   search?(q: string, p: { q: string; uid: number; all: 0 | 1 }): SearchHit[];
 }

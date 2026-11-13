@@ -470,6 +470,20 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       }
     },
   },
+  {
+    id: 37,
+    owner: 'core',
+    name: 'what records took from containers (0.45)',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS container_draws(
+        id INTEGER PRIMARY KEY,
+        subject TEXT NOT NULL, subject_id INTEGER NOT NULL,
+        substance TEXT NOT NULL, container_id INTEGER,
+        mg REAL, ul REAL, amount REAL, unit TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+        at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, returned_at TEXT);
+      CREATE INDEX IF NOT EXISTS container_draws_subject ON container_draws(subject, subject_id);
+      CREATE INDEX IF NOT EXISTS container_draws_container ON container_draws(container_id);`),
+  },
 ];
 
 /**

@@ -21,11 +21,15 @@ export default function RunSheet({
   return (
     <section className="sheet">
       <h2>
-        {name} · {st.arch}
+        {batch ? `Batch ${batch}` : name} · {st.arch}
       </h2>
       <p>
-        Batch {batch || <span className="bl" />} · Date <span className="bl" /> · Operator <span className="bl" /> ·
-        Substrates <span className="bl" />
+        {!batch && (
+          <>
+            Batch <span className="bl" /> ·{' '}
+          </>
+        )}
+        Date <span className="bl" /> · Operator <span className="bl" /> · Substrates <span className="bl" />
       </p>
       {!!variants?.list.length && (
         <table className="sheet-variants">
