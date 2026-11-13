@@ -1,9 +1,9 @@
 import './schema.js'; // the module's database changes first: everything below may read its tables
 import type { FastifyInstance } from 'fastify';
 import { ScheduleIn } from '@psc/devices/schema';
-import { STEP_KINDS, roleFromSteps, snapshotUses, stepsFromRole } from '@psc/devices';
+import { STEP_KINDS, roleFromSteps, stepsFromRole } from '@psc/devices';
 import { lockedById, markDone } from './batchlock.js';
-import { takeForBatch } from './takes.js';
+import { takeForBatch, usesOf } from './takes.js';
 import { devicesOverview } from './overview.js';
 import { registerBatches } from './batches.js';
 import { registerComparisons } from './comparisons.js';
@@ -379,12 +379,12 @@ addModule({
   // planned amounts from the recipes frozen in each running or done batch
   uses: {
     basis: (n) =>
-      `From the recipes of ${n} running and done batch${n === 1 ? '' : 'es'} (planned amounts: solutions as prepared, solvents dispensed in spin programs).`,
+      `From the recipes of ${n} running and done batch${n === 1 ? '' : 'es'} (what their run data say was weighed and dispensed, else the planned amounts: solutions as prepared, solvents dispensed in spin programs).`,
     events: () =>
       (
         db
           .prepare(
-            `SELECT name,owner_id,visibility,snapshot,created_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
+            `SELECT code,name,owner_id,visibility,snapshot,created_at FROM batches WHERE deleted_at IS NULL AND status IN ('running','done') ORDER BY created_at`,
           )
           .all() as any[]
       ).map((b) => ({
@@ -392,7 +392,7 @@ addModule({
         date: b.created_at,
         owner_id: b.owner_id,
         shared: b.visibility === 'shared',
-        uses: snapshotUses(JSON.parse(b.snapshot)),
+        uses: usesOf(b),
       })),
   },
   overview: devicesOverview,
@@ -427,7 +427,7 @@ addModule({
   },
   topics: [
     [/^\/api\/batches/, ['batches', 'calendar']],
-    [/^\/api\/(presets|runs)/, ['presets', 'batches']],
+    [/^\/api\/(presets|runs)/, ['presets', 'batches', 'inventory']],
     [/^\/api\/iv/, ['iv', 'comparisons']],
     [/^\/api\/comparisons/, ['comparisons']],
   ],

@@ -484,6 +484,12 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       CREATE INDEX IF NOT EXISTS container_draws_subject ON container_draws(subject, subject_id);
       CREATE INDEX IF NOT EXISTS container_draws_container ON container_draws(container_id);`),
   },
+  {
+    id: 39,
+    owner: 'core',
+    name: 'what was taken says whether it came from run data (0.45.1)',
+    up: (db) => add(db, 'container_draws', 'basis', "TEXT NOT NULL DEFAULT 'planned'"),
+  },
 ];
 
 /**

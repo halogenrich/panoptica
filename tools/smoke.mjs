@@ -915,6 +915,19 @@ if (DEV) {
     took.length === 1 && took[0].container_id === main.j.id && took[0].amount === 1 && took[0].unit === 'mL',
     'what it took is recorded, in the container’s unit',
   );
+  // run data: what was really dispensed replaces the plan (0.45.1), from the same container and under the same date
+  const code = (await call('GET', '/api/batches/' + tk.j.id)).j.code;
+  const rd = await call('POST', `/api/presets/${spin.j.id}/runs`, { batch: code, values: { 'dp:0': '150', n: '10' } });
+  ok(rd.s === 200 && left(main.j.id) === 48.5, 'run data take what was dispensed instead (1.5 mL)');
+  const took2 = (await call('GET', '/api/inventory/draws/batch/' + tk.j.id)).j;
+  ok(
+    took2.length === 1 && took2[0].basis === 'run' && took2[0].at === took[0].at,
+    'marked as from run data, same date',
+  );
+  await call('POST', `/api/presets/${spin.j.id}/runs`, { batch: code, values: { n: '8' } });
+  ok(left(main.j.id) === 48.8, 'a later entry changes only what it gives (1.2 mL for 8 substrates)');
+  for (const r of (await call('GET', `/api/presets/${spin.j.id}/runs`)).j) await call('DELETE', '/api/runs/' + r.id);
+  ok(left(main.j.id) === 49, 'without run data, the planned amount again');
   await status('done');
   ok(left(main.j.id) === 49, 'once: Done takes nothing more');
   const hist = (await call('GET', `/api/inventory/containers/${main.j.id}/draws`)).j;

@@ -12,14 +12,26 @@ db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA busy_timeout = 5000');
 
-/** Runs fn in one transaction (all or nothing). */
+let depth = 0;
+/** Runs `fn` in one transaction (all or nothing); called inside another, it joins that one (the outer one commits or rolls back). */
 export function tx<T>(fn: () => T): T {
+  if (depth) {
+    depth++;
+    try {
+      return fn();
+    } finally {
+      depth--;
+    }
+  }
   db.exec('BEGIN');
+  depth = 1;
   try {
     const r = fn();
+    depth = 0;
     db.exec('COMMIT');
     return r;
   } catch (e) {
+    depth = 0;
     db.exec('ROLLBACK');
     throw e;
   }

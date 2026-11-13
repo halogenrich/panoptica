@@ -4,7 +4,7 @@ import { snapshotUses } from '@psc/devices';
 import { api } from '@web/api';
 import { useRefresh } from '@web/lib/trash';
 import { bottleText } from '@web/views/common';
-import type { Batch } from './Batches';
+import type { Batch, BRun } from './Batches';
 
 /** One amount a batch took from a container, as the server recorded it (0.45). */
 type Take = {
@@ -16,6 +16,8 @@ type Take = {
   amount: number | null;
   unit: string;
   note: string;
+  /** 'planned', 'run' (run data) or 'partly' */
+  basis: string;
   supplier: string | null;
   lot: string | null;
   purity: number | null;
@@ -23,19 +25,33 @@ type Take = {
 };
 
 const planned = (u: { mg?: number | null; ul?: number | null }) =>
-  [u.mg ? fmtAmount(u.mg, 'mg') : '', u.ul ? fmtAmount(u.ul, 'µL') : ''].filter(Boolean).join(' + ');
+  [u.mg ? fmtAmount(u.mg, 'mg', 4) : '', u.ul ? fmtAmount(u.ul, 'µL', 4) : ''].filter(Boolean).join(' + ');
 /** An amount taken, readable whatever the container's unit (0.0182 g → 18.2 mg). */
 export const takenText = (v: number, unit: string) => {
   const base = isMass(unit) ? 'mg' : 'µL',
     b = toBase(v, unit, base);
-  return b === null ? `${+v.toPrecision(3)} ${unit}` : fmtAmount(b, base);
+  return b === null ? `${+v.toPrecision(3)} ${unit}` : fmtAmount(b, base, 4);
 };
 
 /**
  * What the batch takes from the inventory: before it runs, the amounts its recipes plan and the container each comes from (the
  * one recipes used when it was started); once it runs, what was taken from each container. Trashing the batch puts it back.
  */
-export function BatchTakes({ b }: { b: Batch }) {
+/** Where an amount comes from, under it. */
+const Basis = ({ v }: { v: string }) =>
+  v === 'planned' ? null : <div className="mut">{v === 'run' ? 'From run data' : 'Partly from run data'}</div>;
+
+/** The batch's run data by recipe id: for each value, the latest entry that gives it (as the server reads them). */
+function runsBy(runs: BRun[]) {
+  const out: Record<string, Record<string, string>> = {};
+  for (const r of [...runs].sort((x, y) => x.id - y.id)) {
+    const to = (out[String(r.preset_id)] ??= {});
+    for (const [k, v] of Object.entries(r.values ?? {})) if (String(v ?? '').trim()) to[k] = String(v);
+  }
+  return out;
+}
+
+export function BatchTakes({ b, runs }: { b: Batch; runs: BRun[] }) {
   const [takes, setTakes] = useState<Take[] | null>(null);
   const started = b.status !== 'planned',
     counts = !!(b.snapshot as { takes?: boolean }).takes;
@@ -56,14 +72,16 @@ export function BatchTakes({ b }: { b: Batch }) {
         </p>
       </section>
     );
-  const plan = snapshotUses(b.snapshot as Parameters<typeof snapshotUses>[0]).filter((u) => u.mg || u.ul);
+  const plan = snapshotUses(b.snapshot as Parameters<typeof snapshotUses>[0], runsBy(runs)).filter((u) => u.mg || u.ul);
   // the same substance from several recipes is one line
-  const sum = new Map<string, { name: string; mg: number; ul: number; box: number | null }>();
+  const sum = new Map<string, { name: string; mg: number; ul: number; parts: number; runs: number }>();
   for (const u of plan) {
     const k = u.name.toLowerCase(),
-      s = sum.get(k) ?? { name: u.name, mg: 0, ul: 0, box: u.box ?? null };
+      s = sum.get(k) ?? { name: u.name, mg: 0, ul: 0, parts: 0, runs: 0 };
     s.mg += u.mg ?? 0;
     s.ul += u.ul ?? 0;
+    s.parts++;
+    if (u.run) s.runs++;
     sum.set(k, s);
   }
   const bottleOf = (name: string) =>
@@ -76,8 +94,9 @@ export function BatchTakes({ b }: { b: Batch }) {
       {!started ? (
         <>
           <p className="mut small">
-            Taken from these containers when the batch starts running: the amounts its recipes plan (solutions as
-            prepared, solvents dispensed in spin programs). Moving the batch to the trash puts them back.
+            Taken from these containers when the batch starts running: what its run data say was weighed and dispensed,
+            else the amounts its recipes plan (solutions as prepared, solvents dispensed in spin programs). Moving the
+            batch to the trash puts them back.
           </p>
           {sum.size ? (
             <table className="list small takes">
@@ -96,7 +115,10 @@ export function BatchTakes({ b }: { b: Batch }) {
                     return (
                       <tr key={s.name}>
                         <td>{s.name}</td>
-                        <td className="nowrap">{planned(s)}</td>
+                        <td className="nowrap">
+                          {planned(s)}
+                          <Basis v={!s.runs ? 'planned' : s.runs === s.parts ? 'run' : 'partly'} />
+                        </td>
                         <td>
                           {bt ? (
                             bottleText(bt as any)
@@ -118,8 +140,9 @@ export function BatchTakes({ b }: { b: Batch }) {
       ) : takes.length ? (
         <>
           <p className="mut small">
-            Taken when the batch started running. The containers’ amounts went down by these; moving the batch to the
-            trash puts them back.
+            Taken when the batch started running: what its run data say was weighed and dispensed, else what its recipes
+            planned. Entering run data takes the new amounts instead. The containers’ amounts went down by these; moving
+            the batch to the trash puts them back.
           </p>
           <table className="list small takes">
             <thead>
@@ -133,7 +156,10 @@ export function BatchTakes({ b }: { b: Batch }) {
               {takes.map((t) => (
                 <tr key={t.id}>
                   <td>{t.substance}</td>
-                  <td className="nowrap">{t.amount !== null ? takenText(t.amount, t.unit) : '—'}</td>
+                  <td className="nowrap">
+                    {t.amount !== null ? takenText(t.amount, t.unit) : '—'}
+                    <Basis v={t.basis} />
+                  </td>
                   <td>
                     {t.container_id && t.supplier !== null ? (
                       <>
@@ -146,8 +172,8 @@ export function BatchTakes({ b }: { b: Batch }) {
                     {t.note && (
                       <div className={t.amount === null ? 'err' : 'mut'}>
                         {t.amount === null
-                          ? `Not taken: ${t.note} (${planned(t)} planned)`
-                          : `All it held: the recipes planned ${planned(t)}`}
+                          ? `Not taken: ${t.note} (${planned(t)} needed)`
+                          : `All it held: ${planned(t)} needed`}
                       </div>
                     )}
                   </td>

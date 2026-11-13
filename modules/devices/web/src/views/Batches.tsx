@@ -619,7 +619,7 @@ function Detail({
         />
       </section>
 
-      <BatchTakes b={b} />
+      <BatchTakes b={b} runs={runs} />
 
       <BatchMeasurements batchId={b.id} name={b.name} onOpen={(i) => onOpenIv?.(i)} />
 
