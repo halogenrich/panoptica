@@ -25,7 +25,7 @@ type O = ReturnType<typeof orgDefaults>;
 const ru = (u: RateUnit) => u.replace('A', 'Å');
 
 function OrgEditor({ d, set, ctx }: { d: O; set: (p: Partial<O>) => void; ctx: Ctx }) {
-  const mats = ctx.chems.filter((c) => c.role === 'organic').map((c) => c.name);
+  const mats = ctx.chems.filter((c) => (c.roles ?? [c.role]).includes('organic')).map((c) => c.name);
   return (
     <Section title="Layer">
       <label className="row">
@@ -183,7 +183,7 @@ const sub = (d: M): SubKey => (d.sub in SUBSTRATES ? (d.sub as SubKey) : '1.2 ×
 const legacy = (d: M) => !d.mask && d.sub in SUBSTRATES;
 
 function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: Ctx }) {
-  const metals = ctx.chems.filter((c) => c.role === 'metal').map((c) => c.name),
+  const metals = ctx.chems.filter((c) => (c.roles ?? [c.role]).includes('metal')).map((c) => c.name),
     m = metalStages(d.st);
   const subs = ctx.designs.filter((x) => x.segment === 'sub'),
     masks = ctx.designs.filter((x) => x.segment === 'mask' && x.data.subId === d.subId);

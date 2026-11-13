@@ -1,23 +1,74 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { useRefresh } from '../lib/trash';
 
+/** A container of a substance that is not empty (0.44). */
+export type Bottle = {
+  id: number;
+  supplier: string;
+  lot: string;
+  purity: number | null;
+  amount: number | null;
+  unit: string;
+  status: string;
+  /** marked as the one recipes use */
+  use: boolean;
+  place: string;
+};
+/**
+ * A substance (0.44): made from the containers; its identity, roles, hazard pictograms and controls. `bottle` is the container
+ * recipes use (marked, or the newest not empty); `role`, `pur` and `brand` are what older recipe code reads: the first role, and
+ * that container's purity and supplier.
+ */
 export type Chemical = {
   id: number;
   name: string;
-  role: string;
+  cas: string;
   f: string;
   M: number;
   d: number | null;
+  mp: number | null;
+  bp: number | null;
+  nD: number | null;
+  roles: string[];
+  ghs: string[];
+  pf: boolean;
+  army: boolean;
+  notes: string;
+  bottles: Bottle[];
+  bottle: Bottle | null;
+  role: string;
   pur: number;
   brand: string;
 };
 export const ROLES = ['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'other'];
+/** How a role is written in lists and filters. */
+export const ROLE_LABEL: Record<string, string> = {
+  salt: 'Salt',
+  solvent: 'Solvent',
+  etl: 'ETL',
+  htl: 'HTL',
+  additive: 'Additive',
+  organic: 'Organic',
+  metal: 'Metal',
+  other: 'Other',
+};
+/** A bottle in a few words: "Sigma-Aldrich, lot X, 99.99 %". */
+export const bottleText = (b: Bottle) =>
+  [b.supplier || 'No supplier', b.lot && `lot ${b.lot}`, b.purity != null && `${b.purity} %`]
+    .filter(Boolean)
+    .join(', ');
 
+/** The substances, read again when the inventory changes (a container added, the bottle recipes use changed). */
 export function useChems() {
   const [c, setC] = useState<Chemical[]>([]);
-  useEffect(() => {
-    api<Chemical[]>('/chemicals').then(setC);
-  }, []);
+  const load = () => {
+    api<Chemical[]>('/chemicals')
+      .then(setC)
+      .catch(() => {});
+  };
+  useEffect(load, []);
+  useRefresh(load, ['inventory']);
   return c;
 }
 
@@ -147,3 +198,35 @@ export function Num({ v, on, w }: { v: number; on: (n: number) => void; w?: numb
 export const Check = ({ v, on }: { v: boolean; on: (b: boolean) => void }) => (
   <input type="checkbox" checked={v} onChange={(e) => on(e.target.checked)} />
 );
+
+/** A small dialog over the page; closes on Escape or a click outside. */
+export function Dialog({
+  title,
+  onClose,
+  children,
+  wide,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, []);
+  return (
+    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={'dialog' + (wide ? ' wide' : '')} role="dialog" aria-label={title}>
+        <div className="dialog-head">
+          <h2>{title}</h2>
+          <button className="iconbtn" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

@@ -6,3 +6,5 @@ export * from './inventory';
 export * from './sha256';
 export * from './accounts';
 export * from './equipment';
+export * from './chem';
+export * from './inventoryCsv';

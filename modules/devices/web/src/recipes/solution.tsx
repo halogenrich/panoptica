@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   layeredAmounts,
   nFromAmounts,
@@ -15,7 +15,10 @@ import {
   type SolMode,
   type SolutionD,
 } from '@psc/devices';
-import { Check, DragHandle, Num, RemoveRow, useReorder } from '@web/views/common';
+import { Check, DragHandle, Num, RemoveRow, bottleText, useReorder } from '@web/views/common';
+import { api } from '@web/api';
+import { MeCtx } from '@web/ctx';
+import { refreshAll } from '@web/lib/trash';
 import { Seg } from '@web/lib/ui';
 import { Formula, Section, T, fix, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
@@ -363,7 +366,8 @@ function StockEditor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx:
 }
 
 function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx }) {
-  const names = (...r: string[]) => ctx.chems.filter((c) => r.includes(c.role)).map((c) => c.name);
+  const names = (...r: string[]) =>
+    ctx.chems.filter((c) => (c.roles ?? [c.role]).some((x) => r.includes(x))).map((c) => c.name);
   const sol = solute(d, ctx),
     list = solutes(d, ctx);
   const upAd = (i: number, p: Partial<Additive>) => set({ ad: d.ad.map((a, j) => (j === i ? { ...a, ...p } : a)) });
@@ -577,19 +581,67 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   );
 }
 
+/**
+ * Which container the amounts are for: its purity sets the mass. With more than one of the substance in stock, another can be
+ * chosen; it becomes the one every recipe uses. A batch's sheets show the bottle it was started with.
+ */
+function Bottle({ ctx, name, ok, edit }: { ctx: Ctx; name: string; ok: boolean; edit: boolean }) {
+  const { me } = useContext(MeCtx),
+    canSwitch = me.role === 'admin' || !!me.inventory,
+    c = ctx.chems.find((x) => x.name === name);
+  if (!c) return <div className="err small">Not in the inventory: add a container of it</div>;
+  const missing = !ok && <div className="err small">No molar mass: add it in Inventory › Substances</div>;
+  if (!c.bottle)
+    return (
+      <>
+        {missing}
+        <div className="err small">Not in stock: the amounts assume 100 % purity</div>
+      </>
+    );
+  const many = edit && canSwitch && (c.bottles?.length ?? 0) > 1;
+  return (
+    <>
+      {missing}
+      {many ? (
+        <div>
+          <select
+            className="small"
+            style={{ maxWidth: 320 }}
+            aria-label={`${name} container`}
+            value={c.bottle.id}
+            onChange={(e) => api(`/inventory/containers/${e.target.value}/use`, 'PUT', { use: true }).then(refreshAll)}
+          >
+            {c.bottles!.map((b) => (
+              <option key={b.id} value={b.id}>
+                {bottleText(b)}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="small mut">{bottleText(c.bottle as any)}</div>
+      )}
+    </>
+  );
+}
+
 function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
   const r = plan(d, ctx);
   const rows = [
     ...r.rows.map((a) => [
       <>
         {a.s}
-        {!a.ok && <span className="err"> · not in chemical table</span>}
+        <Bottle ctx={ctx} name={a.s} ok={a.ok} edit={!blanks} />
         {a.bundled.length > 0 && <small className="mut"> (+{a.bundled.join(', ')} additive)</small>}
       </>,
       a.mmol.toFixed(3),
-      <>
-        {a.mg.toFixed(2)} mg{a.mg < 1 && <span className="err"> · under 1 mg</span>}
-      </>,
+      a.ok ? (
+        <>
+          {a.mg.toFixed(2)} mg{a.mg < 1 && <span className="err"> · under 1 mg</span>}
+        </>
+      ) : (
+        '—'
+      ),
     ]),
     ...r.extra.map((a) => [
       <>
@@ -616,13 +668,17 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
       return [
         <>
           {x.s}
-          {!row.ok && <span className="err"> · not in chemical table</span>}
+          <Bottle ctx={ctx} name={x.s} ok={row.ok} edit={!blanks} />
         </>,
         `${r2(x.c)} M`,
         `${+x.make.toFixed(3)} mL`,
-        <>
-          {x.mg.toFixed(2)} mg{x.mg < 1 && <span className="err"> · under 1 mg</span>}
-        </>,
+        row.ok ? (
+          <>
+            {x.mg.toFixed(2)} mg{x.mg < 1 && <span className="err"> · under 1 mg</span>}
+          </>
+        ) : (
+          '—'
+        ),
       ];
     });
     const s1 = withBlank(

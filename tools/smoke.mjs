@@ -908,7 +908,7 @@ if (CORE) {
     'no Electronic Devices tables in the database',
   );
   ok((await call('GET', '/api/batches')).s === 404 && (await call('GET', '/api/presets')).s === 404, 'nor its routes');
-  ok((await call('GET', '/api/chemicals')).j.length === 0, 'the chemical list starts empty');
+  ok((await call('GET', '/api/chemicals')).j.length === 0, 'no substances before any container');
   const box = await call('POST', '/api/inventory/containers', {
     name: 'Core salt',
     amount: 1,
@@ -949,6 +949,126 @@ if (CORE) {
     chk?.ok && /users/.test(chk.msg) && !/recipes/.test(chk.msg),
     `a backup is checked by the core alone: ${chk?.msg}`,
   );
+}
+
+console.log('Substances made from containers (0.44)');
+{
+  const add = (b) => call('POST', '/api/inventory/containers', { amount: 5, size: 10, unit: 'g', ...b });
+  const sub = async (id) => (await call('GET', '/api/chemicals')).j.find((c) => c.id === id);
+  const chemOf = (box) => db.prepare('SELECT chem_id FROM containers WHERE id=?').get(box).chem_id;
+  const a = await add({ name: 'Smoke iodide', cas: '0010101-63-0', supplier: 'Acme', lot: 'A-1', purity: 99.99 });
+  const id = chemOf(a.j.id);
+  let s = await sub(id);
+  ok(
+    a.s === 200 && s?.cas === '10101-63-0',
+    'a container makes its substance, with the CAS number written the usual way',
+  );
+  ok(s.bottle?.id === a.j.id && s.pur === 99.99 && s.brand === 'Acme', 'recipes take the purity of its only container');
+  const b = await add({ name: 'PbI2 from Beta', cas: '10101-63-0', supplier: 'Beta', lot: 'B-1', purity: 99.9 });
+  ok(chemOf(b.j.id) === id, 'another container with the same CAS number is of the same substance');
+  ok(
+    db.prepare('SELECT name FROM containers WHERE id=?').get(b.j.id).name === 'Smoke iodide',
+    'and carries the substance’s name',
+  );
+  s = await sub(id);
+  ok(s.bottles.length === 2 && s.bottle.id === b.j.id, 'with none marked, recipes use the newest container');
+  ok((await call('PUT', `/api/inventory/containers/${a.j.id}/use`, { use: true })).s === 200, 'the first one marked');
+  s = await sub(id);
+  ok(
+    s.bottle.id === a.j.id && s.pur === 99.99 && s.bottles.filter((x) => x.use).length === 1,
+    'recipes use it, and only it is marked',
+  );
+  const c = await add({ name: 'Smoke iodide', supplier: 'Gamma', use: true });
+  s = await sub(id);
+  ok(chemOf(c.j.id) === id && s.bottle.id === c.j.id, 'a container added as the one recipes use takes over (by name)');
+  await call('PUT', `/api/inventory/containers/${c.j.id}`, {
+    name: 'Smoke iodide',
+    amount: 0,
+    size: 10,
+    unit: 'g',
+    status: 'empty',
+  });
+  s = await sub(id);
+  ok(s.bottles.length === 2 && !s.bottles.some((x) => x.id === c.j.id), 'an empty container is no longer in stock');
+  const other = await add({ name: 'Smoke iodide', cas: '7790-80-9' });
+  const o = await sub(chemOf(other.j.id));
+  ok(
+    o.id !== id && o.name === 'Smoke iodide (7790-80-9)',
+    'the same name with another CAS number is another substance',
+  );
+  ok(
+    (
+      await call('PUT', `/api/chemicals/${id}`, {
+        name: 'Smoke iodide',
+        cas: '10101-63-0',
+        f: 'PbI2',
+        M: 0,
+        roles: ['metal', 'salt'],
+        pf: true,
+      })
+    ).s === 200,
+    'a substance’s identity is edited',
+  );
+  s = await sub(id);
+  ok(
+    s.M === 461.01 && s.roles.join() === 'metal,salt' && s.role === 'metal' && s.pf,
+    'molar mass from the formula, roles and controls kept',
+  );
+  ok((await call('DELETE', `/api/chemicals/${id}`)).s === 409, 'a substance with containers cannot be deleted');
+  ok(
+    (await call('GET', '/api/search?q=10101-63-0')).j.hits.some(
+      (h) => h.key === 'chemical:' + id && h.hint === 'Substance',
+    ),
+    'search finds substances by CAS number',
+  );
+  const imp = await call('POST', '/api/inventory/import', {
+    substances: [
+      {
+        key: '10101-63-0',
+        name: 'Lead(II) iodide',
+        cas: '10101-63-0',
+        f: 'PbI2',
+        d: 6.16,
+        mp: 402,
+        ghs: ['GHS07', 'GHS08'],
+      },
+      { key: 'smoke solvent', name: 'Smoke solvent', f: 'C3H7NO', roles: ['solvent'], army: true },
+    ],
+    containers: [
+      {
+        key: '10101-63-0',
+        amount: 25,
+        size: 50,
+        unit: 'g',
+        lot: 'I-1',
+        barcode: 'SMK-0001',
+        area: 'Smoke cabinet',
+        shelf: 'Top',
+      },
+      { key: 'smoke solvent', amount: 1, size: 1, unit: 'L', area: 'Smoke cabinet' },
+      { key: 'nobody', amount: 1, size: 1 },
+    ],
+  });
+  ok(imp.s === 200 && imp.j.imported === 2 && imp.j.substances === 2, 'an import: substances, then their containers');
+  s = await sub(id);
+  ok(
+    s.name === 'Smoke iodide' &&
+      s.d === 6.16 &&
+      s.mp === 402 &&
+      s.ghs.join() === 'GHS07,GHS08' &&
+      s.bottles.length === 3,
+    'an imported container joins its substance by CAS number, filling what it did not know',
+  );
+  const solv = (await call('GET', '/api/chemicals')).j.find((x) => x.name === 'Smoke solvent');
+  ok(
+    Math.abs(solv?.M - 73.09) < 0.02 && solv.army && solv.bottle?.place === 'Smoke cabinet',
+    'a new substance, its molar mass and storage place',
+  );
+  ok(
+    (await call('GET', '/api/search?q=SMK-0001')).j.hits.some((h) => h.key.startsWith('container:')),
+    'search finds containers by barcode',
+  );
+  for (const x of [a, b, c, other]) await call('DELETE', '/api/inventory/containers/' + x.j.id);
 }
 
 if (!BUILT) {

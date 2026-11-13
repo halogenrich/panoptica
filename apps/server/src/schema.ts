@@ -429,6 +429,47 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       }
     },
   },
+  {
+    id: 35,
+    owner: 'core',
+    name: 'substances made from containers: CAS, several roles, flags; purity and brand on the containers; the bottle recipes use (0.44)',
+    up: (db) => {
+      add(db, 'chemicals', 'cas', "TEXT NOT NULL DEFAULT ''");
+      add(db, 'containers', 'use', 'INTEGER NOT NULL DEFAULT 0');
+      add(db, 'containers', 'barcode', "TEXT NOT NULL DEFAULT ''");
+      db.exec('CREATE INDEX IF NOT EXISTS chemicals_cas ON chemicals(cas)');
+      // containers named like a substance but not linked to it
+      db.exec(
+        'UPDATE containers SET chem_id=(SELECT id FROM chemicals c WHERE lower(c.name)=lower(containers.name)) WHERE chem_id IS NULL',
+      );
+      const chems = db.prepare('SELECT id, data FROM chemicals').all() as { id: number; data: string }[];
+      for (const c of chems) {
+        const d = JSON.parse(c.data || '{}');
+        // the purity and brand the chemical had go to its containers that did not say theirs
+        if (typeof d.pur === 'number' && d.pur !== 100)
+          db.prepare('UPDATE containers SET purity=? WHERE chem_id=? AND purity IS NULL').run(d.pur, c.id);
+        if (d.brand) db.prepare("UPDATE containers SET supplier=? WHERE chem_id=? AND supplier=''").run(d.brand, c.id);
+        const cas = (
+          db.prepare("SELECT cas FROM containers WHERE chem_id=? AND cas<>'' LIMIT 1").get(c.id) as
+            { cas: string } | undefined
+        )?.cas;
+        const next = {
+          f: d.f ?? '',
+          M: d.M ?? 0,
+          d: d.d ?? null,
+          mp: null,
+          bp: null,
+          nD: null,
+          roles: d.role && d.role !== 'other' ? [d.role] : [],
+          ghs: [],
+          pf: false,
+          army: false,
+          notes: '',
+        };
+        db.prepare('UPDATE chemicals SET data=?, cas=? WHERE id=?').run(JSON.stringify(next), cas ?? '', c.id);
+      }
+    },
+  },
 ];
 
 /**

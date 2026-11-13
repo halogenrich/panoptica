@@ -121,14 +121,29 @@ export const UserPatch = z.object({
 export type Role = z.infer<typeof Role>;
 
 export const ChemRole = z.enum(['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'other']);
-export const ChemicalIn = z.object({
-  name: z.string().min(1).max(60),
-  role: ChemRole,
-  f: z.string().max(60),
-  M: z.number().nonnegative(),
-  d: z.number().nonnegative().nullable(),
-  pur: z.number().min(0).max(100),
-  brand: z.string().max(80),
+/**
+ * A substance (0.44): what recipes name, made from the containers people add or import. Purity and brand belong to each
+ * container, not here. Roles are filters (a salt can also be an additive); `pf` and `army`: controlled by the Federal Police or
+ * the Army.
+ */
+const opt = z.number().finite().nullable().optional();
+export const SubstanceIn = z.object({
+  name: z.string().trim().min(1).max(120),
+  cas: z.string().trim().max(20).optional(),
+  f: z.string().trim().max(60).optional(),
+  M: z.number().nonnegative().optional(),
+  d: opt,
+  mp: opt,
+  bp: opt,
+  nD: opt,
+  roles: z.array(ChemRole).max(8).optional(),
+  ghs: z
+    .array(z.string().regex(/^GHS0\d$/))
+    .max(9)
+    .optional(),
+  pf: z.boolean().optional(),
+  army: z.boolean().optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 const Watermark = z
@@ -258,8 +273,12 @@ const day = z
   .optional()
   .or(z.literal('').transform(() => null));
 export const ContainerIn = z.object({
+  /** the substance: its id, or a name (and CAS) to find or make it by */
   name: z.string().trim().min(1, 'name the chemical').max(120),
   chem_id: z.number().int().nullable().optional(),
+  /** the container recipes use for this substance (the one in the glovebox) */
+  use: z.boolean().optional(),
+  barcode: z.string().max(60).optional(),
   cas: z.string().max(40).optional(),
   /** Amount left and full size of the container, in `unit`. */
   amount: num,
@@ -275,10 +294,24 @@ export const ContainerIn = z.object({
   opened: day,
   notes: z.string().max(2000).optional(),
 });
+/**
+ * An import (0.44): the substances found (each with a `key`, its CAS number or name) and the containers, each naming its
+ * substance's key. Storage places and divisions are made by name when missing.
+ */
 export const InventoryImport = z.object({
-  rows: z
+  substances: z.array(SubstanceIn.extend({ key: z.string().min(1).max(160) })).max(5000),
+  containers: z
     .array(
-      ContainerIn.omit({ area_id: true, shelf_id: true, unit: true }).extend({
+      ContainerIn.omit({
+        area_id: true,
+        shelf_id: true,
+        unit: true,
+        name: true,
+        chem_id: true,
+        cas: true,
+        use: true,
+      }).extend({
+        key: z.string().min(1).max(160),
         unit: Unit.optional(),
         area: z.string().max(80).optional(),
         shelf: z.string().max(60).optional(),

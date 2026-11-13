@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { spinDefaults, spinPlan, spinUses, type Dispense, type SpinD, type SpinStep } from '@psc/devices';
 import { Check, DragHandle, Num, RemoveRow, useReorder } from '@web/views/common';
+import { Seg } from '@web/lib/ui';
 import { Section, T } from './shared';
 import type { Ctx, Kind } from './types';
 
@@ -158,11 +159,17 @@ function SpinChart({ d }: { d: D }) {
 }
 
 function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx }) {
-  const src = [
-    '',
-    ...ctx.solutions.map((n) => 'Preset: ' + n),
-    ...ctx.chems.filter((c) => c.role === 'solvent').map((c) => 'Solvent: ' + c.name),
-  ];
+  // a dispense is a solution (one of the lab's solution recipes) or a solvent straight from the bottle: first which kind, then
+  // that list only (0.44; one mixed list confused people)
+  const lists = {
+    Preset: ctx.solutions,
+    Solvent: ctx.chems.filter((c) => (c.roles ?? [c.role]).includes('solvent')).map((c) => c.name),
+  };
+  // the kind picked for a dispense that has no solution or solvent yet
+  const [picking, setPicking] = useState<Record<number, keyof typeof lists>>({});
+  const kindOf = (i: number) =>
+      d.dp[i].src.startsWith('Solvent: ') ? 'Solvent' : d.dp[i].src ? 'Preset' : (picking[i] ?? 'Preset'),
+    nameOf = (src: string) => src.replace(/^(Preset|Solvent): /, '');
   const upS = (i: number, p: Partial<SpinStep>) =>
     set({ steps: d.steps.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const upD = (i: number, p: Partial<Dispense>) => set({ dp: d.dp.map((x, j) => (j === i ? { ...x, ...p } : x)) });
@@ -227,12 +234,33 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           <div className={'disp' + (rd.drag === i ? ' dragging' : '')} key={i} ref={rd.rowRef(i)}>
             <span className="inline">
               <DragHandle h={rd.handle(i)} show={d.dp.length > 1} />
-              <select value={x.src} onChange={(e) => upD(i, { src: e.target.value })}>
-                {src.map((o) => (
-                  <option key={o} value={o}>
-                    {o || 'Choose solution or solvent…'}
+              <Seg
+                small
+                value={kindOf(i)}
+                on={(k) => {
+                  if (k === kindOf(i)) return;
+                  setPicking({ ...picking, [i]: k });
+                  upD(i, { src: '' });
+                }}
+                opts={[
+                  ['Preset', 'Solution'],
+                  ['Solvent', 'Solvent'],
+                ]}
+              />
+              <select
+                aria-label={kindOf(i) === 'Solvent' ? 'Solvent' : 'Solution recipe'}
+                value={nameOf(x.src)}
+                onChange={(e) => upD(i, { src: e.target.value ? `${kindOf(i)}: ${e.target.value}` : '' })}
+              >
+                <option value="">{kindOf(i) === 'Solvent' ? 'Choose a solvent…' : 'Choose a solution recipe…'}</option>
+                {lists[kindOf(i)].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
                   </option>
                 ))}
+                {nameOf(x.src) && !lists[kindOf(i)].includes(nameOf(x.src)) && (
+                  <option value={nameOf(x.src)}>{nameOf(x.src)} (not found)</option>
+                )}
               </select>
             </span>
             <div className="inline">
