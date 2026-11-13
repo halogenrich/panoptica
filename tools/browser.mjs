@@ -104,9 +104,11 @@ const printOf = async (button) => {
       };
     };
   });
-  // a click while the window is still opening can be lost: click again if nothing was printed
+  // clicked from the page: Playwright's own click can wait on a navigation the print button never makes (seen in CI), and a
+  // click while the window is still opening can be lost, so click again if nothing was printed
+  await button.waitFor();
   for (let i = 0; ; i++) {
-    await button.click();
+    await button.evaluate((b) => b.click());
     const done = await page
       .waitForFunction(() => window.__printed !== null, null, { timeout: 5000 })
       .then(() => true)
