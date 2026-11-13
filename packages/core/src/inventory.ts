@@ -24,12 +24,12 @@ export function toBase(v: number, unit: string, base: 'mg' | 'µL', density?: nu
 /** A use (mg and/or µL) in one base unit. */
 export const amountIn = (u: Use, base: 'mg' | 'µL', density?: number | null) =>
   (u.mg ? (toBase(u.mg, 'mg', base, density) ?? 0) : 0) + (u.ul ? (toBase(u.ul, 'µL', base, density) ?? 0) : 0);
-/** Readable amount: 1 234 mg → 1.23 g, 2 500 µL → 2.5 mL. */
-export function fmtAmount(v: number, base: 'mg' | 'µL') {
+/** Readable amount: 1 234 mg → 1.23 g, 2 500 µL → 2.5 mL (`digits` significant: 4 keeps a weighed 190.2 mg). */
+export function fmtAmount(v: number, base: 'mg' | 'µL', digits = 3) {
   const [s, m, l] = base === 'mg' ? ['mg', 'g', 'kg'] : ['µL', 'mL', 'L'],
     a = Math.abs(v);
   const [x, u] = a >= 1e6 ? [v / 1e6, l] : a >= 1e3 ? [v / 1e3, m] : [v, s];
-  return `${+x.toPrecision(3)} ${u}`;
+  return `${+x.toPrecision(digits)} ${u}`;
 }
 
 export type Period = 'week' | 'month';

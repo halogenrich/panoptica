@@ -13,8 +13,11 @@ import {
  * What a recipe takes from the inventory (0.42). The solution and spin-coating recipes compute here, so the app's recipe screens
  * and the server's consumption report (inventory) use one calculation.
  */
-/** `box`: the container it is taken from, when the batch recorded one (0.45). */
-export type ChemUse = { name: string; mg?: number; ul?: number; box?: number | null };
+/**
+ * `box`: the container it is taken from, when the batch recorded one (0.45). `run`: the amount is what the run data say was
+ * weighed or dispensed, not what the recipe planned (0.45.1).
+ */
+export type ChemUse = { name: string; mg?: number; ul?: number; box?: number | null; run?: boolean };
 /** The chemical table as recipes read it: names and roles (which solutes a mode offers), and the molar data. */
 export type ChemCtx = { chems: { name: string; role: string; roles?: string[] }[]; cl: Chem[] };
 
@@ -111,6 +114,46 @@ export function solutionUses(d: SolutionD, ctx: ChemCtx): ChemUse[] {
   return out.filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0));
 }
 
+/** A run-data value as a number, or null when it was left empty or is not one ("12,5" reads as 12.5). */
+export const runNumber = (v: string | undefined): number | null => {
+  if (v === undefined || !v.trim()) return null;
+  const n = parseFloat(v.replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+/**
+ * What one solution really took, from its run data where they were entered (weighed masses, volumes added) and its planned
+ * amounts elsewhere. The run-data keys are the solution's run fields: `w:<salt>`, `w:add:<additive>`, `v:<solvent>`.
+ */
+export function solutionRunUses(d: SolutionD, ctx: ChemCtx, values: Record<string, string>): ChemUse[] {
+  const r = solutionPlanOf(d, ctx),
+    out: ChemUse[] = [],
+    got = (k: string) => runNumber(values[k]);
+  const salts = r.stocks ? r.stocks.list : r.rows;
+  for (const x of salts) {
+    const w = got('w:' + x.s);
+    out.push(w === null ? { name: x.s, mg: x.mg } : { name: x.s, mg: w, run: true });
+  }
+  for (const a of r.extra) {
+    const w = got('w:add:' + a.n);
+    if (a.b === 'µL stock/mL') {
+      // the volume of its stock solution was measured: the additive scales with it
+      out.push(
+        w === null || !a.ul ? { name: a.n, mg: a.stockMg } : { name: a.n, mg: (a.stockMg * w) / a.ul, run: true },
+      );
+    } else if (a.ul) out.push(w === null ? { name: a.n, ul: a.ul } : { name: a.n, ul: w, run: true });
+    else out.push(w === null ? { name: a.n, mg: a.m } : { name: a.n, mg: w, run: true });
+  }
+  // with stock solutions, the run data give the solvent added to make up the volume; the stocks' own solvent stays planned
+  const stockUl = r.stocks ? r.stocks.list.reduce((t, x) => t + x.make * 1000, 0) : 0,
+    sp = d.sv.reduce((t, x) => t + x.p, 0) || 1;
+  for (const v of r.solv) {
+    const w = got('v:' + v.n),
+      inStocks = (stockUl * (d.sv.find((x) => x.n === v.n)?.p ?? 0)) / sp;
+    out.push(w === null ? { name: v.n, ul: v.ul + inStocks } : { name: v.n, ul: w + inStocks, run: true });
+  }
+  return out.filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0));
+}
+
 // ------------------------------------------------------------------ spin coating
 // a new recipe starts empty: the lab enters its own program
 export const spinDefaults = () => ({
@@ -132,19 +175,43 @@ export const spinUses = (d: SpinD): ChemUse[] =>
     .filter(([k]) => k.startsWith('Solvent: '))
     .map(([k, mL]) => ({ name: k.slice(9), ul: mL * 1000 }));
 
+/**
+ * The solvents a spin program really dispensed: each dispense's volume (`dp:<n>`, n counting the dispenses that have a source)
+ * and the substrates coated (`n`) from the run data where entered, else as planned.
+ */
+export function spinRunUses(d: SpinD, values: Record<string, string>): ChemUse[] {
+  const n = runNumber(values.n),
+    N = n ?? d.N,
+    by = new Map<string, ChemUse>();
+  d.dp
+    .filter((x) => x.src)
+    .forEach((x, i) => {
+      if (!x.src.startsWith('Solvent: ')) return;
+      const v = runNumber(values['dp:' + i]),
+        name = x.src.slice(9),
+        u = by.get(name) ?? { name, ul: 0, run: false };
+      u.ul! += (v ?? x.v) * N * (1 + d.ov / 100);
+      // from the run data when any of it was measured (a dispense's volume, or the substrates coated)
+      u.run = u.run || v !== null || n !== null;
+      by.set(name, u);
+    });
+  return [...by.values()].filter((u) => (u.ul ?? 0) > 0);
+}
+
 // ------------------------------------------------------------------ a batch
 /** A batch's frozen stack, as far as consumption reads it. */
 export type UseSnapshot = {
-  stack: { sl: { m: string }[] };
+  stack: { sl: { m: string; a?: string; b?: string }[] };
   resolved: Record<number, { a?: { data: unknown } | null; b?: { data: unknown } | null } | undefined>;
   chems: { name: string; role: string; f: string; M: number; pur?: number; bottle?: { id: number } | null }[];
 };
 /**
  * Reagents a batch took, from its frozen recipes: each solution prepared once (salts, additives, solvents) and the solvents
- * dispensed straight from the bottle in spin programs. Planned amounts, not weighed ones. A recipe from an older version that no
- * longer computes is left out.
+ * dispensed straight from the bottle in spin programs. Where the batch's run data for a recipe give what was really weighed or
+ * dispensed (`runs`: by recipe id, the latest value given for each field), those amounts count; elsewhere the planned ones (0.45.1). A recipe from an
+ * older version that no longer computes is left out.
  */
-export function snapshotUses(s: UseSnapshot): ChemUse[] {
+export function snapshotUses(s: UseSnapshot, runs: Record<string, Record<string, string>> = {}): ChemUse[] {
   const ctx: ChemCtx = {
       chems: s.chems,
       cl: s.chems.map((c) => ({ n: c.name, f: c.f, M: c.M, pur: c.pur })),
@@ -154,12 +221,20 @@ export function snapshotUses(s: UseSnapshot): ChemUse[] {
     if (sl.m !== 'Spin') return; // the other layers' recipes (substrate preparation, evaporation) take nothing counted
     const r = s.resolved[i] ?? {};
     try {
-      if (r.a) out.push(...solutionUses({ ...solutionDefaults(), ...(r.a.data as object) }, ctx));
+      if (r.a) {
+        const d = { ...solutionDefaults(), ...(r.a.data as object) },
+          v = sl.a ? runs[sl.a] : undefined;
+        out.push(...(v ? solutionRunUses(d, ctx, v) : solutionUses(d, ctx)));
+      }
     } catch {
       /* older recipe */
     }
     try {
-      if (r.b) out.push(...spinUses({ ...spinDefaults(), ...(r.b.data as object) }));
+      if (r.b) {
+        const d = { ...spinDefaults(), ...(r.b.data as object) },
+          v = sl.b ? runs[sl.b] : undefined;
+        out.push(...(v ? spinRunUses(d, v) : spinUses(d)));
+      }
     } catch {
       /* older recipe */
     }

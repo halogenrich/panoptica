@@ -2,6 +2,11 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.45.1 (2026-11-13)
+
+- **Run data set the amounts taken from the inventory**: where a batch's run data give what was really weighed or dispensed (a salt weighed, a solvent volume added, an additive, a dispense volume, the substrates coated), that amount is taken from the container instead of the planned one; elsewhere the recipe's amount still counts. Entering, changing or deleting run data takes the new amounts again, from the same containers and under the same date. With several entries for one recipe, the latest value of each field counts.
+- The batch page's **From the inventory** marks amounts **From run data** or **Partly from run data**; Consumption uses the same amounts.
+
 ## 0.45.0 (2026-11-13)
 
 - **No batch codes**: a batch is known by its name everywhere (batch list, batch page, calendar, outcomes, search, notifications, Overview, J–V links, run sheets, report, spreadsheet, data package, trash). Two batches cannot share a name; the batch page's title is its name and renames it. Run data choose their batch from a list of names instead of a typed code. Older batches without a name take their old code as their name, and repeated names get " (2)", " (3)".

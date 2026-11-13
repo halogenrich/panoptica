@@ -82,7 +82,8 @@ export interface ItemKind {
 export type SearchHit = { key: string; label: string; hint: string; link: Link };
 
 /** Inventory use a module reports (0.42): the core only sums it per chemical and period. */
-export type ChemUse = { name: string; mg?: number; ul?: number };
+/** `run`: the amount comes from what was recorded (run data), not from the plan (0.45.1). */
+export type ChemUse = { name: string; mg?: number; ul?: number; run?: boolean };
 export type UseEvent = {
   /** what it was used for ('UV-972'), and when */
   label: string;

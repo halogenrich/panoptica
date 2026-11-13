@@ -1061,7 +1061,7 @@ function ContainerTakes({ id }: { id: number }) {
             {d.link ? <a href={`#/${d.link.view}/${d.link.id}`}>{d.what}</a> : d.what}
             {' · '}
             {d.amount !== null ? (
-              fmtAmount(toBase(d.amount, d.unit, isMass(d.unit) ? 'mg' : 'µL') ?? 0, isMass(d.unit) ? 'mg' : 'µL')
+              fmtAmount(toBase(d.amount, d.unit, isMass(d.unit) ? 'mg' : 'µL') ?? 0, isMass(d.unit) ? 'mg' : 'µL', 4)
             ) : (
               <span className="err">not taken: {d.note}</span>
             )}

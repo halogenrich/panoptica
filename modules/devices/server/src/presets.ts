@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { lockedByCode } from './batchlock.js';
+import { retakeForBatch } from './takes.js';
 import { PresetIn, RunIn } from '@psc/devices/schema';
 import { notifyFork } from './notices.js';
 import { canSee, db } from '@psc/server/api';
@@ -237,6 +238,7 @@ export function registerPresets(
     const r = db
       .prepare('INSERT INTO run_data(preset_id,owner_id,batch,data) VALUES(?,?,?,?)')
       .run(+req.params.id, req.user.id, batch, JSON.stringify(rest));
+    retakeForBatch(batch); // what was weighed or dispensed replaces the planned amounts in the inventory
     return { id: Number(r.lastInsertRowid) };
   });
   app.delete('/api/runs/:id', { preHandler: auth() }, async (req: any, reply) => {
@@ -248,6 +250,7 @@ export function registerPresets(
     const lk = lockedByCode(r.batch);
     if (lk) return reply.code(423).send({ error: lk });
     db.prepare('DELETE FROM run_data WHERE id=?').run(+req.params.id);
+    retakeForBatch(r.batch);
     return { ok: true };
   });
 }

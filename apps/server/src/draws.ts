@@ -8,7 +8,8 @@ import { canSee, item, type ChemUse } from './modules.js';
  * container each substance came from; the amounts are taken from those containers when the record starts (`take`) and put back
  * when it goes to the trash (`giveBack`). Each take is kept, so a container shows what took from it, and a record what it took.
  * The container's amount stays what people can correct by hand: weighing a bottle and typing what is left is always right.
- * Taking does not change who last edited the container: the takes are its record of that.
+ * Taking does not change who last edited the container: the takes are its record of that. When the record's amounts change
+ * (run data give what was really weighed, 0.45.1), `retake` takes them again from the same containers, keeping the date.
  */
 export type Use = ChemUse & {
   /** the container the record says it used (the one its recipes took when it started) */
@@ -27,6 +28,8 @@ export type Draw = {
   unit: string;
   /** why nothing, or not all, was taken ('' when it was) */
   note: string;
+  /** where the amount comes from: 'planned' (the recipe), 'run' (run data) or 'partly' (some of each) */
+  basis: string;
   at: string;
   returned_at: string | null;
 };
@@ -52,7 +55,10 @@ function inUnit(u: Use, unit: string, density: number | null): number | null {
 }
 
 /** The container a use is taken from: the one the record names while it is still in stock, else the substance's one for recipes. */
-function containerFor(u: Use) {
+function containerFor(u: Use, keep?: number) {
+  // taken again: from the container it came from before, whatever it holds now
+  const kept = keep && (db.prepare('SELECT id, amount, unit, chem_id FROM containers WHERE id=?').get(keep) as any);
+  if (kept) return kept;
   const named =
     u.box &&
     (db.prepare("SELECT id, amount, unit, chem_id FROM containers WHERE id=? AND status<>'empty'").get(u.box) as any);
@@ -69,7 +75,12 @@ function containerFor(u: Use) {
  * Take what a record used from the containers, once: nothing happens when it already took (and has not given back). Uses of the
  * same substance and container are summed. Returns the takes.
  */
-export function take(subject: string, id: number, uses: Use[]): Draw[] {
+export function take(
+  subject: string,
+  id: number,
+  uses: Use[],
+  again?: { keep: Map<string, number>; at: string },
+): Draw[] {
   return tx(() => {
     if (
       db
@@ -77,22 +88,26 @@ export function take(subject: string, id: number, uses: Use[]): Draw[] {
         .get(subject, id)
     )
       return drawsOf(subject, id);
-    const sum = new Map<string, Use>();
+    const sum = new Map<string, Use & { parts: number; runs: number }>();
     for (const u of uses) {
       if (!u.mg && !u.ul) continue;
       const k = u.name.trim().toLowerCase() + '|' + (u.box ?? '');
-      const s = sum.get(k) ?? { name: u.name.trim(), box: u.box ?? null };
+      const s = sum.get(k) ?? { name: u.name.trim(), box: u.box ?? null, parts: 0, runs: 0 };
       s.mg = (s.mg ?? 0) + (u.mg ?? 0) || undefined;
       s.ul = (s.ul ?? 0) + (u.ul ?? 0) || undefined;
+      s.parts++;
+      if (u.run) s.runs++;
       sum.set(k, s);
     }
     const add = db.prepare(
-      'INSERT INTO container_draws(subject,subject_id,substance,container_id,mg,ul,amount,unit,note) VALUES(?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO container_draws(subject,subject_id,substance,container_id,mg,ul,amount,unit,note,basis,at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
     );
+    const at = again?.at ?? new Date().toISOString().replace('T', ' ').slice(0, 19);
     for (const u of sum.values()) {
-      const c = containerFor(u);
+      const basis = !u.runs ? 'planned' : u.runs === u.parts ? 'run' : 'partly',
+        c = containerFor(u, again?.keep.get(u.name.toLowerCase()));
       if (!c) {
-        add.run(subject, id, u.name, null, u.mg ?? null, u.ul ?? null, null, '', 'no container in stock');
+        add.run(subject, id, u.name, null, u.mg ?? null, u.ul ?? null, null, '', 'no container in stock', basis, at);
         continue;
       }
       const s = db.prepare('SELECT data FROM chemicals WHERE id=?').get(c.chem_id) as { data: string } | undefined,
@@ -106,7 +121,7 @@ export function take(subject: string, id: number, uses: Use[]): Draw[] {
         db.prepare('UPDATE containers SET amount=? WHERE id=?').run(round(Math.max(0, c.amount - x), 4), c.id);
       // what was really taken: all of it, or what the container held
       const taken = x === null || c.amount === null ? null : round(Math.min(x, c.amount));
-      add.run(subject, id, u.name, c.id, u.mg ?? null, u.ul ?? null, taken, c.unit, note);
+      add.run(subject, id, u.name, c.id, u.mg ?? null, u.ul ?? null, taken, c.unit, note, basis, at);
     }
     return drawsOf(subject, id);
   });
@@ -126,6 +141,21 @@ export function giveBack(subject: string, id: number) {
         );
       db.prepare('UPDATE container_draws SET returned_at=CURRENT_TIMESTAMP WHERE id=?').run(d.id);
     }
+  });
+}
+
+/**
+ * The record's amounts changed (run data entered, changed or deleted): put back what it took and take the new amounts from the
+ * same containers, under the same date. A record that has not taken yet is left alone.
+ */
+export function retake(subject: string, id: number, uses: Use[]) {
+  tx(() => {
+    const was = drawsOf(subject, id);
+    if (!was.length) return;
+    const keep = new Map<string, number>();
+    for (const d of was) if (d.container_id) keep.set(d.substance.toLowerCase(), d.container_id);
+    giveBack(subject, id);
+    take(subject, id, uses, { keep, at: was[0].at });
   });
 }
 
