@@ -154,7 +154,7 @@ try {
   run('check', '--key', key.toLowerCase(), '--out', join(tmp, 'check.ini'));
   const c = iniOf(join(tmp, 'check.ini'));
   ok(
-    c.ok === '1' && c.lab === 'Key Lab' && c.modules === 'devices' && c.version === version,
+    c.ok === '1' && c.lab === 'Key Lab' && c.modules === 'Electronic Devices' && c.version === version,
     'the wizard is told what the key covers',
   );
   run('install', '--key', key, '--lan', '0', '--task', '0');

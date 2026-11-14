@@ -275,8 +275,10 @@ try {
       await page.getByRole('button', { name: 'Start batch' }).click();
       await page.getByLabel('Batch name').fill('Browser batch');
       await page.locator('.start-batch').getByRole('button', { name: 'Start batch' }).click();
-      // the batch page, with its name as the title; no code anywhere (0.45)
-      await page.getByRole('textbox', { name: 'Batch name' }).waitFor();
+      // the batch page, with its name as the title; no code anywhere (0.45). The dialog's field has the same name: it goes first
+      await page.locator('.start-batch').waitFor({ state: 'detached' });
+      await page.waitForURL(/#\/batches\/\d+/);
+      await page.getByRole('textbox', { name: 'Batch name' }).waitFor({ timeout: 20000 });
       expect(
         (await page.getByRole('textbox', { name: 'Batch name' }).inputValue()) === 'Browser batch',
         'the batch page is not titled by its name',

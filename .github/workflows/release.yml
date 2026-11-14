@@ -71,3 +71,23 @@ jobs:
           gh release upload "v$v" $f "$f.sha256" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+  setup-mac:
+    needs: release
+    if: needs.release.outputs.made == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and publish PANOPTICA Setup for macOS
+        run: |
+          v="${{ needs.release.outputs.version }}"
+          node tools/installer-build.mjs --mac --version "$v" --service "${{ vars.ACTIVATION_URL }}"
+          cd out/installer
+          shasum -a 256 "PANOPTICA-Setup-$v.dmg" > "PANOPTICA-Setup-$v.dmg.sha256"
+          gh release upload "v$v" "PANOPTICA-Setup-$v.dmg" "PANOPTICA-Setup-$v.dmg.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
