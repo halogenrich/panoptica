@@ -205,6 +205,9 @@ export const UpdateSettingsIn = z.object({
     .regex(/^[\w.-]+\/[\w.-]+$/, 'repository as owner/name')
     .optional(),
   token: z.string().max(400).optional(),
+  /** 0.47: the lab's product key, and the activation service's address (when it is not the one the installer set) */
+  key: z.string().max(60).optional(),
+  service: z.string().url().max(200).optional(),
 });
 
 /** Own profile: display name and photo (square JPEG or PNG, resized in the browser; '' removes it). */

@@ -323,12 +323,15 @@ type Lic = {
   skipped: string[];
   names: Record<string, string>;
   today: string;
+  byKey?: boolean;
+  changed?: string;
 };
 const dmy = (d: string) => d.split('-').reverse().join('/');
 /** The lab's licence: who it is for, its modules, until when updates come; and installing a new one. Never locks anyone out. */
 export function Licence() {
   const [v, setV] = useState<Lic | null>(null),
     [err, setErr] = useState(''),
+    [msg, setMsg] = useState(''),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     api<Lic>('/licence')
@@ -396,6 +399,28 @@ export function Licence() {
             </dd>
           </dl>
         )}
+        {v.byKey && (
+          <button
+            className="btn secondary"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setErr('');
+              setMsg('');
+              api<Lic>('/licence/refresh', 'POST')
+                .then((x) => {
+                  setV(x);
+                  setMsg(
+                    x.changed ? 'Installed the key’s new licence.' : 'The installed licence is the key’s current one.',
+                  );
+                })
+                .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Check my licence
+          </button>
+        )}
         <label className={'btn secondary' + (busy ? ' disabled' : '')}>
           {busy ? 'Installing…' : l ? 'Install a new licence…' : 'Install the licence…'}
           <input
@@ -410,6 +435,7 @@ export function Licence() {
           />
         </label>
         {err && <p className="err small">{err}</p>}
+        {msg && <p className="small">{msg}</p>}
         <p className="mut small">
           A licence file is signed by PANOPTICA: one that was changed, or made for another lab, is refused. It is kept
           in the database, so a backup restored on another computer keeps it.
@@ -427,6 +453,9 @@ type Upd = {
   available: boolean;
   beyondLicence?: boolean;
   updatesUntil?: string | null;
+  source?: 'key' | 'github';
+  keyEnd?: string | null;
+  service?: string | null;
   canInstall: boolean;
   checkedAt?: string;
   error?: string;
@@ -440,6 +469,8 @@ export function Updates() {
     [err, setErr] = useState(''),
     [token, setToken] = useState(''),
     [repo, setRepo] = useState<string | null>(null),
+    [key, setKey] = useState(''),
+    [service, setService] = useState<string | null>(null),
     [installing, setInstalling] = useState(false);
   const run = (label: string, p: Promise<Upd>) => {
     setBusy(label);
@@ -539,7 +570,8 @@ export function Updates() {
           ) : (
             'Not checked yet.'
           )}{' '}
-          The app checks GitHub once a day and notifies admins when there is a new version.
+          The app checks {u.source === 'key' ? 'with PANOPTICA' : 'GitHub'} once a day and notifies admins when there is
+          a new version.
           {u.updatesUntil && ` The licence covers versions published until ${dmy(u.updatesUntil)}.`}
         </p>
         {u.beyondLicence && L && (
@@ -592,7 +624,63 @@ export function Updates() {
           <pre>{u.log}</pre>
         </details>
       )}
-      <h3 className="sub">Where updates come from</h3>
+      <h3 className="sub">Product key</h3>
+      <section className="group">
+        {u.source === 'key' ? (
+          <p className="small">
+            Updates come from PANOPTICA with this lab’s product key (ending in <b>{u.keyEnd}</b>): only the modules and
+            the versions its licence covers. A renewal or a module added arrives with the next check.
+          </p>
+        ) : (
+          <p className="small mut">
+            With the lab’s product key, updates come from PANOPTICA: only what the key covers. Typing it here also uses
+            one of the key’s computers (a backup restored on a new computer, for example). Without a key, updates come
+            from the GitHub repository below.
+          </p>
+        )}
+        <label className="fld">
+          <span>{u.source === 'key' ? 'Another product key' : 'Product key'}</span>
+          <input
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+          />
+        </label>
+        <label className="fld">
+          <span>Activation service</span>
+          <input
+            value={service ?? u.service ?? ''}
+            onChange={(e) => setService(e.target.value)}
+            placeholder="https://…"
+          />
+        </label>
+        <div className="inline">
+          <button
+            className="btn"
+            disabled={!!busy || !key.trim() || !(service ?? u.service)}
+            onClick={() =>
+              run(
+                'key',
+                api<Upd>('/updates/settings', 'PUT', {
+                  key: key.trim(),
+                  ...(service ? { service: service.trim() } : {}),
+                }).then((x) => {
+                  setKey('');
+                  setService(null);
+                  return x;
+                }),
+              )
+            }
+          >
+            {busy === 'key' ? 'Activating…' : 'Activate this computer'}
+          </button>
+        </div>
+      </section>
+      <h3 className="sub">
+        From the GitHub repository{u.source === 'key' ? ' (not used while there is a product key)' : ''}
+      </h3>
       <section className="group">
         <label className="fld">
           <span>GitHub repository</span>

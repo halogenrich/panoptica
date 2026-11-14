@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.47.0 (2026-11-14)
+
+- **PANOPTICA Setup with a product key**: one Windows installer for every lab. It asks for the lab's product key, shows what the key covers (the lab, its modules, the last day of updates, how many computers may use it), downloads only the package for those modules, checks PANOPTICA's signature and installs PANOPTICA as a task that starts with the computer, with a firewall rule when the lab network may open it. The finish page opens PANOPTICA; the product key also opens the first setup from any computer. Running it again upgrades in place and keeps the data (the database is backed up first); uninstalling removes the task and the firewall rule and keeps the data.
+- **Updates with the key**: Admin settings › Updates fetches releases from PANOPTICA with the lab's product key: only the package its modules need, only versions its licence covers, and no GitHub token on the lab's computer. Each check also brings the key's current licence (a renewal, a module added); Admin settings › Licence has **Check my licence**. An update the app installs restarts PANOPTICA through its task. Installs without a key keep updating from GitHub.
+- **Each key has its own number of computers**: a second computer is refused once the key's computers are in use; PANOPTICA can move a key to a replaced computer.
+- **For PANOPTICA's staff** (not in the lab's package): the activation service (`services/activation`, plain Node, host to be chosen) keeps keys only as their SHA-256, the signed licences, the computers and the releases; `tools/builder/keys.mjs` makes keys (signing each licence on the staff computer), renews, lists, moves and publishes releases to it.
+
 ## 0.46.0 (2026-11-13)
 
 - **Licence**: PANOPTICA gives each lab a licence file it signs: the lab's name and id, the modules it bought, and the last day of updates. Only the modules it lists start; releases published after its last day are shown but not installed. Nothing else stops: after that day the app keeps working and every record can still be exported. A licence that was changed, signed by anyone else, made for another lab, or older than the one installed is refused. It is kept in the database, so a backup restored on another computer keeps it. **Admin settings › Licence** shows it and installs a new one; a `licence.json` left next to the app is installed at the first start. Without a licence, everything works as before.

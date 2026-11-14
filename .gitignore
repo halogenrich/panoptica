@@ -10,3 +10,4 @@ config/
 updates/
 out/
 release/
+installer/build/

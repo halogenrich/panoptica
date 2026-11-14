@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -20,6 +20,7 @@ import { backupNow } from './backup.js';
 import { signedByPanoptica } from './signature.js';
 import { licence, updatesCover } from './licence.js';
 import { modules, skippedModules } from './modules.js';
+import { activate, keyFile, keySettings, latestForKey, refreshLicence } from './activation.js';
 
 /**
  * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (the app
@@ -32,8 +33,16 @@ import { modules, skippedModules } from './modules.js';
  * 0.46: a release carries one package per combination of modules (panoptica-devices.zip; panoptica-core.zip has none); the
  * app takes the one for the modules its licence lists (else those it has), and falls back to panoptica.zip (every module).
  * Releases published after the licence's last day of updates are shown but not offered.
+ * 0.47: with a product key (activation.ts), releases come from PANOPTICA's activation service instead of GitHub: only the
+ * package the key covers, and only releases published until its last day of updates; each check also fetches the key's
+ * current licence. GitHub stays for installs without a key (and for development).
  */
-type Settings = { repo: string; token?: string };
+type Settings = { repo: string; token?: string; service?: string; key?: string };
+/** Where updates come from: the product key (the activation service) when there is one, else GitHub. */
+const byKey = () => {
+  const k = keySettings();
+  return !!(k.key && k.service);
+};
 type Release = {
   version: string;
   tag: string;
@@ -42,6 +51,8 @@ type Release = {
   published: string;
   url: string;
   zip?: { id: number; size: number; name: string };
+  /** from the activation service: the package's SHA-256 as the service computed it */
+  sha256?: string;
   sha?: { id: number };
   sig?: { id: number };
 };
@@ -110,6 +121,7 @@ export async function checkNow(current: string, notify = true): Promise<State> {
   const s = settings(),
     st = getState();
   try {
+    if (byKey()) return await checkByKey(current, notify);
     const j = (await (await gh(`/repos/${s.repo}/releases/latest`)).json()) as any;
     // this lab's package; else every module in one (releases before 0.46, and the fallback); else the name before 0.36
     const names: string[] = (j.assets ?? []).map((a: any) => a.name),
@@ -126,14 +138,67 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       sha: zipName && asset(zipName + '.sha256') ? { id: asset(zipName + '.sha256').id } : undefined,
       sig: zipName && asset(zipName + '.sig') ? { id: asset(zipName + '.sig').id } : undefined,
     };
+    remember(st, latest, current, notify);
+  } catch (e) {
+    putState({ ...st, checkedAt: new Date().toISOString(), error: (e as Error).message });
+  }
+  return getState();
+}
+
+/** With a product key: the key's current licence first (its modules and last day of updates), then its latest release. */
+async function checkByKey(current: string, notify: boolean): Promise<State> {
+  const st = getState();
+  try {
+    const changed = await refreshLicence();
+    if (changed) appendLog(changed);
+    const l = await latestForKey();
+    remember(
+      st,
+      l
+        ? {
+            version: l.version,
+            tag: 'v' + l.version,
+            name: 'PANOPTICA ' + l.version,
+            notes: l.notes,
+            published: l.published,
+            url: '',
+            zip: { id: 0, size: l.package.size, name: l.package.name },
+            sha256: l.package.sha256,
+            sig: l.signed ? { id: 0 } : undefined,
+          }
+        : undefined,
+      current,
+      notify,
+    );
+  } catch (e) {
+    putState({ ...st, checkedAt: new Date().toISOString(), error: (e as Error).message });
+  }
+  return getState();
+}
+const appendLog = (m: string) => {
+  try {
+    mkdirSync(DIR, { recursive: true });
+    appendFileSync(join(DIR, 'update.log'), `[${new Date().toISOString()}] app: ${m}\n`);
+  } catch {
+    /* the log is a help */
+  }
+};
+
+/** Keeps what the check found and tells the admins, once per version, when it is newer and the licence covers it. */
+function remember(st: State, latest: Release | undefined, current: string, notify: boolean) {
+  {
     const fresh =
-      notify && newer(latest.version, current) && updatesCover(latest.published) && st.notified !== latest.version;
+      !!latest &&
+      notify &&
+      newer(latest.version, current) &&
+      updatesCover(latest.published) &&
+      st.notified !== latest.version;
     putState({
       ...st,
       checkedAt: new Date().toISOString(),
       latest,
       error: undefined,
-      ...(fresh ? { notified: latest.version } : {}),
+      ...(fresh ? { notified: latest!.version } : {}),
     });
     if (fresh) {
       // tell the admins once per version
@@ -143,39 +208,44 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       }[])
         ins.run(
           a.id,
-          `Version ${latest.version} of the app is available. Install it from Admin settings › Updates.`,
+          `Version ${latest!.version} of the app is available. Install it from Admin settings › Updates.`,
           JSON.stringify({ view: 'users', id: 0 }),
         );
     }
-  } catch (e) {
-    putState({ ...st, checkedAt: new Date().toISOString(), error: (e as Error).message });
   }
-  return getState();
 }
 
 async function download(): Promise<State> {
   const s = settings(),
     st = getState(),
     rel = st.latest;
-  if (!rel?.zip || !rel.sha) throw new Error('this release has no panoptica.zip with its checksum');
+  if (!rel?.zip || (!rel.sha && !rel.sha256)) throw new Error('this release has no panoptica.zip with its checksum');
   const l = licence();
   if (!updatesCover(rel.published))
     throw new Error(
       `the licence covers updates published until ${l!.updatesUntil}; this one is later; nothing was installed`,
     );
-  const sum = (await (await gh(`/repos/${s.repo}/releases/assets/${rel.sha.id}`, 'application/octet-stream')).text())
-    .trim()
-    .split(/\s+/)[0]
-    .toLowerCase();
-  const zip = Buffer.from(
-    await (await gh(`/repos/${s.repo}/releases/assets/${rel.zip.id}`, 'application/octet-stream')).arrayBuffer(),
-  );
+  // from the activation service with the product key (0.47), else from GitHub
+  const key = byKey() && rel.sha256;
+  const sum = key
+    ? rel.sha256!
+    : (await (await gh(`/repos/${s.repo}/releases/assets/${rel.sha!.id}`, 'application/octet-stream')).text())
+        .trim()
+        .split(/\s+/)[0]
+        .toLowerCase();
+  const zip = key
+    ? await keyFile(rel.version, rel.zip.name)
+    : Buffer.from(
+        await (await gh(`/repos/${s.repo}/releases/assets/${rel.zip.id}`, 'application/octet-stream')).arrayBuffer(),
+      );
   const got = createHash('sha256').update(zip).digest('hex');
   if (!/^[0-9a-f]{64}$/.test(sum) || got !== sum)
     throw new Error('the downloaded file does not match its checksum; nothing was installed');
   // the checksum catches a damaged download; the signature says who made the package
   if (!rel.sig) throw new Error('this release is not signed by PANOPTICA; nothing was installed');
-  const sig = await (await gh(`/repos/${s.repo}/releases/assets/${rel.sig.id}`, 'application/octet-stream')).text();
+  const sig = key
+    ? (await keyFile(rel.version, rel.zip.name + '.sig')).toString('utf8')
+    : await (await gh(`/repos/${s.repo}/releases/assets/${rel.sig.id}`, 'application/octet-stream')).text();
   if (!signedByPanoptica(zip, sig))
     throw new Error('the signature of this release is not PANOPTICA’s; nothing was installed');
   mkdirSync(DIR, { recursive: true });
@@ -213,7 +283,38 @@ function install(lan: boolean) {
       /* the log is a help, not a requirement */
     }
   };
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && process.env.PANOPTICA_TASK) {
+    // installed by PANOPTICA Setup (0.47): the app runs as a startup task with no window. The update runs as a task of its own,
+    // so it outlives this one; a small script gives it what this process knows (Node's folder, the task to start again)
+    const wrap = join(DIR, 'run-update.cmd'),
+      keep = ['PATH', 'PANOPTICA_TASK', 'PANOPTICA_TEST', 'UPDATE_PUBLIC_KEY_FILE', 'PORT', 'HOST'];
+    writeFileSync(
+      wrap,
+      [
+        '@echo off',
+        ...keep.filter((k) => process.env[k]).map((k) => `set "${k}=${process.env[k]}"`),
+        `set "PSC_ROOT=${ROOT}"`,
+        'set OPEN_BROWSER=0',
+        `call "${run}" ${args.map((a) => `"${a}"`).join(' ')} >> "${join(DIR, 'update.log')}" 2>&1`,
+        '',
+      ].join('\r\n'),
+    );
+    const name = process.env.PANOPTICA_TASK + ' update';
+    note(`starting the task "${name}"`);
+    try {
+      execFileSync(
+        'schtasks',
+        ['/create', '/f', '/tn', name, '/sc', 'once', '/st', '00:00', '/ru', 'SYSTEM', '/tr', `cmd.exe /c "${wrap}"`],
+        {
+          stdio: 'ignore',
+        },
+      );
+      execFileSync('schtasks', ['/run', '/tn', name], { stdio: 'ignore' });
+    } catch (e) {
+      note(`could not start the update task: ${(e as Error).message}`);
+      throw new Error('the update could not be started: see update.log');
+    }
+  } else if (process.platform === 'win32') {
     // `start` opens the window; the inner `cmd /c ""script" "args""` is the only form that runs a batch file with quoted
     // arguments from a path with spaces (found by trying the forms on Windows in CI; the update itself is tested there by tools/update-e2e.mjs). The earlier form
     // `start "title" "script.bat" args` silently did nothing, which is why the in-app update did not install on Windows.
@@ -281,6 +382,10 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
       current,
       repo: s.repo,
       tokenSet: !!s.token,
+      /** 0.47: updates by product key (the last 5 characters shown), from this activation service */
+      source: byKey() ? 'key' : 'github',
+      keyEnd: s.key ? s.key.replace(/[\s-]/g, '').slice(-5) : null,
+      service: keySettings().service ?? null,
       ...st,
       available: !!st.latest && newer(st.latest.version, current) && updatesCover(st.latest.published),
       /** a newer release the licence's updates do not cover (0.46) */
@@ -299,7 +404,21 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
     const p = UpdateSettingsIn.safeParse(req.body);
     if (!p.success) return reply.code(400).send({ error: p.error.issues[0].message });
     const s = settings();
+    // a product key: this computer is activated with it (within its limit) and its licence installed, before it is kept
+    if (p.data.key !== undefined && p.data.key.trim()) {
+      const service = (p.data.service || keySettings().service || '').replace(/\/$/, '');
+      if (!service) return reply.code(400).send({ error: 'give the activation service’s address too' });
+      try {
+        await activate(service, p.data.key);
+      } catch (e) {
+        return reply.code(400).send({ error: (e as Error).message });
+      }
+      writeConfig('update.json', { ...s, service, key: p.data.key.trim().toUpperCase() });
+      await checkNow(current, false);
+      return view();
+    }
     writeConfig('update.json', {
+      ...(s.key ? { key: s.key, service: s.service } : {}),
       repo: p.data.repo || s.repo,
       ...(p.data.token === undefined
         ? s.token

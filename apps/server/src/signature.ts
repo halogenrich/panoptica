@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 /**
  * Releases are signed by PANOPTICA (Ed25519). The private key never leaves PANOPTICA; this is its public half, built into the
@@ -9,9 +10,15 @@ export const RELEASE_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEA/3FUKN/uSxSwmYlsiLhAjBgR7MIxWad60vyu3602muk=
 -----END PUBLIC KEY-----
 `;
-/** Tests sign their fake releases with a key of their own (PANOPTICA_TEST=1 and UPDATE_PUBLIC_KEY, both set by the test). */
+/**
+ * Tests sign their fake releases with a key of their own (PANOPTICA_TEST=1 and UPDATE_PUBLIC_KEY, both set by the test; or
+ * UPDATE_PUBLIC_KEY_FILE, where an environment holds no line breaks, as a Windows task's).
+ */
 const pem = () =>
-  process.env.PANOPTICA_TEST === '1' && process.env.UPDATE_PUBLIC_KEY ? process.env.UPDATE_PUBLIC_KEY : RELEASE_KEY;
+  process.env.PANOPTICA_TEST !== '1'
+    ? RELEASE_KEY
+    : process.env.UPDATE_PUBLIC_KEY ||
+      (process.env.UPDATE_PUBLIC_KEY_FILE ? readFileSync(process.env.UPDATE_PUBLIC_KEY_FILE, 'utf8') : RELEASE_KEY);
 
 /** True when `signature` (base64) is PANOPTICA's signature of `data`. */
 export function signedByPanoptica(data: Buffer, signature: string): boolean {

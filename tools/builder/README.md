@@ -1,4 +1,21 @@
-# The builder (PANOPTICA staff only)
+# The builder and product keys (PANOPTICA staff only)
+
+**Product keys (0.47)** are how labs install PANOPTICA: they download **PANOPTICA Setup** (the Windows wizard attached to
+each release), type their key, and the wizard installs what the key covers. Keys are made and managed with
+`tools/builder/keys.mjs` against PANOPTICA's activation service (`services/activation/README.md`):
+
+```
+node tools/builder/keys.mjs new --lab "Lab name" --modules devices --updates-until 2027-12-31 --installs 1 --key key.pem
+node tools/builder/keys.mjs renew --lab-id <id> [--modules …] [--updates-until …] [--installs …] --key key.pem
+node tools/builder/keys.mjs list | move --lab-id <id> --computer <name> | publish <version>
+```
+
+(`--service` and `--token`, or `ACTIVATION_URL` and `ACTIVATION_TOKEN`.) The key is shown once and written on the lab's key
+card in `out/keys/`; the service keeps only its SHA-256. It also opens the lab's first setup.
+
+## The offline builder
+
+For a lab whose server cannot reach the internet during the install, `builder.mjs` makes the files to carry on a USB stick.
 
 Makes what one lab needs to install PANOPTICA: its signed licence, a one-time setup code and the install sheet for the crew,
 and (optionally) the package for its modules. It is not part of the package labs receive.
