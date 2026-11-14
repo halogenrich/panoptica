@@ -3,7 +3,7 @@ import { ageOn } from '@psc/core';
 import { useRefresh } from '../lib/trash';
 import { api } from '../api';
 import { Badge, Modal, Seg } from '../lib/ui';
-import { Activity, Security, Updates } from './AdminSecurity';
+import { Activity, Licence, Security, Updates } from './AdminSecurity';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
 import { useContext } from 'react';
@@ -52,7 +52,7 @@ const permsText = (t: Tag) =>
     .filter(Boolean)
     .join(', ');
 const KIND_NOTE = { title: (t: Tag) => permsText(t) || undefined };
-type Tab = 'users' | 'requests' | 'lab' | 'backups' | 'security' | 'activity' | 'updates';
+type Tab = 'users' | 'requests' | 'lab' | 'backups' | 'security' | 'activity' | 'updates' | 'licence';
 const dmy = (d?: string | null) => (d ? d.split('-').reverse().join('/') : '');
 
 /** Admin settings: one tab per job, the last one used reopens. A new version shows as a strip above the tabs. */
@@ -90,6 +90,7 @@ export default function AdminSettings({ meId }: { meId: number }) {
     ['security', 'Security'],
     ['activity', 'Activity log'],
     ['updates', 'Updates'],
+    ['licence', 'Licence'],
   ];
   return (
     <div className="admin">
@@ -126,6 +127,10 @@ export default function AdminSettings({ meId }: { meId: number }) {
         </div>
       ) : tab === 'activity' ? (
         <Activity />
+      ) : tab === 'licence' ? (
+        <div className="admin-one">
+          <Licence />
+        </div>
       ) : (
         <div className="admin-one">
           <Updates />

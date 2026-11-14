@@ -131,7 +131,8 @@ const later = async () => {
 
 console.log(`Browser tests (${BUILT ? 'packaged server' : 'server from source'}${CORE ? ', the core alone' : ''})`);
 try {
-  let username = '';
+  let username = '',
+    bookDay = ''; // the day of the booking outside a batch
   await step('first setup makes the admin and the lab', async () => {
     await page.goto(base);
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -232,6 +233,7 @@ try {
       .first()
       .fill('Browser test run');
     const day = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
+    bookDay = day;
     await dlg.locator('input[type=date]').fill(day);
     await dlg.locator('input[type=time]').nth(0).fill('10:00');
     await dlg.locator('input[type=time]').nth(1).fill('11:00');
@@ -359,6 +361,17 @@ try {
       : 'the Overview tells the period with the module’s part and the equipment time',
     async () => {
       await page.locator('nav.side').getByRole('button', { name: 'Overview', exact: true }).click();
+      // the booking is two days ahead: late in the week that is next week's Overview (Mondays start a week)
+      const later = await page.evaluate((d) => {
+        const monday = (t) => {
+          const x = new Date(t);
+          x.setHours(0, 0, 0, 0);
+          x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+          return x.getTime();
+        };
+        return monday(d + 'T12:00:00') > monday(Date.now());
+      }, bookDay);
+      if (CORE && later) await page.locator('.ov').getByRole('button', { name: 'Next' }).click();
       if (CORE)
         await page
           .locator('.ov-lede')

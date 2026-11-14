@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.46.0 (2026-11-13)
+
+- **Licence**: PANOPTICA gives each lab a licence file it signs: the lab's name and id, the modules it bought, and the last day of updates. Only the modules it lists start; releases published after its last day are shown but not installed. Nothing else stops: after that day the app keeps working and every record can still be exported. A licence that was changed, signed by anyone else, made for another lab, or older than the one installed is refused. It is kept in the database, so a backup restored on another computer keeps it. **Admin settings › Licence** shows it and installs a new one; a `licence.json` left next to the app is installed at the first start. Without a licence, everything works as before.
+- **One-time setup code**: an install made by PANOPTICA comes with a setup code on its install sheet. With it, the first admin and the lab can be set up from any computer on the lab network, not only on the server itself. The code works once and is kept only as a hash; wrong codes count like failed sign-ins.
+- **A package per combination of modules**: each release carries `panoptica-<modules>.zip` for each set of modules a lab can have (now `panoptica-devices.zip`), each signed and with its SHA-256, plus `panoptica.zip` with every module for labs on older versions. The app downloads the package for the modules its licence lists.
+- **Builder** (PANOPTICA staff only, not in the package): `tools/builder/builder.mjs` makes a lab's signed licence, its setup code and the install sheet for the crew, and copies (or builds and signs) the package for its modules. Renewals and added modules reuse the lab's id.
+
 ## 0.45.1 (2026-11-13)
 
 - **Run data set the amounts taken from the inventory**: where a batch's run data give what was really weighed or dispensed (a salt weighed, a solvent volume added, an additive, a dispense volume, the substrates coated), that amount is taken from the container instead of the planned one; elsewhere the recipe's amount still counts. Entering, changing or deleting run data takes the new amounts again, from the same containers and under the same date. With several entries for one recipe, the latest value of each field counts.

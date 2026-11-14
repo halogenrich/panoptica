@@ -4,13 +4,14 @@ import { LabCtx, MeCtx, PrefCtx, brandText, type LabPublic, type Me, type Prefs 
 import Shell from './Shell';
 import { live, stopLive } from './lib/live';
 import Login from './start/Login';
-import Setup, { SetupElsewhere } from './start/Setup';
+import Setup, { SetupCode, SetupElsewhere } from './start/Setup';
 import { PasswordRules, passwordOk } from './start/parts';
 
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined),
     [lab, setLab] = useState<LabPublic | null>(null),
-    [prefs, setPrefs] = useState<Prefs>({ theme: 'system', vis: 'shared' });
+    [prefs, setPrefs] = useState<Prefs>({ theme: 'system', vis: 'shared' }),
+    [setupCode, setSetupCode] = useState('');
   const loadLab = () =>
     api<LabPublic>('/lab/public')
       .then(setLab)
@@ -75,6 +76,12 @@ export default function App() {
           </MeCtx.Provider>
         ) : lab.setup === 'here' ? (
           <Setup onDone={signedIn2} />
+        ) : lab.setup === 'code' ? (
+          setupCode ? (
+            <Setup onDone={signedIn2} code={setupCode} />
+          ) : (
+            <SetupCode lab={lab} onOk={setSetupCode} />
+          )
         ) : lab.setup === 'elsewhere' ? (
           <SetupElsewhere lab={lab} />
         ) : (

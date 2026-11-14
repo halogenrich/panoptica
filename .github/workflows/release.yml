@@ -1,6 +1,7 @@
 name: Release
 # On main: when package.json has a version without a release yet, check everything, then publish
-# panoptica.zip (the built app, no source), its SHA-256 and PANOPTICA's signature as release v<version>, with that version's
+# its packages (the built app, no source: panoptica-<modules>.zip per combination of modules, and panoptica.zip with every
+# module), each with its SHA-256 and PANOPTICA's signature, as release v<version>, with that version's
 # CHANGELOG section as notes. The signing key is the repository secret SIGNING_KEY; its public half is release.pub.
 # The lab computers download it from Admin settings › Updates.
 on:
@@ -33,13 +34,11 @@ jobs:
         name: Package and publish
         run: |
           v=${{ steps.v.outputs.version }}
-          # the built app, with no source code, signed by PANOPTICA: lab servers install nothing else
-          node tools/package.mjs out --no-web --boot
-          (cd out && zip -qr ../panoptica.zip panoptica)
-          node tools/sign-package.mjs panoptica.zip
-          sha256sum panoptica.zip > panoptica.zip.sha256
+          # the built app, with no source code, signed by PANOPTICA: one package per combination of modules (0.46), and
+          # panoptica.zip with every module for labs on older versions; lab servers install nothing else
+          node tools/release-packages.mjs release
           node tools/notes.mjs "$v" > notes.md
-          gh release create "v$v" panoptica.zip panoptica.zip.sha256 panoptica.zip.sig --title "PANOPTICA $v" --notes-file notes.md --target "$GITHUB_SHA"
+          gh release create "v$v" release/* --title "PANOPTICA $v" --notes-file notes.md --target "$GITHUB_SHA"
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}

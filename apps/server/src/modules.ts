@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { licenceAtStart, licensed } from './licence.js';
 
 /**
  * What a module adds to the core (0.41): the things bookings can be for, and the steps equipment can do. The core (calendar,
@@ -114,6 +115,8 @@ export type OverviewPart = {
 
 export type Module = {
   id: string;
+  /** what people call it (the licence page) */
+  name?: string;
   subjects?: BookingSubject[];
   steps?: StepDef[];
   items?: ItemKind[];
@@ -135,8 +138,21 @@ export type Module = {
   register?: (app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) => void;
 };
 
-const mods: Module[] = [];
+const mods: Module[] = [],
+  skipped: Module[] = [];
+let licenceNote: string | null = null;
+/** Once, before the first module starts: installs a licence file the installer left (0.46); the line for the log. */
+export const licenceStart = () => (licenceNote ??= licenceAtStart());
+/** Modules in the package that the licence does not list: they do not start (0.46). */
+export const skippedModules = () => skipped.map((m) => m.id);
+/** Every module in the package, running or not, by id: its name. */
+export const moduleNames = () => Object.fromEntries([...mods, ...skipped].map((m) => [m.id, m.name ?? m.id]));
 export function addModule(m: Module) {
+  licenceStart();
+  if (!licensed(m.id)) {
+    skipped.push(m);
+    return;
+  }
   if (mods.some((x) => x.id === m.id)) throw new Error(`module ${m.id} added twice`);
   for (const s of m.subjects ?? []) if (subject(s.kind)) throw new Error(`booking subject ${s.kind} is already taken`);
   for (const s of m.steps ?? []) if (stepDefs().some((x) => x.key === s.key)) throw new Error(`step ${s.key} is taken`);

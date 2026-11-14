@@ -318,7 +318,7 @@ export const hoursOk = (h: WorkDay[]) => h.every((d) => !d.on || d.from < d.to);
 const STEPS = ['Welcome', 'Your account', 'The lab', 'Sign-in screen', 'Working hours', 'Finish'];
 
 /** The first setup, on the computer that runs PANOPTICA: the first admin, the lab, the sign-in screen, the working hours. */
-export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
+export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?: string }) {
   const [step, setStep] = useState(0),
     [n, setN] = useState<NameParts>({ firstNames: '', surnames: '', surname: '' }),
     [email, setEmail] = useState(''),
@@ -347,6 +347,7 @@ export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
     api<Me>('/setup', 'POST', {
       admin: { ...n, email, birthDate: birth, department: dept, photo, password: pw },
       lab: body,
+      ...(code ? { code } : {}),
     })
       .then(onDone)
       .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
@@ -375,9 +376,9 @@ export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
             <>
               <h1>Set up PANOPTICA</h1>
               <p className="setup-lead">
-                PANOPTICA keeps the lab's recipes, batches, bookings and measurements in one place, on this computer.
-                These steps create your admin account and set up the lab: its name, the sign-in screen and the working
-                hours.
+                PANOPTICA keeps the lab's recipes, batches, bookings and measurements in one place, on the computer that
+                runs it. These steps create your admin account and set up the lab: its name, the sign-in screen and the
+                working hours.
               </p>
               <p className="mut">
                 Everything here can be changed later under Admin settings › Lab setup. People ask for access from the
@@ -500,6 +501,54 @@ export default function Setup({ onDone }: { onDone: (m: Me) => void }) {
         </footer>
       </section>
     </main>
+  );
+}
+
+/**
+ * From another computer, when the install has a one-time setup code (0.46): the code from the install sheet opens the setup.
+ */
+export function SetupCode({ lab, onOk }: { lab: LabPublic; onOk: (code: string) => void }) {
+  const [code, setCode] = useState(''),
+    [err, setErr] = useState(''),
+    [busy, setBusy] = useState(false);
+  const go = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr('');
+    api('/setup/code', 'POST', { code })
+      .then(() => onOk(code))
+      .catch((x) => setErr(x.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <SignInFrame lab={lab}>
+      <h1>Set up PANOPTICA</h1>
+      <form className="signin-form" onSubmit={go}>
+        <p>
+          This PANOPTICA is new. Type the setup code from the install sheet to create the first admin and set up the
+          lab. The code works once.
+        </p>
+        <label className="fld">
+          <span>Setup code</span>
+          <input
+            autoFocus
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            placeholder="XXXX-XXXX-XXXX-XXXX"
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setErr('');
+            }}
+          />
+        </label>
+        {err && <p className="err small">{err}</p>}
+        <button className="btn" disabled={!code.trim() || busy}>
+          Continue
+        </button>
+      </form>
+    </SignInFrame>
   );
 }
 

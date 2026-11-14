@@ -93,6 +93,8 @@ export const SetupIn = z.object({
     password: Password,
   }),
   lab: LabIn,
+  /** the one-time setup code, when the setup is done from another computer (0.46) */
+  code: z.string().max(40).optional(),
 });
 export const NewUser = z.object({
   username: z

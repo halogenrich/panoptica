@@ -2,7 +2,7 @@
 // Starts a fake GitHub API too, to test the update download and its checksum.
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -37,6 +37,8 @@ let sum = good;
 const testKey = generateKeyPairSync('ed25519'),
   goodSig = sign(null, zip, testKey.privateKey).toString('base64');
 let sig = goodSig; // null: a release with no signature
+const published = new Date().toISOString();
+const fetched = []; // the assets the app downloaded
 const gh = createServer((req, res) => {
   if (req.headers.authorization !== 'Bearer test-token') {
     res.writeHead(404);
@@ -49,27 +51,25 @@ const gh = createServer((req, res) => {
         tag_name: 'v99.0.0',
         name: 'v99.0.0',
         body: 'notes',
-        published_at: new Date().toISOString(),
+        published_at: published,
         html_url: 'x',
-        assets: [
-          { id: 1, name: 'perovskite-lab.zip', size: zip.length },
-          { id: 2, name: 'perovskite-lab.zip.sha256', size: 64 },
-          ...(sig ? [{ id: 3, name: 'panoptica.zip.sig', size: 89 }] : []),
-        ],
+        // 0.46: a package per combination of modules, and panoptica.zip with every module (ids 11-13, 21-23, 31-33)
+        assets: ['panoptica.zip', 'panoptica-devices.zip', 'panoptica-core.zip'].flatMap((n, i) => [
+          { id: 10 * (i + 1) + 1, name: n, size: zip.length },
+          { id: 10 * (i + 1) + 2, name: n + '.sha256', size: 64 },
+          ...(sig ? [{ id: 10 * (i + 1) + 3, name: n + '.sig', size: 89 }] : []),
+        ]),
       }),
     );
   }
-  if (req.url === '/repos/lab/app/releases/assets/1') {
-    res.writeHead(200);
-    return res.end(zip);
-  }
-  if (req.url === '/repos/lab/app/releases/assets/2') {
-    res.writeHead(200);
-    return res.end(`${sum}  perovskite-lab.zip\n`);
-  }
-  if (req.url === '/repos/lab/app/releases/assets/3' && sig) {
-    res.writeHead(200);
-    return res.end(sig + '\n');
+  const a = req.url.match(/^\/repos\/lab\/app\/releases\/assets\/(\d+)$/);
+  if (a) {
+    fetched.push(+a[1]);
+    const k = +a[1] % 10;
+    if (k === 1 || k === 2 || (k === 3 && sig)) {
+      res.writeHead(200);
+      return res.end(k === 1 ? zip : k === 2 ? `${sum}  panoptica.zip\n` : sig + '\n');
+    }
   }
   res.writeHead(404);
   res.end('{}');
@@ -882,6 +882,122 @@ ok(
   'no notification for a version found while saving settings',
 );
 
+console.log('Licence (0.46)');
+// licences signed with the test's key, by the builder PANOPTICA's staff use, or by hand for what the builder never makes
+const keys = join(tmp, 'keys');
+mkdirSync(keys, { recursive: true });
+writeFileSync(join(keys, 'key.pem'), testKey.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+writeFileSync(join(keys, 'pub.pem'), env.UPDATE_PUBLIC_KEY);
+const built = (...a) => {
+  const o = mkdtempSync(join(tmp, 'lab-'));
+  execFileSync(
+    process.execPath,
+    [
+      join(root, 'tools/builder/builder.mjs'),
+      '--key',
+      join(keys, 'key.pem'),
+      '--pub',
+      join(keys, 'pub.pem'),
+      '--out',
+      o,
+      ...a,
+    ],
+    { stdio: 'pipe' },
+  );
+  const d = join(o, readdirSync(o)[0]);
+  return {
+    text: readFileSync(join(d, 'licence.json'), 'utf8'),
+    sheet: readFileSync(join(d, 'install-sheet.md'), 'utf8'),
+  };
+};
+const byHand = (l) => {
+  const body = JSON.stringify({ v: 1, issued: '2026-11-13', updatesUntil: '2100-12-31', ...l });
+  return JSON.stringify({ body, sig: sign(null, Buffer.from(body), testKey.privateKey).toString('base64') });
+};
+{
+  const own = (mods) => `panoptica-${[...mods].sort().join('+') || 'core'}.zip`,
+    names = ['panoptica.zip', 'panoptica-devices.zip', 'panoptica-core.zip'],
+    running = (await call('GET', '/api/version')).j.modules;
+  // without a licence: the package for the modules it has, else the one with every module
+  const pick = (mods) => (names.includes(own(mods)) ? names.indexOf(own(mods)) : 0) * 10 + 11;
+  ok(
+    fetched.includes(pick(running)),
+    `the update was the package for its modules (${own(running)}, else panoptica.zip)`,
+  );
+  ok((await call('GET', '/api/licence')).j.licence === null, 'no licence: every module in the package runs');
+  const first = built('--lab', 'Smoke Lab', '--modules', 'devices', '--updates-until', '2026-01-01', '--no-setup');
+  const body1 = JSON.parse(JSON.parse(first.text).body);
+  const forged = JSON.parse(first.text);
+  forged.body = forged.body.replace('2026-01-01', '2100-12-31');
+  ok(
+    /not signed/.test((await call('POST', '/api/licence', { text: JSON.stringify(forged) })).j.error),
+    'a licence changed after PANOPTICA signed it is refused',
+  );
+  ok(
+    /not signed/.test(
+      (
+        await call('POST', '/api/licence', {
+          text: byHand({ id: 'L-x', lab: 'x', labId: 'x', modules: [] }).replace(/"sig":"[^"]+/, '"sig":"' + goodSig),
+        })
+      ).j.error,
+    ),
+    'and one signed by anyone else',
+  );
+  const i1 = await call('POST', '/api/licence', { text: first.text });
+  ok(
+    i1.s === 200 &&
+      i1.j.licence.lab === 'Smoke Lab' &&
+      i1.j.labId === body1.labId &&
+      !('setup' in i1.j.licence && i1.j.licence.setup),
+    'the builder’s licence is installed for its lab',
+  );
+  const u1 = await call('PUT', '/api/updates/settings', {});
+  ok(
+    !u1.j.available && u1.j.beyondLicence && u1.j.updatesUntil === '2026-01-01',
+    'a release after its last day of updates is not offered',
+  );
+  const d1 = await call('POST', '/api/updates/download');
+  ok(d1.s === 400 && /licence covers updates/.test(d1.j.error), 'nor downloaded');
+  const other = built('--lab', 'Another Lab', '--modules', 'devices', '--updates-until', '2100-12-31', '--no-setup');
+  ok(
+    /another lab/.test((await call('POST', '/api/licence', { text: other.text })).j.error),
+    'a licence for another lab is refused',
+  );
+  const renewed = built(
+    '--lab',
+    'Smoke Lab',
+    '--lab-id',
+    body1.labId,
+    '--modules',
+    'devices',
+    '--updates-until',
+    '2100-12-31',
+    '--no-setup',
+  );
+  ok((await call('POST', '/api/licence', { text: renewed.text })).s === 200, 'a renewal for the same lab is installed');
+  const u2 = await call('PUT', '/api/updates/settings', {});
+  ok(
+    u2.j.available && u2.j.latest.zip.name === 'panoptica-devices.zip',
+    'updates again, as the package for its licence’s modules',
+  );
+  const n0 = fetched.length;
+  ok((await call('POST', '/api/updates/download')).s === 200 && fetched.slice(n0).includes(21), 'downloaded');
+  ok(
+    /newer licence/.test((await call('POST', '/api/licence', { text: first.text })).j.error),
+    'an older licence does not replace a newer one',
+  );
+  ok(
+    !readFileSync(env.DB_PATH).includes(Buffer.from('BEGIN PRIVATE')) && !first.text.includes('PRIVATE'),
+    'no key in the licence or the database',
+  );
+  ok(
+    /Setup code: `[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){3}`/.test(
+      built('--lab', 'Smoke Lab', '--modules', 'devices', '--updates-until', '2100-12-31').sheet,
+    ),
+    'the builder puts a setup code on the install sheet',
+  );
+}
+
 if (DEV) {
   console.log('Batches take their amounts from the containers (0.45)');
   const box = (b) =>
@@ -1368,6 +1484,84 @@ console.log('First setup (a fresh install)');
     'subdomains count',
   );
   s2.kill();
+}
+
+console.log('A new lab: its licence at the first start, and the setup code (0.46)');
+{
+  const port3 = await freePort(),
+    base3 = `http://127.0.0.1:${port3}`,
+    cfg = join(tmp, 'config3');
+  mkdirSync(cfg, { recursive: true });
+  // the licence the installer leaves next to the app: the core alone, and the hash of a setup code
+  writeFileSync(
+    join(cfg, 'licence.json'),
+    byHand({
+      id: 'L-SMOKE-3',
+      lab: 'New Lab',
+      labId: 'new-lab',
+      modules: [],
+      setup: createHash('sha256').update('ABCDEFGHJKMNPQRS').digest('hex'),
+    }),
+  );
+  const s3 = spawn(process.execPath, serverArgs, {
+    cwd: serverCwd,
+    env: { ...env, PORT: String(port3), DB_PATH: join(tmp, 'fresh3.db'), ADMIN_PASSWORD: '', CONFIG_DIR: cfg },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log3 = '';
+  s3.stdout.on('data', (x) => (log3 += x));
+  s3.stderr.on('data', (x) => (log3 += x));
+  for (let i = 0; i < 300 && !log3.includes('not set up yet'); i++) await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
+  ok(
+    /Licence L-SMOKE-3 installed for New Lab/.test(log3),
+    'the licence left by the installer is installed at the first start',
+  );
+  const j3 = (m, path, body, remote = true) =>
+    fetch(base3 + path, {
+      method: m,
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(remote ? { 'x-test-remote': '1' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  ok((await (await j3('GET', '/api/version')).json()).modules.length === 0, 'only the modules it lists start');
+  ok(
+    (await (await j3('GET', '/api/lab/public')).json()).setup === 'code' &&
+      (await (await j3('GET', '/api/lab/public', undefined, false)).json()).setup === 'here',
+    'from another computer the setup asks for the code; on the server it does not',
+  );
+  ok(
+    (await j3('POST', '/api/setup/code', { code: 'AAAA-BBBB-CCCC-DDDD' })).status === 403,
+    'a wrong setup code is refused',
+  );
+  const lab3 = {
+    admin: {
+      firstNames: 'Rosalind',
+      surnames: 'Franklin',
+      surname: 'Franklin',
+      email: 'rf@new.example',
+      birthDate: '1990-07-25',
+      password: 'Perov-Ç4ke',
+    },
+    lab: {
+      name: 'New Lab',
+      institution: '',
+      domains: [],
+      departments: [],
+      hours: Array.from({ length: 7 }, (_, i) => ({ on: i < 5, from: '08:00', to: '18:00' })),
+    },
+  };
+  ok((await j3('POST', '/api/setup', lab3)).status === 403, 'no setup from another computer without the code');
+  ok(
+    (await j3('POST', '/api/setup/code', { code: 'abcd efgh jkmn pqrs' })).status === 200,
+    'the code is read without case or spaces',
+  );
+  const st3 = await j3('POST', '/api/setup', { ...lab3, code: 'ABCD-EFGH-JKMN-PQRS' });
+  ok(
+    st3.status === 200 && (await st3.json()).username === 'rosalindf',
+    'the first admin is made from another computer with the code',
+  );
+  ok((await j3('POST', '/api/setup/code', { code: 'ABCD-EFGH-JKMN-PQRS' })).status === 409, 'and the code works once');
+  s3.kill();
 }
 
 db.close();
