@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { db } from './db.js';
 import { CONFIG_DIR, ROOT } from './config.js';
 import { signedByPanoptica } from './signature.js';
+import { keySettings, refreshLicence } from './activation.js';
 
 /**
  * The licence (0.46): a file PANOPTICA signs for one lab (tools/builder.mjs), with the lab's name and id, the modules it bought,
@@ -166,6 +167,8 @@ export function registerLicence(
       running: running(),
       skipped: skipped(),
       names: names(),
+      /** 0.47: a product key lets the app fetch the key's current licence */
+      byKey: !!(keySettings().key && keySettings().service),
       today: new Date().toISOString().slice(0, 10),
     };
   };
@@ -175,5 +178,14 @@ export function registerLicence(
     const r = installLicence(typeof req.body?.text === 'string' ? req.body.text : JSON.stringify(req.body));
     if (!r.ok) return reply.code(r.code).send({ error: r.error });
     return view();
+  });
+  /** The product key's current licence from PANOPTICA (a renewal, a module added): installed when it is newer. */
+  app.post('/api/licence/refresh', { preHandler: auth(true) }, async (_req, reply) => {
+    try {
+      const changed = await refreshLicence();
+      return { ...view(), changed };
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message });
+    }
   });
 }

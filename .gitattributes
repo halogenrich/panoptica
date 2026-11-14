@@ -5,3 +5,4 @@
 # not part of the release zip
 .github export-ignore
 .gitattributes export-ignore
+*.iss text eol=crlf

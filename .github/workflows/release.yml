@@ -14,6 +14,9 @@ concurrency: release
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      made: ${{ steps.v.outputs.exists != '1' }}
     steps:
       - uses: actions/checkout@v7
       - id: v
@@ -42,3 +45,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+  # PANOPTICA Setup (0.47): the one Windows installer every lab uses with its product key; it carries no module
+  setup:
+    needs: release
+    if: needs.release.outputs.made == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and publish PANOPTICA Setup
+        shell: pwsh
+        run: |
+          $v = "${{ needs.release.outputs.version }}"
+          node tools/installer-build.mjs
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /Q "/DAppVersion=$v" "/DService=${{ vars.ACTIVATION_URL }}" installer\panoptica.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $f = "out\installer\PANOPTICA-Setup-$v.exe"
+          (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower() + "  PANOPTICA-Setup-$v.exe" | Out-File -Encoding ascii "$f.sha256"
+          gh release upload "v$v" $f "$f.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

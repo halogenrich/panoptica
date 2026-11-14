@@ -17,10 +17,13 @@ if (!fs.existsSync(sigFile))
     `This update has no signature (${path.basename(sigFile)} must be next to it). Only packages signed by PANOPTICA are installed.`,
   );
 // tests sign with their own key (both variables are set by the test)
+const test = process.env.PANOPTICA_TEST === '1';
 const pem =
-  process.env.PANOPTICA_TEST === '1' && process.env.UPDATE_PUBLIC_KEY
+  test && process.env.UPDATE_PUBLIC_KEY
     ? process.env.UPDATE_PUBLIC_KEY
-    : fs.readFileSync(path.join(__dirname, '..', 'release.pub'), 'utf8');
+    : test && process.env.UPDATE_PUBLIC_KEY_FILE
+      ? fs.readFileSync(process.env.UPDATE_PUBLIC_KEY_FILE, 'utf8')
+      : fs.readFileSync(path.join(__dirname, '..', 'release.pub'), 'utf8');
 let ok = false;
 try {
   const sig = Buffer.from(fs.readFileSync(sigFile, 'utf8').trim(), 'base64');

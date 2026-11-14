@@ -1,0 +1,48 @@
+name: Installer
+# PANOPTICA Setup (0.47) on Windows: builds the wizard and runs it end to end (tools/installer-e2e.mjs): a product key against a
+# throwaway activation service, PANOPTICA as the startup task, an update installed by the app and restarted by the task, the
+# uninstaller. For pull requests that touch the installer, the key path or the update path, and on demand.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - 'services/**'
+      - 'tools/installer-*.mjs'
+      - 'tools/builder/**'
+      - 'update.bat'
+      - 'apps/server/src/updates.ts'
+      - 'apps/server/src/activation.ts'
+      - 'apps/server/src/licence.ts'
+      - 'apps/server/src/signature.ts'
+      - '.github/workflows/installer.yml'
+permissions:
+  contents: read
+jobs:
+  setup:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The app packaged, and a newer one
+        shell: bash
+        run: |
+          npm run build
+          node tools/package.mjs "$RUNNER_TEMP/a" --no-web
+          node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0
+      - name: Build PANOPTICA Setup
+        shell: pwsh
+        run: |
+          node tools/installer-build.mjs
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /Q /DAppVersion=test /DService=http://127.0.0.1:4799 installer\panoptica.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install, set up, update, uninstall
+        shell: bash
+        run: node tools/installer-e2e.mjs out/installer/PANOPTICA-Setup-test.exe "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica"

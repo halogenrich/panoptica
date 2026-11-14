@@ -9,6 +9,10 @@ rem update.bat [zip] [restart] [lan]   restart: started by the app (Admin settin
 set ZIP=%~1
 set MODE=%~2
 set NET=%~3
+rem installed by PANOPTICA Setup (0.47): the app runs as the PANOPTICA task, with no window and nobody to press a key
+set "HOLD=pause"
+if defined PANOPTICA_TASK set "HOLD=type nul"
+
 rem every step also goes to updates\update.log (shown in Admin settings > Updates)
 if not exist updates mkdir updates
 >>updates\update.log echo.
@@ -24,13 +28,13 @@ if /i "%MODE%"=="restart" (
 if "%ZIP%"=="" (
   call :log No panoptica*.zip found in the updates folder or in Downloads.
   echo Usage: update.bat [path\to\panoptica.zip]
-  pause & exit /b 1
+  %HOLD% & exit /b 1
 )
 
 powershell -NoProfile -Command "if(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue){exit 1}"
 if errorlevel 1 (
   call :log The app is running. Close its window first, then run update.bat again.
-  pause & exit /b 1
+  %HOLD% & exit /b 1
 )
 
 for /f %%v in ('node -p "require('./package.json').version"') do set OLD=%%v
@@ -55,15 +59,15 @@ if exist apps\server\data.db (
 set TMPD=%TEMP%\psc-update
 if exist "%TMPD%" rmdir /s /q "%TMPD%"
 powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIP%' -DestinationPath '%TMPD%' -Force"
-if errorlevel 1 ( call :log Could not read the zip. & pause & exit /b 1 )
+if errorlevel 1 ( call :log Could not read the zip. & %HOLD% & exit /b 1 )
 rem releases before 0.36 were called Perovskite Lab: their zips hold a perovskite-lab folder
 set SRC=
 if exist "%TMPD%\panoptica" set "SRC=%TMPD%\panoptica"
 if not defined SRC if exist "%TMPD%\perovskite-lab" set "SRC=%TMPD%\perovskite-lab"
-if not defined SRC ( call :log This zip is not a PANOPTICA update. & pause & exit /b 1 )
+if not defined SRC ( call :log This zip is not a PANOPTICA update. & %HOLD% & exit /b 1 )
 
 robocopy "%SRC%" "%CD%" /E /XD node_modules backups config updates /XF data.db data.db-wal data.db-shm /NFL /NDL /NJH /NJS /NP >nul
-if errorlevel 8 ( call :log Copy failed. & pause & exit /b 1 )
+if errorlevel 8 ( call :log Copy failed. & %HOLD% & exit /b 1 )
 rem the built folders are mirrored so files removed in a release are removed here too
 for %%d in (apps\web\dist apps\server\dist) do if exist "%SRC%\%%d" robocopy "%SRC%\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
 rmdir /s /q "%TMPD%"
@@ -72,7 +76,7 @@ for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v
 call :log Updated: %OLD% to %NEW%
 if exist updates\restarting del updates\restarting
 call :log Starting the app...
-call start.bat %NET%
+call :again
 goto :eof
 
 :unsigned
@@ -81,11 +85,21 @@ rem the app stopped for this update: it runs again, on the version it had
 if /i "%MODE%"=="restart" (
   if exist updates\restarting del updates\restarting
   call :log Starting the app again...
-  call start.bat %NET%
+  call :again
   goto :eof
 )
-pause
+%HOLD%
 exit /b 1
+
+:again
+rem started again the way it ran: through its task, or its start script
+if defined PANOPTICA_TASK (
+  call :log Starting the PANOPTICA task...
+  schtasks /run /tn "%PANOPTICA_TASK%" >nul
+) else (
+  call start.bat %NET%
+)
+goto :eof
 
 :log
 echo %*
