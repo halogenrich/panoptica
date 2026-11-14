@@ -12,18 +12,20 @@ struct SetupApp: App {
 
   var body: some Scene {
     WindowGroup("PANOPTICA Setup") {
-      Wizard().environmentObject(model).frame(width: 660, height: 450)
+      Wizard().environmentObject(model).frame(width: Delegate.size.width, height: Delegate.size.height).fixedSize()
     }
     .commands { CommandGroup(replacing: .newItem) {} }
   }
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
+  static let size = NSSize(width: 660, height: 450)
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
   func applicationDidFinishLaunching(_ notification: Notification) {
     DispatchQueue.main.async {
       for w in NSApp.windows {
         w.styleMask.remove(.resizable)
+        w.setContentSize(Delegate.size)
         w.collectionBehavior.insert(.fullScreenNone)
         w.center()
       }
@@ -222,10 +224,14 @@ struct Sidebar: View {
         .padding(.bottom, 28)
       ForEach(Step.allCases, id: \.self) { s in
         HStack(spacing: 10) {
-          ZStack {
-            Circle()
-              .fill(s.rawValue <= m.step.rawValue ? Color.accentColor : Color.secondary.opacity(0.25))
-              .frame(width: 9, height: 9)
+          Group {
+            if s.rawValue < m.step.rawValue {
+              Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundColor(.accentColor)
+            } else {
+              Circle()
+                .fill(s == m.step ? Color.accentColor : Color.secondary.opacity(0.3))
+                .frame(width: 8, height: 8)
+            }
           }
           .frame(width: 12)
           Text(s.title)
@@ -241,8 +247,20 @@ struct Sidebar: View {
     .padding(.horizontal, 22)
     .padding(.top, 30)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(Color(nsColor: .underPageBackgroundColor).opacity(0.55))
+    .background(SidebarMaterial())
   }
+}
+
+/// The translucent sidebar of macOS windows.
+struct SidebarMaterial: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSVisualEffectView {
+    let v = NSVisualEffectView()
+    v.material = .sidebar
+    v.blendingMode = .behindWindow
+    v.state = .followsWindowActiveState
+    return v
+  }
+  func updateNSView(_ v: NSVisualEffectView, context: Context) {}
 }
 
 struct Heading: View {
@@ -285,6 +303,7 @@ struct Intro: View {
 
 struct KeyPage: View {
   @EnvironmentObject var m: Model
+  @FocusState private var keyFocused: Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Heading(title: "Product key", sub: "The key PANOPTICA gave the lab. It decides which modules are installed.")
@@ -293,6 +312,7 @@ struct KeyPage: View {
         .textFieldStyle(.roundedBorder)
         .font(.system(size: 14, design: .monospaced))
         .disableAutocorrection(true)
+        .focused($keyFocused)
         .onSubmit { m.check() }
       Text("Activation service").font(.system(size: 12, weight: .medium)).padding(.top, 18).padding(.bottom, 6)
       TextField("", text: $m.service, prompt: Text("https://…"))
@@ -305,6 +325,7 @@ struct KeyPage: View {
       ErrorLine(text: m.error)
     }
     .disabled(m.busy)
+    .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { keyFocused = true } }
   }
 }
 
