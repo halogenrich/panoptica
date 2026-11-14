@@ -92,6 +92,9 @@ const ini = (o) =>
     .join('\r\n') +
   '\r\n';
 const dmy = (d) => d.split('-').reverse().join('/');
+// the names the app gives its modules (modules/<id>/server: name)
+const MODULES = { devices: 'Electronic Devices' },
+  names = (ids) => ids.map((m) => MODULES[m] ?? m).join(', ');
 let logFile = '';
 const log = (m) => {
   console.log(m);
@@ -140,7 +143,7 @@ async function check() {
       ini({
         ok: 1,
         lab: j.lab,
-        modules: j.modules.join(', ') || 'the core alone',
+        modules: names(j.modules) || 'the core alone',
         updates: dmy(j.updatesUntil),
         computers: `${j.installs.used} of ${j.installs.limit} in use`,
         version: j.latest.version,
@@ -180,7 +183,7 @@ async function install() {
     lan = opt('--lan') !== '0';
   log(`Installing in ${root} (computer ${hostname()}, install ${id})`);
   const j = await post('/v1/activate', { key, install: id, name: hostname() });
-  log(`Activated: ${j.lab}; ${j.modules.join(', ') || 'the core alone'}; updates until ${j.updatesUntil}`);
+  log(`Activated: ${j.lab}; ${names(j.modules) || 'the core alone'}; updates until ${j.updatesUntil}`);
   const rel = j.latest;
   if (!rel) throw new Error('PANOPTICA has no release for this key yet');
   log(`Downloading ${rel.package.name} ${rel.version} (${Math.round(rel.package.size / 1048576)} MB)`);
