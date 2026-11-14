@@ -114,7 +114,34 @@ async function shots(key) {
   mkdirSync(dir, { recursive: true });
   const app = join(mount, 'PANOPTICA Setup.app'),
     osa = (s) => spawnSync('osascript', ['-e', s], { encoding: 'utf8' }),
-    shot = (n) => spawnSync('screencapture', ['-x', '-o', join(dir, n + '.png')]);
+    // the wizard's window alone, also printed into the log (a small JPEG in base64) for whoever cannot download artifacts
+    shot = (n) => {
+      const b = osa(
+        'tell application "System Events" to tell window 1 of process "PANOPTICA Setup" to get {position, size}',
+      ).stdout.match(/\d+/g);
+      const png = join(dir, n + '.png'),
+        jpg = join(dir, n + '.jpg');
+      spawnSync('screencapture', ['-x', '-o', ...(b?.length === 4 ? ['-R', b.join(',')] : []), png]);
+      spawnSync('sips', [
+        '-s',
+        'format',
+        'jpeg',
+        '-s',
+        'formatOptions',
+        '70',
+        '--resampleWidth',
+        '1000',
+        png,
+        '--out',
+        jpg,
+      ]);
+      if (existsSync(jpg)) {
+        const t = readFileSync(jpg).toString('base64');
+        console.log(`SHOT ${n} BEGIN`);
+        for (let i = 0; i < t.length; i += 4000) console.log(t.slice(i, i + 4000));
+        console.log(`SHOT ${n} END`);
+      }
+    };
   spawnSync('open', ['-n', app]);
   await sleep(6000);
   osa('tell application "PANOPTICA Setup" to activate');

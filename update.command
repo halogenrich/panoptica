@@ -39,8 +39,15 @@ unzip -q "$ZIP" -d "$TMP" || fail "Could not read the zip."
 # releases before 0.36 were called Perovskite Lab: their zips hold a perovskite-lab folder
 NEW="$TMP/panoptica"; [ -d "$NEW" ] || NEW="$TMP/perovskite-lab"
 [ -d "$NEW" ] || fail "This zip is not a PANOPTICA update."
-rsync -a --exclude node_modules --exclude backups --exclude config --exclude updates --exclude 'data.db*' --exclude run.sh "$NEW/" ./
-for d in apps/web/dist apps/server/dist; do [ -d "$NEW/$d" ] && rsync -a --delete "$NEW/$d/" "./$d/"; done  # files removed in a release go too
+rm -rf "$NEW/node_modules" "$NEW/backups" "$NEW/config" "$NEW/updates" "$NEW/run.sh" "$NEW"/data.db* "$NEW"/apps/server/data.db*   # never overwrite data
+# every file is copied (rsync would skip one with the same size and time); the built folders are mirrored, so files removed in
+# a release go too, and the old ones are kept aside until the copy succeeds
+SRC="apps/web/dist apps/server/dist"
+for d in $SRC; do [ -d "$d" ] && mkdir -p "$TMP/old/$(dirname "$d")" && mv "$d" "$TMP/old/$d"; done
+if ! cp -R -p "$NEW/." ./; then
+  for d in $SRC; do [ -d "$TMP/old/$d" ] && rm -rf "./$d" && mv "$TMP/old/$d" "./$d"; done
+  rm -rf "$TMP"; fail "Copy failed; the previous version was put back."
+fi
 rm -rf "$TMP"
 chmod +x ./*.command ./*.sh 2>/dev/null
 echo "Updated: $OLD -> $(node -p "require('./package.json').version")"
