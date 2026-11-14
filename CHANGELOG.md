@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.48.0 (2026-11-14)
+
+- **PANOPTICA Setup for macOS**: each release also carries `PANOPTICA-Setup-<version>.dmg`, for Macs with Apple silicon or Intel (macOS 12 or later). It works like the Windows wizard: the lab's product key, what it covers, whether the lab network may open PANOPTICA, then an administrator's password; it downloads only the key's package, checks PANOPTICA's signature, and installs PANOPTICA in `/Library/PANOPTICA` as a service that starts with the Mac (and again if it stops by itself), with Node allowed through the firewall when the lab network may open it. Only the system can read what PANOPTICA writes (the database, backups). Running Setup again upgrades in place and keeps the data; **Uninstall PANOPTICA** in `/Library/PANOPTICA` removes the service and keeps the data.
+- Updates installed from Admin settings › Updates start PANOPTICA again through its service on a Mac too.
+- The Mac wizard is not signed with an Apple Developer ID yet: the first time, macOS refuses to open it until **Open Anyway** in System Settings › Privacy & Security.
+
 ## 0.47.0 (2026-11-14)
 
 - **PANOPTICA Setup with a product key**: one Windows installer for every lab. It asks for the lab's product key, shows what the key covers (the lab, its modules, the last day of updates, how many computers may use it), downloads only the package for those modules, checks PANOPTICA's signature and installs PANOPTICA as a task that starts with the computer, with a firewall rule when the lab network may open it. The finish page opens PANOPTICA; the product key also opens the first setup from any computer. Running it again upgrades in place and keeps the data (the database is backed up first); uninstalling removes the task and the firewall rule and keeps the data.

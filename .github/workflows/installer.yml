@@ -1,7 +1,8 @@
 name: Installer
-# PANOPTICA Setup (0.47) on Windows: builds the wizard and runs it end to end (tools/installer-e2e.mjs): a product key against a
-# throwaway activation service, PANOPTICA as the startup task, an update installed by the app and restarted by the task, the
-# uninstaller. For pull requests that touch the installer, the key path or the update path, and on demand.
+# PANOPTICA Setup on Windows (0.47) and macOS (0.48): builds it and runs it end to end (tools/installer-e2e.mjs): a product key
+# against a throwaway activation service, PANOPTICA in the background (the startup task; the launchd daemon), an update installed
+# by the app and restarted by the task or the daemon, the uninstaller. On macOS the wizard's first pages are screenshotted too.
+# For pull requests that touch the installer, the key path or the update path, and on demand.
 on:
   workflow_dispatch:
   pull_request:
@@ -11,6 +12,7 @@ on:
       - 'tools/installer-*.mjs'
       - 'tools/builder/**'
       - 'update.bat'
+      - 'update.command'
       - 'apps/server/src/updates.ts'
       - 'apps/server/src/activation.ts'
       - 'apps/server/src/licence.ts'
@@ -46,3 +48,31 @@ jobs:
       - name: Install, set up, update, uninstall
         shell: bash
         run: node tools/installer-e2e.mjs out/installer/PANOPTICA-Setup-test.exe "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica"
+
+  setup-mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The app packaged, and a newer one
+        run: |
+          npm run build
+          node tools/package.mjs "$RUNNER_TEMP/a" --no-web
+          node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0
+      - name: Build PANOPTICA Setup
+        run: node tools/installer-build.mjs --mac --version test --service http://127.0.0.1:4799
+      - name: Install, set up, update, install again, uninstall
+        run: node tools/installer-e2e.mjs out/installer/PANOPTICA-Setup-test.dmg "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica"
+        env:
+          SHOTS: ${{ runner.temp }}/shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: setup-mac-screens
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
