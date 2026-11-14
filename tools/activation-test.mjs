@@ -56,9 +56,14 @@ const start = (args, env, cwd, until) =>
     p.stdout.on('data', on);
     p.stderr.on('data', on);
   });
-const done = () => {
+const done = async () => {
   for (const p of procs) p.kill();
-  rmSync(tmp, { recursive: true, force: true });
+  await new Promise((r) => setTimeout(r, 1500)); // Windows frees the server's files a moment after it stops
+  try {
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+  } catch {
+    /* a temporary folder left behind is harmless */
+  }
   console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed');
   process.exit(failed ? 1 : 0);
 };
@@ -248,4 +253,4 @@ try {
   console.log('  FAIL ' + (e.stack ?? e));
   failed++;
 }
-done();
+await done();
