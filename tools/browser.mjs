@@ -281,7 +281,7 @@ try {
         (await page.getByRole('textbox', { name: 'Batch name' }).inputValue()) === 'Browser batch',
         'the batch page is not titled by its name',
       );
-      expect(!/\bB-\d{6}-\d+\b/.test(await page.locator('main').innerText()), 'a batch code is shown');
+      expect(!/\bB-\d{6}-\d+\b/.test(await page.locator('body').innerText()), 'a batch code is shown');
       // what it will take from the inventory (0.45)
       await page.getByRole('heading', { name: 'From the inventory' }).waitFor();
     });
