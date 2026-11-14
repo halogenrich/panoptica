@@ -8523,3 +8523,23 @@ input[type='color']:focus-visible {
 .takes-of .form-h {
   margin-bottom: 6px;
 }
+/* Admin settings › Licence (0.46) */
+.lic-list {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 10px 16px;
+  margin: 0 0 16px;
+}
+.lic-list dt {
+  color: var(--mut);
+  font-size: 13px;
+}
+.lic-list dd {
+  margin: 0;
+}
+.lic .btn.secondary {
+  display: inline-flex;
+  align-self: flex-start;
+  width: auto;
+  cursor: pointer;
+}

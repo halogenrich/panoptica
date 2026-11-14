@@ -373,6 +373,7 @@ const ITEMS: ItemKind[] = [
 const MEASURES = new Set(['jv', 'lifetime']);
 addModule({
   id: 'devices',
+  name: 'Electronic Devices',
   subjects: [batchSubject],
   steps: STEP_KINDS.map((s) => ({ ...s, module: 'devices', ...(MEASURES.has(s.key) ? { measures: true } : {}) })),
   items: ITEMS,

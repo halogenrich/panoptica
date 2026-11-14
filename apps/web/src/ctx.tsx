@@ -68,7 +68,8 @@ export type LabPublic = {
   /** the foot of the sign-in panel: the institution's name, its logo, or both */
   foot?: 'name' | 'logo' | 'both';
   /** while there is no admin: 'here' on the computer that runs the app, 'elsewhere' on others */
-  setup: 'here' | 'elsewhere' | null;
+  /** 'code' (0.46): from another computer, with the one-time setup code on the install sheet */
+  setup: 'here' | 'code' | 'elsewhere' | null;
   professors: string[];
 };
 export const LabCtx = createContext<{ lab: LabPublic | null; reload: () => void }>({ lab: null, reload: () => {} });

@@ -27,7 +27,8 @@ import { registerInventory } from './inventory.js';
 import { registerChemicals } from './chemicals.js';
 import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
-import { items, modules } from './modules.js';
+import { items, licenceStart, moduleNames, modules, skippedModules } from './modules.js';
+import { hasSetupCode, registerLicence } from './licence.js';
 import { registerEquipment } from './equipment.js';
 import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
@@ -71,6 +72,8 @@ if (typeof __PANOPTICA_MODULES__ === 'undefined') {
 // a test module (tests only): the core must work with whatever modules register, not just Electronic Devices
 if (process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TEST_MODULE)
   await import(pathToFileURL(process.env.PANOPTICA_TEST_MODULE).href);
+// a licence the installer left is installed before anything starts (with modules, the first of them did this already)
+const lic = licenceStart();
 
 // HTTPS: either the university's web server in front of the app (TRUST_PROXY=1, it forwards the client address and https),
 // or the app itself with a certificate (TLS_CERT and TLS_KEY: paths to PEM files).
@@ -581,6 +584,7 @@ if (existsSync(dist)) {
   );
 }
 registerUpdates(app, auth, VERSION);
+registerLicence(app, auth, () => modules().map((m) => m.id), skippedModules, moduleNames);
 
 /** Admin settings › Security: the state of the things that keep the data safe, in one request. */
 app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
@@ -604,7 +608,12 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
 });
 scheduleBackups((m) => app.log.info(m));
 await app.listen({ port: +(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });
+if (lic) console.log('  ' + lic);
+if (skippedModules().length)
+  console.log(`  Not started (the licence does not list them): ${skippedModules().join(', ')}`);
 if (setupNeeded())
   console.log(
-    `\n  PANOPTICA is not set up yet. Open http://localhost:${process.env.PORT || 3000} on this computer to create the first admin and set up the lab.\n`,
+    hasSetupCode()
+      ? `\n  PANOPTICA is not set up yet. Open it from any computer on the network (port ${process.env.PORT || 3000}) and enter the setup code from the install sheet, or open http://localhost:${process.env.PORT || 3000} on this computer.\n`
+      : `\n  PANOPTICA is not set up yet. Open http://localhost:${process.env.PORT || 3000} on this computer to create the first admin and set up the lab.\n`,
   );

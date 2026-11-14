@@ -315,12 +315,118 @@ export function Activity() {
   );
 }
 
+// ------------------------------------------------------------------ Licence (0.46)
+type Lic = {
+  licence: { id: string; lab: string; labId: string; modules: string[]; issued: string; updatesUntil: string } | null;
+  labId: string | null;
+  running: string[];
+  skipped: string[];
+  names: Record<string, string>;
+  today: string;
+};
+const dmy = (d: string) => d.split('-').reverse().join('/');
+/** The lab's licence: who it is for, its modules, until when updates come; and installing a new one. Never locks anyone out. */
+export function Licence() {
+  const [v, setV] = useState<Lic | null>(null),
+    [err, setErr] = useState(''),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<Lic>('/licence')
+      .then(setV)
+      .catch((e) => setErr(e.message));
+  }, []);
+  const install = (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    setErr('');
+    f.text()
+      .then((text) => api<Lic>('/licence', 'POST', { text }))
+      .then(setV)
+      .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
+      .finally(() => setBusy(false));
+  };
+  if (!v) return err ? <p className="err">{err}</p> : <p className="mut">Loading…</p>;
+  const l = v.licence,
+    name = (id: string) => v.names[id] ?? id,
+    ended = !!l && l.updatesUntil < v.today;
+  return (
+    <div className="lic">
+      <section className="group">
+        {!l ? (
+          <p>
+            No licence is installed. Every module in this package runs, and updates come as set under Updates. PANOPTICA
+            gives each lab a licence file: install it below.
+          </p>
+        ) : (
+          <dl className="lic-list">
+            <dt>Lab</dt>
+            <dd>{l.lab}</dd>
+            <dt>Modules</dt>
+            <dd>
+              {l.modules.length ? l.modules.map(name).join(', ') : 'None (the core alone)'}
+              {l.modules
+                .filter((m) => !v.running.includes(m))
+                .map((m) => (
+                  <div key={m} className="err small">
+                    {v.skipped.includes(m)
+                      ? `${name(m)} starts when PANOPTICA restarts.`
+                      : `${name(m)} is not in this package: install the package made for this licence.`}
+                  </div>
+                ))}
+              {v.skipped
+                .filter((m) => !l.modules.includes(m))
+                .map((m) => (
+                  <div key={m} className="mut small">
+                    {name(m)} is in this package but not in the licence, so it does not start.
+                  </div>
+                ))}
+            </dd>
+            <dt>Updates</dt>
+            <dd>
+              {ended ? `Ended on ${dmy(l.updatesUntil)}` : `Until ${dmy(l.updatesUntil)}`}
+              <div className="mut small">
+                {ended
+                  ? 'Everything keeps working and all data can be exported; versions published since then are not installed. Contact PANOPTICA to renew.'
+                  : 'Versions published until then can be installed. After it, everything keeps working; only new versions stop.'}
+              </div>
+            </dd>
+            <dt>Licence</dt>
+            <dd className="mut">
+              {l.id}, issued {dmy(l.issued)}
+            </dd>
+          </dl>
+        )}
+        <label className={'btn secondary' + (busy ? ' disabled' : '')}>
+          {busy ? 'Installing…' : l ? 'Install a new licence…' : 'Install the licence…'}
+          <input
+            type="file"
+            accept=".json,application/json"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              install(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        {err && <p className="err small">{err}</p>}
+        <p className="mut small">
+          A licence file is signed by PANOPTICA: one that was changed, or made for another lab, is refused. It is kept
+          in the database, so a backup restored on another computer keeps it.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ Updates
 type Upd = {
   current: string;
   repo: string;
   tokenSet: boolean;
   available: boolean;
+  beyondLicence?: boolean;
+  updatesUntil?: string | null;
   canInstall: boolean;
   checkedAt?: string;
   error?: string;
@@ -434,7 +540,14 @@ export function Updates() {
             'Not checked yet.'
           )}{' '}
           The app checks GitHub once a day and notifies admins when there is a new version.
+          {u.updatesUntil && ` The licence covers versions published until ${dmy(u.updatesUntil)}.`}
         </p>
+        {u.beyondLicence && L && (
+          <p className="small">
+            Version <b>{L.version}</b> was published on {when(L.published)}, after the licence’s last day of updates. It
+            is not installed; everything else keeps working. Contact PANOPTICA to renew.
+          </p>
+        )}
         {u.available && L && (
           <>
             <h4 className="upd-h">

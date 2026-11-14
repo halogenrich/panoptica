@@ -6,6 +6,7 @@ import { hash } from './auth.js';
 import { notify } from './social.js';
 import { weakPassword, type Limiter } from './security.js';
 import { audit, ipOf } from './audit.js';
+import { hasSetupCode, setupCodeOk } from './licence.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -78,8 +79,11 @@ function saveLab(p: ReturnType<typeof LabIn.parse>) {
 
 /** The setup is needed while there is no admin (a fresh install that was not given ADMIN_PASSWORD). */
 export const setupNeeded = () => !db.prepare("SELECT 1 FROM users WHERE role='admin' AND deleted=0 LIMIT 1").get();
-/** The computer that runs the app (not another computer on the network, and not through a proxy). */
-const isLocal = (req: any) => /^(127\.|::1$|::ffff:127\.)/.test(req.socket?.remoteAddress ?? '');
+/** The computer that runs the app (not another computer on the network, and not through a proxy). Tests can ask to be seen as
+ * another computer. */
+const isLocal = (req: any) =>
+  !(process.env.PANOPTICA_TEST === '1' && req.headers['x-test-remote']) &&
+  /^(127\.|::1$|::ffff:127\.)/.test(req.socket?.remoteAddress ?? '');
 
 /** Usernames in use or waiting (pending requests keep theirs until decided). Declined requests free theirs. */
 const takenName = (u: string) =>
@@ -122,7 +126,8 @@ export function registerLab(
       logoPlate: l.logoPlate,
       hasInstLogo: !!l.instLogo,
       foot: l.foot,
-      setup: setupNeeded() ? (isLocal(req) ? 'here' : 'elsewhere') : null,
+      // 'code' (0.46): from another computer, with the one-time setup code on the install sheet
+      setup: setupNeeded() ? (isLocal(req) ? 'here' : hasSetupCode() ? 'code' : 'elsewhere') : null,
       // professors, offered as supervisors on the request form
       professors: db
         .prepare(
@@ -169,10 +174,28 @@ export function registerLab(
     return labOut();
   });
 
-  // ---- first setup: only while there is no admin, and only on the computer that runs the app ----
+  // ---- first setup: only while there is no admin, on the computer that runs the app or with the one-time setup code ----
+  /** From another computer: the setup code from the install sheet opens the setup (0.46). Tries count like sign-ins. */
+  const codeOk = (req: any) => {
+    const ip = ipOf(req);
+    if (limits.byAddress.blocked(ip)) return false;
+    const ok = setupCodeOk(String(req.body?.code ?? ''));
+    if (!ok) limits.byAddress.hit(ip);
+    return ok;
+  };
+  app.post('/api/setup/code', async (req: any, reply) => {
+    if (!setupNeeded()) return reply.code(409).send({ error: 'PANOPTICA is already set up' });
+    if (!codeOk(req)) return reply.code(403).send({ error: 'this is not the setup code on the install sheet' });
+    return { ok: true };
+  });
   app.post('/api/setup', { bodyLimit: 14 * 1024 * 1024 }, async (req: any, reply) => {
     if (!setupNeeded()) return reply.code(409).send({ error: 'PANOPTICA is already set up' });
-    if (!isLocal(req)) return reply.code(403).send({ error: 'finish the setup on the computer that runs PANOPTICA' });
+    if (!isLocal(req) && !(hasSetupCode() && codeOk(req)))
+      return reply.code(403).send({
+        error: hasSetupCode()
+          ? 'this is not the setup code on the install sheet'
+          : 'finish the setup on the computer that runs PANOPTICA',
+      });
     const p = SetupIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
     const a = p.data.admin;

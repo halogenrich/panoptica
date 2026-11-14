@@ -18,6 +18,8 @@ import { db } from './db.js';
 import { ROOT, readConfig, writeConfig } from './config.js';
 import { backupNow } from './backup.js';
 import { signedByPanoptica } from './signature.js';
+import { licence, updatesCover } from './licence.js';
+import { modules, skippedModules } from './modules.js';
 
 /**
  * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (the app
@@ -27,6 +29,9 @@ import { signedByPanoptica } from './signature.js';
  * the update script replaces the program files (never the data) and starts it again.
  * A public repository needs no token. A private one needs a read-only GitHub token (fine-grained, this repository, Contents:
  * read), kept in config/update.json on this computer, never in the database, backups or the repository.
+ * 0.46: a release carries one package per combination of modules (panoptica-devices.zip; panoptica-core.zip has none); the
+ * app takes the one for the modules its licence lists (else those it has), and falls back to panoptica.zip (every module).
+ * Releases published after the licence's last day of updates are shown but not offered.
  */
 type Settings = { repo: string; token?: string };
 type Release = {
@@ -36,7 +41,7 @@ type Release = {
   notes: string;
   published: string;
   url: string;
-  zip?: { id: number; size: number };
+  zip?: { id: number; size: number; name: string };
   sha?: { id: number };
   sig?: { id: number };
 };
@@ -97,12 +102,19 @@ async function gh(path: string, accept = 'application/vnd.github+json') {
   return r;
 }
 
+/** The package this lab installs: panoptica-<its modules, sorted, joined by +>.zip, or panoptica-core.zip with none. */
+export const packageName = (mods: string[]) => `panoptica-${[...mods].sort().join('+') || 'core'}.zip`;
+const wanted = () => licence()?.modules ?? [...modules().map((m) => m.id), ...skippedModules()];
+
 export async function checkNow(current: string, notify = true): Promise<State> {
   const s = settings(),
     st = getState();
   try {
     const j = (await (await gh(`/repos/${s.repo}/releases/latest`)).json()) as any;
-    const asset = (n: string) => (j.assets ?? []).find((a: any) => a.name === n);
+    // this lab's package; else every module in one (releases before 0.46, and the fallback); else the name before 0.36
+    const names: string[] = (j.assets ?? []).map((a: any) => a.name),
+      zipName = [packageName(wanted()), 'panoptica.zip', 'perovskite-lab.zip'].find((n) => names.includes(n)),
+      asset = (n: string) => (j.assets ?? []).find((a: any) => a.name === n);
     const latest: Release = {
       version: String(j.tag_name).replace(/^v/, ''),
       tag: j.tag_name,
@@ -110,17 +122,12 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       notes: j.body ?? '',
       published: j.published_at,
       url: j.html_url,
-      // panoptica.zip since 0.36; releases before were perovskite-lab.zip
-      zip: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')) && {
-        id: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')).id,
-        size: (asset('panoptica.zip') ?? asset('perovskite-lab.zip')).size,
-      },
-      sha: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')) && {
-        id: (asset('panoptica.zip.sha256') ?? asset('perovskite-lab.zip.sha256')).id,
-      },
-      sig: asset('panoptica.zip.sig') && { id: asset('panoptica.zip.sig').id },
+      zip: zipName ? { id: asset(zipName).id, size: asset(zipName).size, name: zipName } : undefined,
+      sha: zipName && asset(zipName + '.sha256') ? { id: asset(zipName + '.sha256').id } : undefined,
+      sig: zipName && asset(zipName + '.sig') ? { id: asset(zipName + '.sig').id } : undefined,
     };
-    const fresh = notify && newer(latest.version, current) && st.notified !== latest.version;
+    const fresh =
+      notify && newer(latest.version, current) && updatesCover(latest.published) && st.notified !== latest.version;
     putState({
       ...st,
       checkedAt: new Date().toISOString(),
@@ -151,6 +158,11 @@ async function download(): Promise<State> {
     st = getState(),
     rel = st.latest;
   if (!rel?.zip || !rel.sha) throw new Error('this release has no panoptica.zip with its checksum');
+  const l = licence();
+  if (!updatesCover(rel.published))
+    throw new Error(
+      `the licence covers updates published until ${l!.updatesUntil}; this one is later; nothing was installed`,
+    );
   const sum = (await (await gh(`/repos/${s.repo}/releases/assets/${rel.sha.id}`, 'application/octet-stream')).text())
     .trim()
     .split(/\s+/)[0]
@@ -270,7 +282,10 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
       repo: s.repo,
       tokenSet: !!s.token,
       ...st,
-      available: !!st.latest && newer(st.latest.version, current),
+      available: !!st.latest && newer(st.latest.version, current) && updatesCover(st.latest.published),
+      /** a newer release the licence's updates do not cover (0.46) */
+      beyondLicence: !!st.latest && newer(st.latest.version, current) && !updatesCover(st.latest.published),
+      updatesUntil: licence()?.updatesUntil ?? null,
       canInstall: ['win32', 'linux', 'darwin'].includes(process.platform),
       log: lastLog(),
     };
