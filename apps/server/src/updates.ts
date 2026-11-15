@@ -259,7 +259,7 @@ function install(lan: boolean) {
       execFileSync('schtasks', ['/run', '/tn', name], { stdio: 'ignore' });
     } catch (e) {
       note(`could not start the update task: ${(e as Error).message}`);
-      throw new Error('the update could not be started: see update.log');
+      throw new Error('the update could not be started: see update.log', { cause: e });
     }
   } else if (process.platform === 'win32') {
     // `start` opens the window; the inner `cmd /c ""script" "args""` is the only form that runs a batch file with quoted

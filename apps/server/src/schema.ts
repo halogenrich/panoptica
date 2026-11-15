@@ -515,7 +515,7 @@ export function migrate(db: Db, list: Migration[] = MIGRATIONS) {
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
-      throw new Error(`database change ${m.id} (${m.name}) failed: ${(e as Error).message}`);
+      throw new Error(`database change ${m.id} (${m.name}) failed: ${(e as Error).message}`, { cause: e });
     }
   }
 }

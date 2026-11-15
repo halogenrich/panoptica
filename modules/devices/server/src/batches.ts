@@ -157,7 +157,7 @@ export function registerBatches(app: FastifyInstance, auth: (need?: any) => any,
     if (!name) return reply.code(400).send({ error: 'give the batch a name' });
     const clash = nameTaken(name);
     if (clash) return reply.code(409).send({ error: clash });
-    let code = '';
+    let code: string;
     {
       const t = new Date(),
         day = `B-${String(t.getFullYear()).slice(2)}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}-`,

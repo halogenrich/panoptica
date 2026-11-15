@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.50.1 (2026-11-15)
+
+- **PANOPTICA Setup installs Node 26** instead of Node 22, on Windows and on a Mac. Node 26 receives security fixes until April 2029; Node 22 stops in April 2027. Nothing changes in how PANOPTICA looks or works.
+- **A computer that already has PANOPTICA keeps its Node 22** when it updates from Admin settings › Updates: the update replaces PANOPTICA, not Node. To move it to Node 26, run the new PANOPTICA Setup over the install (the data stays). PANOPTICA still runs on Node 22, and a later release will make the update replace Node as well.
+- A manual install works with Node 22.13 or newer as before; Node 26 is the one to install now.
+- **For PANOPTICA's staff**: the checks run once per commit, on both systems to the end, on Node 26 and also on Node 22; ESLint 10.
+
 ## 0.50.0 (2026-11-15)
 
 Nothing changes for labs in this release: it is for PANOPTICA's staff, and the builder is still not in the package labs receive.

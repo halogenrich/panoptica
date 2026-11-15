@@ -6,7 +6,7 @@ This file is for whoever runs the app on the lab PC.
 
 ## Requirements
 
-- Windows 10/11, macOS, or Linux (Fedora and others), with **Node.js 22.13 or newer** (https://nodejs.org; any newer version, e.g. 24 or 26, works too). Nothing is compiled during install: the database is SQLite built into Node.
+- Windows 10/11, macOS, or Linux (Fedora and others), with **Node.js 26** (https://nodejs.org; 22.13 or newer still works, but Node 22 stops receiving security fixes in April 2027). PANOPTICA Setup installs Node 26 by itself. Nothing is compiled during install: the database is SQLite built into Node.
 - A current Chrome, Edge, Safari or Firefox. Phones work in their normal browser.
 
 ## Scripts

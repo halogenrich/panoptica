@@ -1,11 +1,11 @@
-// Prepares PANOPTICA Setup (0.47): installer/build/ with node/node.exe (Node 22 for Windows x64, checked against nodejs.org's
+// Prepares PANOPTICA Setup (0.47): installer/build/ with node/node.exe (Node 26 since 0.50.1, for Windows x64, checked against nodejs.org's
 // SHA-256 list), helper.cjs (installer/helper.mjs bundled with fflate) and, since 0.49, packages/: the release's signed
 // packages (panoptica-<modules>.zip and .sig, one per combination of modules) with index.json (their version, sizes and
 // SHA-256). Setup carries them, so it needs no internet; the lab's licence file decides which one is installed.
 //   node tools/installer-build.mjs --packages <folder with the release's packages> [--node <version>] [--helper-only]
 // Then, on Windows with Inno Setup:
 //   ISCC.exe /DAppVersion=<version> installer\panoptica.iss   → out\installer\
-// For macOS (0.48), --mac: Node 22 for Apple silicon and for Intel (the processor decides which one is installed), and on a Mac
+// For macOS (0.48), --mac: Node 26 for Apple silicon and for Intel (the processor decides which one is installed), and on a Mac
 // the Setup app (installer/mac: the wizard compiled for both, setup.sh, the uninstaller, the packages) in a disk image:
 //   node tools/installer-build.mjs --mac --packages <folder> [--version <version>]
 //      → out/installer/PANOPTICA Setup.app and out/installer/PANOPTICA-Setup-<version>.dmg
@@ -26,7 +26,7 @@ await build({
   entryPoints: [join(root, 'installer/helper.mjs')],
   bundle: true,
   platform: 'node',
-  target: 'node22',
+  target: 'node26',
   format: 'cjs',
   outfile: join(out, 'helper.cjs'),
   logLevel: 'warning',
@@ -61,14 +61,16 @@ if (!args.includes('--helper-only')) {
   writeFileSync(join(to, 'index.json'), JSON.stringify({ version, files }, null, 2));
   console.log(`packages ${version}: ${Object.keys(files).join(', ')}`);
 }
-// the newest Node 22, or the one asked for
-const want = arg('--node', 'latest-v22.x'),
+// The Node line Setup installs (0.50.1: 26, supported until April 2029; 22 before). One place to change at the yearly move.
+const NODE = 26;
+// the newest of that line, or the one asked for
+const want = arg('--node', `latest-v${NODE}.x`),
   base = `https://nodejs.org/dist/${want.startsWith('latest') ? want : 'v' + want.replace(/^v/, '')}`;
 /** A file from nodejs.org, checked against its SHA-256 list. */
 async function nodeFile(pattern, what) {
   const sums = await (await fetch(`${base}/SHASUMS256.txt`)).text();
   const line = sums.split('\n').find((l) => pattern.test(l));
-  if (!line) throw new Error(`no Node 22 for ${what} in ${base}`);
+  if (!line) throw new Error(`no Node ${NODE} for ${what} in ${base}`);
   const [sum, name] = line.trim().split(/\s+/);
   const data = Buffer.from(await (await fetch(`${base}/${name}`)).arrayBuffer());
   if (createHash('sha256').update(data).digest('hex') !== sum) throw new Error(`${name} does not match its SHA-256`);
@@ -78,7 +80,10 @@ async function nodeFile(pattern, what) {
 if (args.includes('--mac')) {
   const mac = join(out, 'mac');
   for (const arch of ['arm64', 'x64']) {
-    const { name, data } = await nodeFile(new RegExp(`node-v22\\.[\\d.]+-darwin-${arch}\\.tar\\.gz$`), `macOS ${arch}`),
+    const { name, data } = await nodeFile(
+        new RegExp(`node-v${NODE}\\.[\\d.]+-darwin-${arch}\\.tar\\.gz$`),
+        `macOS ${arch}`,
+      ),
       top = name.replace('.tar.gz', ''),
       to = join(mac, 'node-' + arch);
     mkdirSync(to, { recursive: true });
@@ -152,7 +157,7 @@ if (args.includes('--mac')) {
     console.log(`PANOPTICA Setup ${version} for macOS: ${dmg}`);
   }
 } else if (!args.includes('--helper-only')) {
-  const { name, data } = await nodeFile(/node-v22\.[\d.]+-win-x64\.zip$/, 'Windows x64');
+  const { name, data } = await nodeFile(new RegExp(`node-v${NODE}\\.[\\d.]+-win-x64\\.zip$`), 'Windows x64');
   const files = unzipSync(new Uint8Array(data), {
     filter: (f) => /\/(node\.exe|LICENSE)$/.test(f.name) && f.name.split('/').length === 2,
   });
