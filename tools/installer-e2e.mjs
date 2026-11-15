@@ -199,8 +199,16 @@ async function shots() {
         console.log(`SHOT ${n} END`);
       }
     };
-  // opened with the licence already chosen (--licence), as IT can; the open panel itself is not driven
-  spawnSync('open', ['-n', app, '--args', '--licence', licence]);
+  // opened with the licence already chosen (--licence), as IT can; the open panel itself is not driven. The test's key is passed
+  // on, so the wizard's helper reads the test licence (without it the licence is refused, as it should be)
+  spawnSync('open', [
+    '-n',
+    app,
+    ...Object.entries(test).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
+    '--args',
+    '--licence',
+    licence,
+  ]);
   await sleep(6000);
   osa('tell application "PANOPTICA Setup" to activate');
   await sleep(1000);
