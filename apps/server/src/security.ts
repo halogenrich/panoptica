@@ -94,3 +94,11 @@ export function weakPassword(pw: string, username = ''): string {
     return 'choose a password that is not the name of the app';
   return '';
 }
+
+/**
+ * The request comes from the computer that runs PANOPTICA (not another computer on the network, and not through a proxy).
+ * First setup (0.36) and choosing the licence file (0.49) are only done there. Tests can ask to be seen as another computer.
+ */
+export const isLocal = (req: any) =>
+  !(process.env.PANOPTICA_TEST === '1' && req.headers['x-test-remote']) &&
+  /^(127\.|::1$|::ffff:127\.)/.test(req.socket?.remoteAddress ?? '');

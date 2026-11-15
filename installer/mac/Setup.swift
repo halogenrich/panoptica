@@ -1,6 +1,7 @@
-// PANOPTICA Setup for macOS (0.48): the wizard. It asks for the lab's product key, shows what the key covers (the helper asks
-// PANOPTICA's activation service, with the Node this app carries), asks whether the lab network may open PANOPTICA, then runs
-// setup.sh as an administrator (macOS asks for the password) and shows its steps until PANOPTICA is running.
+// PANOPTICA Setup for macOS (0.48; licence file 0.49): the wizard. It asks for the lab's licence file, shows what it covers (the
+// helper reads it, with the Node this app carries, and finds the package for its modules among those the app carries), asks
+// whether the lab network may open PANOPTICA, then runs setup.sh as an administrator (macOS asks for the password) and shows its
+// steps until PANOPTICA is running. No internet is needed.
 // Built by tools/installer-build.mjs --mac on a Mac: swiftc for Apple silicon and Intel, joined with lipo.
 import AppKit
 import SwiftUI
@@ -34,14 +35,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
 }
 
 enum Step: Int, CaseIterable {
-  case intro, key, review, install, done
-  var title: String { ["Introduction", "Product key", "Review", "Installation", "Summary"][rawValue] }
+  case intro, licence, review, install, done
+  var title: String { ["Introduction", "Licence file", "Review", "Installation", "Summary"][rawValue] }
 }
 
 final class Model: ObservableObject {
   @Published var step: Step = .intro
-  @Published var key = ""
-  @Published var service = ""
+  /// the licence file the person chose, and the copy Setup reads (in this user's temporary folder, which the administrator's
+  /// script can read: the original may sit in a folder macOS keeps from it)
+  @Published var licence: URL?
+  private var copy: URL?
   @Published var lan = true
   @Published var busy = false
   @Published var error = ""
@@ -51,13 +54,14 @@ final class Model: ObservableObject {
 
   let dir = "/Library/PANOPTICA"
   private let res = Bundle.main.resourceURL!
+
+  /// `--licence <file>` when the app is opened with it (IT, and the tests' screenshots): the file is already chosen
+  init() {
+    let a = CommandLine.arguments
+    if let i = a.firstIndex(of: "--licence"), i + 1 < a.count { licence = URL(fileURLWithPath: a[i + 1]) }
+  }
   private var timer: Timer?
   private var progress: URL?
-
-  init() {
-    service = ((try? String(contentsOf: res.appendingPathComponent("service.txt"), encoding: .utf8)) ?? "")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-  }
 
   private var node: URL {
     #if arch(arm64)
@@ -84,27 +88,42 @@ final class Model: ObservableObject {
     if let s = Step(rawValue: step.rawValue - 1) { step = s }
   }
 
-  /// What the key covers and whether this Mac may use it; nothing is installed yet.
+  /// The licence file, from the open panel.
+  func choose() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose the licence file"
+    panel.prompt = "Choose"
+    panel.allowsMultipleSelection = false
+    panel.canChooseDirectories = false
+    panel.allowedFileTypes = ["json"]
+    if panel.runModal() == .OK, let u = panel.url {
+      licence = u
+      error = ""
+    }
+  }
+
+  /// What the licence covers and whether this Setup carries its package; nothing is installed yet.
   func check() {
-    let k = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-    let s = service.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(
-      of: "/+$", with: "", options: .regularExpression)
-    if k.isEmpty { error = "Type the product key."; return }
-    if k.range(of: "^[A-Z0-9-]+$", options: .regularExpression) == nil {
-      error = "A product key has only letters, digits and dashes."; return
+    guard let lic = licence else { error = "Choose the licence file."; return }
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("panoptica-licence-\(UUID().uuidString).json")
+    do {
+      try FileManager.default.copyItem(at: lic, to: tmp)
+    } catch {
+      self.error = "Setup could not read this file: \(error.localizedDescription)."
+      return
     }
-    if s.range(of: "^https?://[A-Za-z0-9.:/_-]+$", options: .regularExpression) == nil {
-      error = "Type the activation service’s address (https://…)."; return
-    }
+    if let old = copy { try? FileManager.default.removeItem(at: old) }
+    copy = tmp
     error = ""
     busy = true
     let out = FileManager.default.temporaryDirectory.appendingPathComponent("panoptica-check-\(UUID().uuidString).ini")
     let helper = res.appendingPathComponent("helper.cjs").path, node = self.node, dir = self.dir
+    let packages = res.appendingPathComponent("packages").path
     DispatchQueue.global(qos: .userInitiated).async {
       var r: [String: String]
       let p = Process()
       p.executableURL = node
-      p.arguments = [helper, "check", "--key", k, "--service", s, "--dir", dir, "--out", out.path]
+      p.arguments = [helper, "check", "--licence", tmp.path, "--packages", packages, "--dir", dir, "--out", out.path]
       p.standardOutput = FileHandle.nullDevice
       p.standardError = FileHandle.nullDevice
       do {
@@ -119,11 +138,9 @@ final class Model: ObservableObject {
         self.busy = false
         if r["ok"] == "1" {
           self.info = r
-          self.key = k
-          self.service = s
           self.step = .review
         } else {
-          self.error = r["error"] ?? "The key could not be checked: try again."
+          self.error = r["error"] ?? "The licence file could not be read."
         }
       }
     }
@@ -133,8 +150,9 @@ final class Model: ObservableObject {
   func install() {
     let prog = FileManager.default.temporaryDirectory.appendingPathComponent("panoptica-setup-\(UUID().uuidString).log")
     FileManager.default.createFile(atPath: prog.path, contents: nil)
+    guard let lic = copy else { step = .licence; return }
     let args = [
-      res.appendingPathComponent("setup.sh").path, "--key", key, "--service", service, "--lan", lan ? "1" : "0",
+      res.appendingPathComponent("setup.sh").path, "--licence", lic.path, "--lan", lan ? "1" : "0",
       "--progress", prog.path,
     ]
     let line = "nohup /bin/bash " + args.map(Model.q).joined(separator: " ") + " >/dev/null 2>&1 &"
@@ -195,7 +213,7 @@ struct Wizard: View {
         Group {
           switch m.step {
           case .intro: Intro()
-          case .key: KeyPage()
+          case .licence: LicencePage()
           case .review: Review()
           case .install: Installing()
           case .done: Summary()
@@ -293,7 +311,7 @@ struct Intro: View {
     VStack(alignment: .leading, spacing: 12) {
       Heading(title: "Install PANOPTICA", sub: "The lab’s server, on this Mac")
       Text("PANOPTICA runs in the background and starts with this Mac. People open it in their browser, on this Mac or from the lab network.")
-      Text("Have the lab’s product key ready. This Mac needs the internet during the installation; afterwards PANOPTICA runs without it.")
+      Text("Have the lab’s licence file (licence.json) ready. The internet is not needed.")
       Text("macOS asks for an administrator’s password before anything is installed.").foregroundColor(.secondary)
     }
     .font(.system(size: 13))
@@ -301,31 +319,26 @@ struct Intro: View {
   }
 }
 
-struct KeyPage: View {
+struct LicencePage: View {
   @EnvironmentObject var m: Model
-  @FocusState private var keyFocused: Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Heading(title: "Product key", sub: "The key PANOPTICA gave the lab. It decides which modules are installed.")
-      Text("Product key").font(.system(size: 12, weight: .medium)).padding(.bottom, 6)
-      TextField("", text: $m.key, prompt: Text("XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"))
-        .textFieldStyle(.roundedBorder)
-        .font(.system(size: 14, design: .monospaced))
-        .disableAutocorrection(true)
-        .focused($keyFocused)
-        .onSubmit { m.check() }
-      Text("Activation service").font(.system(size: 12, weight: .medium)).padding(.top, 18).padding(.bottom, 6)
-      TextField("", text: $m.service, prompt: Text("https://…"))
-        .textFieldStyle(.roundedBorder)
-        .font(.system(size: 13))
-        .disableAutocorrection(true)
-        .onSubmit { m.check() }
-      Text("Leave it as it is unless PANOPTICA gave you another address.")
-        .font(.system(size: 11)).foregroundColor(.secondary).padding(.top, 6)
+      Heading(title: "Licence file", sub: "The licence.json PANOPTICA gave the lab. It decides which modules are installed.")
+      HStack(spacing: 12) {
+        Button(m.licence == nil ? "Choose the licence file…" : "Choose another file…") { m.choose() }
+        if let u = m.licence {
+          Label(u.lastPathComponent, systemImage: "doc.text")
+            .font(.system(size: 13))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(u.path)
+        }
+      }
+      Text("Lost it? Contact PANOPTICA for a copy.")
+        .font(.system(size: 11)).foregroundColor(.secondary).padding(.top, 10)
       ErrorLine(text: m.error)
     }
     .disabled(m.busy)
-    .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { keyFocused = true } }
   }
 }
 
@@ -340,13 +353,12 @@ struct Review: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Heading(title: "What this key covers", sub: "Check that this is the right lab.")
+      Heading(title: "What this licence covers", sub: "Check that this is the right lab.")
       VStack(alignment: .leading, spacing: 8) {
-        row("Lab", m.info["lab"])
+        row("Lab", m.info["lab"].map { l in (m.info["acronym"] ?? "").isEmpty ? l : "\(l) (\(m.info["acronym"]!))" })
         row("Modules", m.info["modules"])
-        row("Updates until", m.info["updates"])
-        row("Computers", m.info["computers"])
-        row("Version", m.info["version"].map { v in "\(v) (\(m.info["size"] ?? "") to download)" })
+        row("People", m.info["tier"])
+        row("Version", m.info["version"].map { v in "\(v) (\(m.info["size"] ?? ""))" })
       }
       if m.info["upgrade"] == "1" {
         Label("PANOPTICA is already installed here: its data stays, and the database is backed up first.", systemImage: "info.circle")
@@ -370,7 +382,7 @@ struct Installing: View {
   @EnvironmentObject var m: Model
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Heading(title: "Installing", sub: "Downloading PANOPTICA and starting it. This takes a minute or two.")
+      Heading(title: "Installing", sub: "Checking PANOPTICA, installing it and starting it. This takes a minute or two.")
       ProgressView().progressViewStyle(.linear).padding(.bottom, 16)
       ScrollViewReader { proxy in
         ScrollView {
@@ -395,7 +407,7 @@ struct Summary: View {
     VStack(alignment: .leading, spacing: 12) {
       if m.ok {
         Heading(title: "PANOPTICA is installed", sub: "It is running, and starts again whenever this Mac starts.")
-        Text("Open it and type the product key once more to create the first admin and set up the lab.")
+        Text("Open it to create the first admin and set up the lab.")
         VStack(alignment: .leading, spacing: 4) {
           Text("On this Mac: http://localhost:3000").textSelection(.enabled)
           if m.lan {
@@ -425,10 +437,10 @@ struct Footer: View {
       Spacer()
       switch m.step {
       case .intro:
-        Button("Continue") { m.step = .key }.keyboardShortcut(.defaultAction)
-      case .key:
+        Button("Continue") { m.step = .licence }.keyboardShortcut(.defaultAction)
+      case .licence:
         Button("Back") { m.back() }.disabled(m.busy)
-        Button("Continue") { m.check() }.keyboardShortcut(.defaultAction).disabled(m.busy)
+        Button("Continue") { m.check() }.keyboardShortcut(.defaultAction).disabled(m.busy || m.licence == nil)
       case .review:
         Button("Back") { m.back() }
         Button("Install") { m.install() }.keyboardShortcut(.defaultAction)

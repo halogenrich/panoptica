@@ -73,10 +73,14 @@ export default function AdminSettings({ meId }: { meId: number }) {
     }
   };
   const [upd, setUpd] = useState<{ available: boolean; latest?: { version: string } } | null>(null),
-    [waiting, setWaiting] = useState(0);
+    [waiting, setWaiting] = useState(0),
+    [lic, setLic] = useState<{ critical: boolean; state: string } | null>(null);
   useEffect(() => {
     api<typeof upd>('/updates')
       .then(setUpd)
+      .catch(() => {});
+    api<typeof lic>('/licence')
+      .then(setLic)
       .catch(() => {});
     api<{ n: number }>('/access-requests/count')
       .then((r) => setWaiting(r.n))
@@ -94,6 +98,17 @@ export default function AdminSettings({ meId }: { meId: number }) {
   ];
   return (
     <div className="admin">
+      {lic?.critical && tab !== 'licence' && (
+        <div className="admin-upd">
+          <span>
+            <b>{lic.state === 'none' ? 'The licence file is missing.' : 'The licence file is not valid.'}</b> No one new
+            can be let in until it is installed.
+          </span>
+          <button className="link" onClick={() => setTab('licence')}>
+            Licence ›
+          </button>
+        </div>
+      )}
       {upd?.available && tab !== 'updates' && (
         <div className="admin-upd">
           <span>
@@ -868,7 +883,16 @@ function AddVisitor({ onAdded }: { onAdded: () => void }) {
     [dept, setDept] = useState(''),
     [until, setUntil] = useState(''),
     [msg, setMsg] = useState(''),
-    [err, setErr] = useState('');
+    [err, setErr] = useState(''),
+    [full, setFull] = useState('');
+  // the licence's number of people (0.49): said before the form is filled, not after
+  const room = () =>
+    api<{ full: string }>('/access-requests/count')
+      .then((r) => setFull(r.full))
+      .catch(() => {});
+  useEffect(() => {
+    room();
+  }, []);
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     api<{ username: string }>('/users', 'POST', { ...n, email, birthDate: birth, department: dept, until })
@@ -883,6 +907,7 @@ function AddVisitor({ onAdded }: { onAdded: () => void }) {
         setDept('');
         setUntil('');
         onAdded();
+        room();
       })
       .catch((x) => setErr(x.message));
   };
@@ -894,6 +919,7 @@ function AddVisitor({ onAdded }: { onAdded: () => void }) {
           For people outside the lab who need PANOPTICA for a while. Lab members ask for access from the sign-in screen
           and appear under Access requests.
         </p>
+        {full && <p className="warn-text small">{full}.</p>}
         <NameFields
           self={false}
           v={n}
@@ -924,7 +950,7 @@ function AddVisitor({ onAdded }: { onAdded: () => void }) {
         </div>
         {err && <p className="err small">{err}</p>}
         {msg && <p className="ok small">{msg}</p>}
-        <button className="btn" disabled={!n.firstNames.trim() || !n.surname || !email || !birth || !until}>
+        <button className="btn" disabled={!!full || !n.firstNames.trim() || !n.surname || !email || !birth || !until}>
           Add visitor
         </button>
       </form>
@@ -956,14 +982,19 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
     [pick, setPick] = useState<Record<number, number[]>>({}),
     [why, setWhy] = useState<Record<number, string | undefined>>({}),
     [msg, setMsg] = useState(''),
-    [err, setErr] = useState('');
-  const load = () =>
-    api<Req[]>('/access-requests')
+    [err, setErr] = useState(''),
+    [full, setFull] = useState('');
+  const load = () => {
+    api<{ full: string }>('/access-requests/count')
+      .then((r) => setFull(r.full))
+      .catch(() => {});
+    return api<Req[]>('/access-requests')
       .then((l) => {
         setList(l);
         onCount(l.filter((r) => r.status === 'pending').length);
       })
       .catch((e) => setErr(e.message));
+  };
   useEffect(() => {
     load();
     api<Tag[]>('/tags').then(setTags);
@@ -991,6 +1022,7 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
   return (
     <>
       <h3 className="sub">Access requests</h3>
+      {full && pending.length > 0 && <p className="warn-text small">{full}. Requests stay here until there is room.</p>}
       {err && <p className="err small">{err}</p>}
       {msg && <p className="ok small">{msg}</p>}
       {list && !pending.length && (
@@ -1085,7 +1117,7 @@ function Requests({ onCount }: { onCount: (n: number) => void }) {
               </div>
             ) : (
               <div className="inline">
-                <button className="btn" onClick={() => accept(r)}>
+                <button className="btn" disabled={!!full} title={full || undefined} onClick={() => accept(r)}>
                   Accept
                 </button>
                 <button className="link danger-link" onClick={() => setWhy({ ...why, [r.id]: '' })}>
@@ -1130,6 +1162,8 @@ function LabSetup() {
     setD({
       ...blankLab(),
       name: l.name,
+      acronym: l.acronym ?? '',
+      show: l.show ?? 'name',
       institution: l.institution,
       domains: l.domains.join(', '),
       departments: l.departments.join('\n'),
@@ -1169,7 +1203,14 @@ function LabSetup() {
             className="btn"
             disabled={!d.name.trim()}
             onClick={() =>
-              save('lab', { name: b.name, institution: b.institution, domains: b.domains, departments: b.departments })
+              save('lab', {
+                name: b.name,
+                acronym: b.acronym,
+                show: b.show,
+                institution: b.institution,
+                domains: b.domains,
+                departments: b.departments,
+              })
             }
           >
             Save

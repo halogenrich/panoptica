@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DEFAULT_HOURS, surnameChoices, type WorkDay } from '@psc/core';
 import { api } from '../api';
 import type { LabPublic, Me } from '../ctx';
+import { Seg } from '../lib/ui';
 import { SignInFrame } from './Login';
 import {
   NameFields,
@@ -17,6 +18,8 @@ import {
 /** The lab's settings as edited: lists as text, images as data URLs ('' none, undefined unchanged). */
 export type LabDraft = {
   name: string;
+  acronym: string;
+  show: 'name' | 'acronym';
   institution: string;
   domains: string;
   departments: string;
@@ -30,6 +33,8 @@ export type LabDraft = {
 };
 export const blankLab = (): LabDraft => ({
   name: '',
+  acronym: '',
+  show: 'name',
   institution: '',
   domains: '',
   departments: '',
@@ -46,6 +51,8 @@ const list = (s: string, sep: RegExp) =>
 /** What the server takes (PUT /api/lab, the setup's `lab`). */
 export const labBody = (d: LabDraft) => ({
   name: d.name.trim(),
+  acronym: d.acronym.trim(),
+  show: d.acronym.trim() ? d.show : ('name' as const),
   institution: d.institution.trim(),
   domains: list(d.domains, /[\s,;]+/).map((x) => x.replace(/^@/, '').toLowerCase()),
   departments: [...new Set(list(d.departments, /\n/))],
@@ -58,27 +65,52 @@ export const labBody = (d: LabDraft) => ({
   ...(d.instLogo !== undefined ? { instLogo: d.instLogo } : {}),
 });
 
-/** Name, institution, who may ask for access, departments. */
+/** The name the lab shows (0.49): its acronym when it chose that and has one, else its full name. */
+export const shownName = (d: LabDraft) => (d.show === 'acronym' && d.acronym.trim() ? d.acronym : d.name).trim();
+
+/** Full name, acronym and which one shows; institution, who may ask for access, departments. */
 export function LabFields({ d, set }: { d: LabDraft; set: (p: Partial<LabDraft>) => void }) {
   return (
     <>
-      <div className="grid2">
+      <div className="lab-names">
         <label className="fld">
-          <span>Lab name</span>
-          <input value={d.name} placeholder="Your lab’s short name" onChange={(e) => set({ name: e.target.value })} />
+          <span>Full name</span>
+          <input value={d.name} placeholder="The lab’s full name" onChange={(e) => set({ name: e.target.value })} />
         </label>
         <label className="fld">
-          <span>Institution</span>
+          <span>Acronym</span>
           <input
-            value={d.institution}
-            placeholder="University or institute"
-            onChange={(e) => set({ institution: e.target.value })}
+            value={d.acronym}
+            maxLength={24}
+            placeholder="Optional"
+            onChange={(e) => set({ acronym: e.target.value })}
           />
         </label>
       </div>
-      <p className="wm-sample">
-        Shown as <Wordmark lab={d.name.trim() || undefined} size="s" />
-      </p>
+      <div className="wm-sample lab-show">
+        {d.acronym.trim() && (
+          <Seg
+            small
+            value={d.show}
+            on={(show) => set({ show })}
+            opts={[
+              ['name', 'Full name'],
+              ['acronym', 'Acronym'],
+            ]}
+          />
+        )}
+        <span>
+          Shown as <Wordmark lab={shownName(d) || undefined} size="s" />
+        </span>
+      </div>
+      <label className="fld">
+        <span>Institution</span>
+        <input
+          value={d.institution}
+          placeholder="University or institute"
+          onChange={(e) => set({ institution: e.target.value })}
+        />
+      </label>
       <label className="fld">
         <span>Institutional email domains, separated by commas</span>
         <input
@@ -356,7 +388,7 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
   return (
     <main className="setup">
       <aside className="setup-rail">
-        <Wordmark lab={lab.name.trim() || undefined} />
+        <Wordmark lab={shownName(lab) || undefined} />
         <ol className="setup-steps">
           {STEPS.map((s, i) => (
             <li
@@ -461,7 +493,7 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
                 </dd>
                 <dt>Lab</dt>
                 <dd>
-                  <Wordmark lab={lab.name.trim()} size="s" />
+                  <Wordmark lab={shownName(lab)} size="s" />
                   {lab.institution.trim() && <span className="mut"> at {lab.institution.trim()}</span>}
                 </dd>
                 <dt>Access</dt>

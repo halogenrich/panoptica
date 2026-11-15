@@ -49,6 +49,12 @@ if ! cp -R -p "$NEW/." ./; then
   rm -rf "$TMP"; fail "Copy failed; the previous version was put back."
 fi
 rm -rf "$TMP"
-chmod +x ./*.command ./*.sh 2>/dev/null
+# installed by PANOPTICA Setup (0.49): no script is left to run by hand; the app keeps this one in internal/ for itself
+if [ -f config/install.json ]; then
+  mkdir -p internal && cp -p update.command internal/update.command
+  for f in start start-network update version restore; do rm -f "$f.command" "$f.sh" "$f.bat"; done
+  rm -f install-shortcut.sh
+fi
+chmod +x ./*.command ./*.sh internal/*.command 2>/dev/null
 echo "Updated: $OLD -> $(node -p "require('./package.json').version")"
 back

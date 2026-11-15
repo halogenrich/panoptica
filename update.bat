@@ -71,6 +71,13 @@ if errorlevel 8 ( call :log Copy failed. & %HOLD% & exit /b 1 )
 rem the built folders are mirrored so files removed in a release are removed here too
 for %%d in (apps\web\dist apps\server\dist) do if exist "%SRC%\%%d" robocopy "%SRC%\%%d" "%CD%\%%d" /MIR /NFL /NDL /NJH /NJS /NP >nul
 rmdir /s /q "%TMPD%"
+rem installed by PANOPTICA Setup (0.49): no script is left to run by hand; the app keeps this one in internal\ for itself
+if exist config\install.json (
+  if not exist internal mkdir internal
+  copy /y update.bat internal\update.bat >nul
+  for %%f in (start start-network update version restore) do for %%e in (bat command sh) do if exist %%f.%%e del /q %%f.%%e
+  if exist install-shortcut.sh del /q install-shortcut.sh
+)
 
 for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v
 call :log Updated: %OLD% to %NEW%

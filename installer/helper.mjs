@@ -1,19 +1,21 @@
-// The installer's helper (0.47): PANOPTICA Setup runs it with the Node it carries (installer/panoptica.iss on Windows, and since
-// 0.48 installer/mac on macOS). Bundled with its one library (fflate, for zip files) into build/helper.cjs; it needs nothing
-// installed on the computer.
+// The installer's helper (0.47; licence file and packages inside 0.49): PANOPTICA Setup runs it with the Node it carries
+// (installer/panoptica.iss on Windows, installer/mac on macOS). Bundled with its one library (fflate, for zip files) into
+// build/helper.cjs; it needs nothing installed on the computer, and no internet: Setup carries the packages.
 //
-//   node helper.cjs check   --key K --service URL --dir D --out result.ini
-//      what the key covers (the lab, modules, last day of updates, computers) and whether this computer may use it; keeps
-//      nothing at PANOPTICA. Writes result.ini ([result] ok=1, lab=…, or error=…) for the wizard's pages.
-//   node helper.cjs install --key K --service URL --dir D --lan 1|0 [--task 0]
-//      activates this computer with the key, downloads the key's package (checked against its SHA-256 and PANOPTICA's
-//      signature), puts it in D\panoptica (an existing install keeps its data: the database is backed up first and only program
-//      files are replaced), leaves the licence, key and install id for the app, and starts PANOPTICA in the background whenever
-//      the computer starts (port 3000): on Windows as a task run by the system, with a firewall rule when the lab network may
-//      open it; on macOS as a launchd daemon (com.panoptica.server), with Node allowed through the firewall. Writes progress
-//      to D/panoptica/updates/install.log.
+//   node helper.cjs check   --licence F --packages P --dir D --out result.ini
+//      reads the lab's licence (signed by PANOPTICA) and finds the package for its modules among the ones Setup carries
+//      (P/index.json). Writes result.ini ([result] ok=1, lab=…, or error=…) for the wizard's pages.
+//   node helper.cjs install --licence F --packages P --dir D --lan 1|0 [--task 0]
+//      checks the licence and the package (SHA-256 and PANOPTICA's signature), puts it in D/panoptica (an existing install keeps
+//      its data: the database is backed up first and only program files are replaced), leaves the licence for the app and marks
+//      the install as made by Setup (config/install.json), and starts PANOPTICA in the background whenever the computer starts
+//      (port 3000): on Windows as a task run by the system, with a firewall rule when the lab network may open it; on macOS as a
+//      launchd daemon (com.panoptica.server), with Node allowed through the firewall. The install folder is the administrators'
+//      and the system's only. No script to run by hand is left in it (0.49): the app keeps its update script in internal/, and
+//      reset-password stays, for administrators, to recover a lost admin password. Progress goes to
+//      D/panoptica/updates/install.log.
 //   node helper.cjs uninstall --dir D      (macOS) stops the daemon and removes it; the lab's data stays
-import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
@@ -33,9 +35,7 @@ import { unzipSync } from 'fflate';
 
 const [cmd, ...args] = process.argv.slice(2),
   opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
-const service = (opt('--service') ?? '').trim().replace(/\/$/, ''),
-  key = (opt('--key') ?? '').trim().toUpperCase(),
-  win = process.platform === 'win32',
+const win = process.platform === 'win32',
   mac = process.platform === 'darwin',
   dir = opt('--dir') ?? (win ? 'C:\\PANOPTICA' : '/Library/PANOPTICA'),
   root = join(dir, 'panoptica'),
@@ -45,6 +45,8 @@ const service = (opt('--service') ?? '').trim().replace(/\/$/, ''),
   FIREWALL = '/usr/libexec/ApplicationFirewall/socketfilterfw',
   PORT = 3000;
 const here = dirname(process.argv[1]);
+/** Scripts a manual install runs by hand; an install made by Setup has none (0.49). */
+const HAND_RUN = /^(start|start-network|update|version|restore)\.(bat|command|sh)$|^install-shortcut\.sh$/;
 
 /** PANOPTICA's public key: release.pub next to this helper (tests give their own with PANOPTICA_TEST and a key file). */
 const pub = () =>
@@ -56,45 +58,23 @@ const pub = () =>
       'utf8',
     ),
   );
-// on macOS only the system can read the app's folder once it runs (its daemon's umask), so the wizard, which checks the key as
-// the person, reads this computer's id from a copy next to it
-const ids = () => [join(root, 'config/install.json'), join(dir, 'install.json')];
-const installId = () => {
-  for (const f of ids())
-    try {
-      return JSON.parse(readFileSync(f, 'utf8')).id;
-    } catch {}
-  return (globalThis.__id ??= randomUUID());
+const signed = (data, sig) => {
+  try {
+    return verify(null, data, pub(), Buffer.from(String(sig).trim(), 'base64'));
+  } catch {
+    return false;
+  }
 };
-async function post(path, body) {
-  const r = await fetch(service + path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'user-agent': 'panoptica-setup' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error ?? `the activation service answered ${r.status}`);
-  return j;
-}
-async function file(version, name, id) {
-  const r = await fetch(`${service}/v1/files/${version}/${encodeURIComponent(name)}`, {
-    headers: { 'x-key': key, 'x-install': id, 'user-agent': 'panoptica-setup' },
-    signal: AbortSignal.timeout(900_000),
-  });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `the activation service answered ${r.status}`);
-  return Buffer.from(await r.arrayBuffer());
-}
 const ini = (o) =>
   '[result]\r\n' +
   Object.entries(o)
     .map(([k, v]) => `${k}=${String(v).replace(/[\r\n]+/g, ' ')}`)
     .join('\r\n') +
   '\r\n';
-const dmy = (d) => d.split('-').reverse().join('/');
 // the names the app gives its modules (modules/<id>/server: name)
 const MODULES = { devices: 'Electronic Devices' },
   names = (ids) => ids.map((m) => MODULES[m] ?? m).join(', ');
+const packageName = (mods) => `panoptica-${[...mods].sort().join('+') || 'core'}.zip`;
 let logFile = '';
 const log = (m) => {
   console.log(m);
@@ -126,29 +106,66 @@ const quiet = (c, a) => {
 const xml = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const sh = (t) => `'${t.replace(/'/g, `'\\''`)}'`;
 
+/** The licence file the lab was given: its text and what it says, when PANOPTICA signed it. */
+function readLicence() {
+  const f = opt('--licence');
+  if (!f) throw new Error('choose the licence file PANOPTICA gave the lab');
+  let text, file, l;
+  try {
+    text = readFileSync(f, 'utf8');
+    file = JSON.parse(text);
+  } catch {
+    throw new Error('this is not a licence file');
+  }
+  if (typeof file?.body !== 'string' || typeof file?.sig !== 'string') throw new Error('this is not a licence file');
+  if (!signed(Buffer.from(file.body, 'utf8'), file.sig))
+    throw new Error('this licence is not signed by PANOPTICA, or it was changed');
+  try {
+    l = JSON.parse(file.body);
+  } catch {
+    throw new Error('this licence cannot be read');
+  }
+  if (l?.v !== 1 || !l.lab || !l.labId || !Array.isArray(l.modules))
+    throw new Error('this licence is from a newer version of PANOPTICA, or incomplete');
+  return { text, l };
+}
+/** The packages this Setup carries (index.json, written when Setup was built), and the one for the licence's modules. */
+function packageFor(l) {
+  const dirP = opt('--packages') ?? join(here, 'packages');
+  let index;
+  try {
+    index = JSON.parse(readFileSync(join(dirP, 'index.json'), 'utf8'));
+  } catch {
+    throw new Error('this PANOPTICA Setup carries no packages: download it again');
+  }
+  const name = packageName(l.modules),
+    p = index.files?.[name];
+  if (!p)
+    throw new Error(
+      `this PANOPTICA Setup has no package for ${names(l.modules) || 'the core alone'}: use a newer Setup, or contact PANOPTICA`,
+    );
+  return { dir: dirP, version: index.version, name, ...p };
+}
+const tierText = (l) =>
+  l.users ? `Tier ${l.tier ?? ''}: up to ${l.users} people`.replace('Tier : ', '') : 'No limit on people';
+
 async function check() {
   const out = opt('--out');
   try {
-    if (!key) throw new Error('type the product key');
-    if (!service) throw new Error('the activation service’s address is missing');
-    const id = installId();
-    const j = await post('/v1/check', { key, install: id });
-    if (!j.room)
-      throw new Error(
-        `this product key is in use on ${j.installs.used} computer${j.installs.used === 1 ? '' : 's'}, its limit: contact PANOPTICA to move it to this one`,
-      );
-    if (!j.latest) throw new Error('PANOPTICA has no release for this key yet: contact PANOPTICA');
+    const { l } = readLicence(),
+      p = packageFor(l);
     writeFileSync(
       out,
       ini({
         ok: 1,
-        lab: j.lab,
-        modules: names(j.modules) || 'the core alone',
-        updates: dmy(j.updatesUntil),
-        computers: `${j.installs.used} of ${j.installs.limit} in use`,
-        version: j.latest.version,
-        size: Math.round(j.latest.package.size / 1048576) + ' MB',
-        upgrade: [join(root, 'apps/server/dist/server.mjs'), ...ids()].some(existsSync) ? 1 : 0,
+        lab: l.lab,
+        acronym: l.acronym ?? '',
+        modules: names(l.modules) || 'the core alone',
+        tier: tierText(l),
+        version: p.version,
+        size: Math.round(p.size / 1048576) + ' MB',
+        // the app's folder itself may be closed to the person running the wizard (macOS): that it exists is enough
+        upgrade: existsSync(root) ? 1 : 0,
       }),
     );
   } catch (e) {
@@ -156,10 +173,15 @@ async function check() {
   }
 }
 
-/** Copies the new program files over the old ones: never the data, the backups, the settings or the updates folder. */
+/**
+ * Copies the new program files over the old ones: never the data, the backups, the settings or the updates folder. The scripts a
+ * manual install runs by hand are left out (and removed from an older install); the update script goes to internal/, where only
+ * the app runs it (0.49).
+ */
 function place(src) {
   const keep = new Set(['backups', 'config', 'updates', 'node_modules']),
-    keepFile = /^data\.db(-wal|-shm)?$/;
+    keepFile = /^data\.db(-wal|-shm)?$/,
+    update = win ? 'update.bat' : 'update.command';
   const walk = (from, to) => {
     mkdirSync(to, { recursive: true });
     for (const f of readdirSync(from)) {
@@ -168,32 +190,43 @@ function place(src) {
       if (statSync(a).isDirectory()) {
         if (from === src && keep.has(f)) continue;
         walk(a, b);
-      } else if (!keepFile.test(f)) copyFileSync(a, b);
+      } else if (!keepFile.test(f) && !(from === src && HAND_RUN.test(f))) copyFileSync(a, b);
     }
   };
   // the built folders are replaced whole, so files a release removed go too
   for (const d of ['apps/web/dist', 'apps/server/dist']) rmSync(join(root, d), { recursive: true, force: true });
   walk(src, root);
+  mkdirSync(join(root, 'internal'), { recursive: true });
+  copyFileSync(join(src, update), join(root, 'internal', update));
+  if (existsSync(root)) for (const f of readdirSync(root)) if (HAND_RUN.test(f)) rmSync(join(root, f), { force: true });
+}
+
+/** Windows: the install folder belongs to the administrators and the system alone (by their SIDs: names change with the language). */
+function lockDown() {
+  execFileSync('icacls', [dir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', '/Q'], {
+    stdio: 'pipe',
+  });
+  // what is inside takes the folder's permissions again
+  execFileSync('icacls', [join(dir, '*'), '/reset', '/T', '/C', '/Q'], { stdio: 'pipe' });
+  log('Install folder: administrators and the system only');
 }
 
 async function install() {
   mkdirSync(join(root, 'updates'), { recursive: true });
   logFile = join(root, 'updates', 'install.log');
-  const id = installId(),
-    lan = opt('--lan') !== '0';
-  log(`Installing in ${root} (computer ${hostname()}, install ${id})`);
-  const j = await post('/v1/activate', { key, install: id, name: hostname() });
-  log(`Activated: ${j.lab}; ${names(j.modules) || 'the core alone'}; updates until ${j.updatesUntil}`);
-  const rel = j.latest;
-  if (!rel) throw new Error('PANOPTICA has no release for this key yet');
-  log(`Downloading ${rel.package.name} ${rel.version} (${Math.round(rel.package.size / 1048576)} MB)`);
-  const zip = await file(rel.version, rel.package.name, id),
-    sig = (await file(rel.version, rel.package.name + '.sig', id)).toString('utf8').trim();
-  if (createHash('sha256').update(zip).digest('hex') !== rel.package.sha256)
-    throw new Error('the download is damaged (its SHA-256 does not match): run the installer again');
-  if (!verify(null, zip, pub(), Buffer.from(sig, 'base64')))
-    throw new Error('the package is not signed by PANOPTICA: nothing was installed');
-  log('Checked: SHA-256 and PANOPTICA’s signature');
+  const lan = opt('--lan') !== '0';
+  log(`Installing in ${root} (computer ${hostname()})`);
+  const { text, l } = readLicence(),
+    p = packageFor(l);
+  log(
+    `Licence ${l.id}: ${l.lab}${l.acronym ? ` (${l.acronym})` : ''}; ${names(l.modules) || 'the core alone'}; ${tierText(l)}`,
+  );
+  const zip = readFileSync(join(p.dir, p.name)),
+    sig = readFileSync(join(p.dir, p.name + '.sig'), 'utf8').trim();
+  if (createHash('sha256').update(zip).digest('hex') !== p.sha256)
+    throw new Error('the package in this Setup is damaged (its SHA-256 does not match): download Setup again');
+  if (!signed(zip, sig)) throw new Error('the package is not signed by PANOPTICA: nothing was installed');
+  log(`Checked ${p.name} ${p.version}: SHA-256 and PANOPTICA’s signature`);
 
   // an existing install: stopped, its database backed up; its data stays
   const existing = existsSync(join(root, 'apps/server/dist/server.mjs'));
@@ -226,30 +259,38 @@ async function install() {
   if (!existsSync(join(src, 'apps/server/dist/server.mjs'))) throw new Error('this package is not a PANOPTICA package');
   place(src);
   rmSync(tmp, { recursive: true, force: true });
-  // zip files carry no permissions: the scripts are made runnable again
-  if (!win) for (const f of readdirSync(root)) if (/\.(sh|command)$/.test(f)) chmodSync(join(root, f), 0o755);
-  log(`${existing ? 'Updated' : 'Installed'} PANOPTICA ${rel.version}`);
+  // zip files carry no permissions: the scripts left are made runnable again
+  if (!win) {
+    for (const f of readdirSync(root)) if (/\.(sh|command)$/.test(f)) chmodSync(join(root, f), 0o755);
+    chmodSync(join(root, 'internal', 'update.command'), 0o755);
+  }
+  log(`${existing ? 'Updated' : 'Installed'} PANOPTICA ${p.version}`);
 
-  // what the app reads at start: its licence, the key and this computer's id (config/ is this computer's, not the backups')
-  writeFileSync(join(root, 'licence.json'), j.licence);
+  // what the app reads at start: its licence, and that Setup made this install, so it needs its licence (config/ is this
+  // computer's, not the backups'). The product key of 0.47–0.48 is gone from the settings.
+  writeFileSync(join(root, 'licence.json'), text);
   mkdirSync(join(root, 'config'), { recursive: true });
   const upd = join(root, 'config/update.json');
-  let old = {};
   try {
-    old = JSON.parse(readFileSync(upd, 'utf8'));
+    const { key: _k, service: _s, ...rest } = JSON.parse(readFileSync(upd, 'utf8'));
+    writeFileSync(upd, JSON.stringify(rest, null, 2));
   } catch {}
-  writeFileSync(upd, JSON.stringify({ ...old, service, key }, null, 2));
-  writeFileSync(join(root, 'config/install.json'), JSON.stringify({ id }, null, 2));
-  if (mac) writeFileSync(join(dir, 'install.json'), JSON.stringify({ id }, null, 2), { mode: 0o644 });
+  writeFileSync(
+    join(root, 'config/install.json'),
+    JSON.stringify({ by: 'setup', version: p.version, at: new Date().toISOString() }, null, 2),
+  );
+  rmSync(join(dir, 'install.json'), { force: true }); // the copy 0.48 kept for its wizard
+  if (win) lockDown();
+  // macOS: the app's folder is the system's alone (what the daemon writes already is, by its umask)
+  if (mac) chmodSync(root, 0o700);
 
   if (opt('--task') === '0' || !(win || mac)) return log('Done (start it with the start script)');
   if (mac) return daemon(lan);
   // how the task starts it: the Node this installer carries, the lab network or not, and the task's name, so an update the app
   // installs restarts it through the task
-  const test =
-    process.env.PANOPTICA_TEST === '1'
-      ? `set PANOPTICA_TEST=1\r\nset "UPDATE_PUBLIC_KEY_FILE=${process.env.UPDATE_PUBLIC_KEY_FILE ?? ''}"\r\n`
-      : '';
+  const test = Object.entries(testEnv())
+    .map(([k, v]) => `set "${k}=${v}"\r\n`)
+    .join('');
   writeFileSync(
     join(root, 'run.cmd'),
     `@echo off\r\nrem Started by the PANOPTICA task at startup (made by the installer; it rewrites this file)\r\ncd /d "%~dp0"\r\nset "PATH=${join(dir, 'node')};%PATH%"\r\nset PORT=${PORT}\r\nset HOST=${lan ? '0.0.0.0' : '127.0.0.1'}\r\nset OPEN_BROWSER=0\r\nset PANOPTICA_TASK=${TASK}\r\n${test}if not exist updates mkdir updates\r\ncd apps\\server\r\nnode --no-warnings dist\\server.mjs >> ..\\..\\updates\\server.log 2>&1\r\n`,
@@ -289,11 +330,13 @@ async function install() {
   throw new Error(`PANOPTICA did not start within 90 s: look at ${join(root, 'updates', 'server.log')}`);
 }
 
-/** The test's signing key, passed on to the app (only with PANOPTICA_TEST). */
-const testEnv = () =>
-  process.env.PANOPTICA_TEST === '1'
-    ? { PANOPTICA_TEST: '1', UPDATE_PUBLIC_KEY_FILE: process.env.UPDATE_PUBLIC_KEY_FILE ?? '' }
-    : {};
+/** The test's signing key and its fake release source, passed on to the app (only with PANOPTICA_TEST). */
+function testEnv() {
+  if (process.env.PANOPTICA_TEST !== '1') return {};
+  const e = { PANOPTICA_TEST: '1', UPDATE_PUBLIC_KEY_FILE: process.env.UPDATE_PUBLIC_KEY_FILE ?? '' };
+  for (const k of ['UPDATE_API', 'UPDATE_REPO']) if (process.env[k]) e[k] = process.env[k];
+  return e;
+}
 
 /**
  * macOS (0.48): PANOPTICA as a launchd daemon run by the system, started with the computer and again when it stops by itself;

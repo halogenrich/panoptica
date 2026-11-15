@@ -1,24 +1,24 @@
-// PANOPTICA's internal builder (0.46), for PANOPTICA staff only: makes what one lab needs to install PANOPTICA.
+// PANOPTICA's licence builder (0.46; tiers and lab names 0.49), for PANOPTICA staff only: makes what one lab needs to install
+// PANOPTICA with PANOPTICA Setup.
 //
-//   node tools/builder/builder.mjs --lab "Lab name" --modules devices --updates-until 2027-12-31 --key path/to/key.pem
-//        [--lab-id <id>] [--package path/to/panoptica-devices.zip | --build] [--no-setup] [--out folder]
+//   node tools/builder/builder.mjs --lab "Full lab name" [--acronym ABC] --modules devices --tier 1|2|3 [--users N]
+//        --key path/to/key.pem [--lab-id <id>] [--no-setup] [--out folder]
 //
 // Writes <out>/<lab>-<licence id>/:
-//   licence.json        the lab's licence, signed with PANOPTICA's key: lab, lab id, modules, issued, last day of updates, and
-//                       the hash of a one-time setup code
-//   install-sheet.md    for the install crew: what to copy where, and the setup code (the code is only on this sheet)
-//   panoptica-<modules>.zip and .sig   with --package (a release's package for these modules, its .sig next to it), or
-//                       --build (packaged from this source and signed with the key)
-// The first licence of a lab gets a new lab id; give the same --lab-id for that lab's later licences (renewal, a module added),
-// or the lab's PANOPTICA refuses them. Later licences need no setup code (--no-setup): the lab is set up already.
+//   licence.json        the lab's licence, signed with PANOPTICA's key: the lab's full name and acronym, lab id, modules, tier
+//                       and number of people, issued, and the hash of a one-time setup code. PANOPTICA Setup asks for it, and
+//                       it decides which package Setup installs.
+//   install-sheet.md    for the install crew: the steps, and the setup code (the code is only on this sheet)
+// Tiers: 1 covers up to 10 active people, 2 up to 50, 3 more (give the number agreed with the lab: --users). Updates are free.
+// The first licence of a lab gets a new lab id; give the same --lab-id for that lab's later licences (an upgrade, a module added,
+// a copy of a lost file), or the lab's PANOPTICA refuses them. Later licences need no setup code (--no-setup).
 //
 // The key is PANOPTICA's private signing key (Ed25519, PEM): read from --key or the SIGNING_KEY environment variable, used, and
-// never written anywhere. Everything signed is checked against release.pub (or --pub, for tests), so the builder never hands out
-// a licence or package the app would refuse.
+// never written anywhere. The licence is checked against release.pub (or --pub, for tests), so the builder never hands out a
+// licence the app would refuse.
 import { createHash, createPrivateKey, createPublicKey, randomBytes, randomUUID, sign, verify } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -33,8 +33,10 @@ const fail = (m) => {
 };
 
 // ---- what to make
-const lab = opt('--lab')?.trim();
-if (!lab) fail('give the lab’s name: --lab "Lab name"');
+const lab = opt('--lab')?.trim().replace(/\s+/g, ' ');
+if (!lab) fail('give the lab’s full name: --lab "Full lab name"');
+const acronym = opt('--acronym')?.trim() ?? '';
+if (acronym.length > 24) fail('the acronym is longer than 24 characters');
 const present = readdirSync(join(root, 'modules')).filter((m) =>
   existsSync(join(root, 'modules', m, 'server/src/index.ts')),
 );
@@ -45,9 +47,17 @@ const mods = (opt('--modules') ?? '')
   .sort();
 if (!mods.length) fail('give the modules the lab bought: --modules devices (the core is never installed alone)');
 for (const m of mods) if (!present.includes(m)) fail(`there is no module ${m} (modules: ${present.join(', ')})`);
-const until = opt('--updates-until');
-if (!/^\d{4}-\d{2}-\d{2}$/.test(until ?? '') || isNaN(Date.parse(until)))
-  fail('give the last day of updates as yyyy-mm-dd: --updates-until 2027-12-31');
+const TIERS = { 1: 10, 2: 50 };
+const tier = Number(opt('--tier'));
+if (![1, 2, 3].includes(tier))
+  fail('give the tier: --tier 1 (up to 10 people), 2 (up to 50) or 3 (more, with --users)');
+const users = opt('--users') !== undefined ? Number(opt('--users')) : TIERS[tier];
+if (!Number.isInteger(users) || users < 1)
+  fail(tier === 3 ? 'tier 3 needs the number of people agreed with the lab: --users 80' : 'give --users as a number');
+if (tier !== 3 && users !== TIERS[tier])
+  fail(`tier ${tier} covers ${TIERS[tier]} people; for another number use tier 3 with --users`);
+if (tier === 3 && users <= 50) fail('tier 3 is for more than 50 people; use tier 1 or 2');
+if (opt('--updates-until')) console.warn('builder: updates are free since 0.49; --updates-until is ignored');
 const pem = opt('--key') ? readFileSync(opt('--key'), 'utf8') : process.env.SIGNING_KEY;
 if (!pem) fail('give PANOPTICA’s private key: --key path/to/key.pem (or SIGNING_KEY)');
 let key;
@@ -80,19 +90,21 @@ const licence = {
   v: 1,
   id,
   lab,
+  ...(acronym ? { acronym } : {}),
   labId,
   modules: mods,
+  tier,
+  users,
   issued: today,
   made: new Date().toISOString(),
-  updatesUntil: until,
   ...(code ? { setup: createHash('sha256').update(code.replace(/-/g, '')).digest('hex') } : {}),
 };
 const body = JSON.stringify(licence, null, 2);
 // signed before anything is written: a wrong key leaves nothing behind
 const licenceFile = JSON.stringify({ body, sig: signed(Buffer.from(body, 'utf8')) }, null, 2) + '\n';
-const slug = lab
+const slug = (acronym || lab)
   .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[̀-ͯ]/g, '')
   .replace(/[^\w]+/g, '-')
   .replace(/^-|-$/g, '')
   .toLowerCase();
@@ -102,71 +114,49 @@ mkdirSync(out, { recursive: true });
 made = out;
 writeFileSync(join(out, 'licence.json'), licenceFile);
 
-// ---- the package for these modules
-const pkgName = `panoptica-${mods.join('+')}.zip`;
-let pkgNote;
-if (opt('--package')) {
-  const p = resolve(opt('--package'));
-  if (!existsSync(p) || !existsSync(p + '.sig')) fail(`${p} and its .sig are needed`);
-  if (basename(p) !== pkgName && basename(p) !== 'panoptica.zip')
-    fail(`${basename(p)} is not the package for ${mods.join(', ')} (${pkgName})`);
-  const data = readFileSync(p),
-    s = Buffer.from(readFileSync(p + '.sig', 'utf8').trim(), 'base64');
-  if (!verify(null, data, pub, s)) fail(`${basename(p)} is not signed by PANOPTICA`);
-  copyFileSync(p, join(out, pkgName));
-  copyFileSync(p + '.sig', join(out, pkgName + '.sig'));
-  pkgNote = `${pkgName}, in this folder,`;
-} else if (flag('--build')) {
-  const tmp = join(out, 'build');
-  execFileSync(process.execPath, [join(root, 'tools/package.mjs'), tmp, '--modules', mods.join(',')], {
-    stdio: 'inherit',
-  });
-  execFileSync('zip', ['-qr', join(out, pkgName), 'panoptica'], { cwd: tmp });
-  rmSync(tmp, { recursive: true, force: true });
-  writeFileSync(join(out, pkgName + '.sig'), signed(readFileSync(join(out, pkgName))) + '\n');
-  pkgNote = `${pkgName}, in this folder (built from source),`;
-} else
-  pkgNote = `${pkgName} from the latest PANOPTICA release (version ${JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version} or later; check it with its .sig)`;
-
 // ---- the sheet for the install crew
 const dmy = (d) => d.split('-').reverse().join('/');
-const sheet = `# Installing PANOPTICA: ${lab}
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const names = { devices: 'Electronic Devices' },
+  modNames = mods.map((m) => names[m] ?? m).join(', ');
+const sheet = `# Installing PANOPTICA: ${lab}${acronym ? ` (${acronym})` : ''}
 
-Licence ${id}, issued ${dmy(today)}. Modules: ${mods.join(', ')}. Updates until ${dmy(until)}.
+Licence ${id}, issued ${dmy(today)}. Modules: ${modNames}. Tier ${tier}: up to ${users} people.
 Lab id: \`${labId}\` (the builder needs it for this lab's next licences).
 
-## On the lab computer
+## On the lab's server
 
-1. Install Node.js 22 (LTS) if it is not there.
-2. Unzip ${pkgNote} into the folder PANOPTICA will live in (for example \`C:\\PANOPTICA\` or \`/opt/panoptica\`).
-3. Put \`licence.json\` in the \`panoptica\` folder, next to the start scripts. PANOPTICA installs it when it starts.
-4. Start PANOPTICA so the lab's network can reach it. On Linux, as a service that starts with the computer:
-   \`./install-shortcut.sh --service lan\`. On Windows: \`start-network.bat\` (and a shortcut to it in \`shell:startup\`).
-5. ${
+1. Copy \`licence.json\` to the server (a USB stick is fine). The internet is not needed.
+2. Run PANOPTICA Setup ${version} or later (the Windows \`.exe\` or the macOS \`.dmg\` from the release), as an administrator.
+   On the Licence file page, choose \`licence.json\`: Setup shows the lab, the modules and the tier. Setup installs the package
+   for these modules and starts PANOPTICA in the background whenever the computer starts.
+3. ${
   code
-    ? `From any computer on the lab network, open PANOPTICA (the address \`start\` prints). It asks for the setup code:
+    ? `Open PANOPTICA on the server (http://localhost:3000), or from another computer on the lab network with the setup code:
 
    **Setup code: \`${code}\`**
 
-   Then create the first admin with the lab's responsible person and set up the lab. The code works once; after the first
-   admin exists the setup is closed.`
-    : 'Sign in as the lab’s admin. Under Admin settings › Licence the new licence shows its modules and its last day of updates.'
+   Create the first admin with the lab's responsible person, and fill in the lab's full name and acronym. The code works once;
+   after the first admin exists the setup is closed.`
+    : 'Sign in as the lab’s admin on the server. The new licence goes in Admin settings › Licence, chosen on the server itself.'
 }
-6. Under Admin settings › Backups, choose a second place for the backups (another disk, or the institution's storage): a
+4. Under Admin settings › Backups, choose a second place for the backups (another disk, or the institution's storage): a
    computer that fails must not take the lab's data with it.
+5. Keep \`licence.json\` with the lab's records. PANOPTICA needs it: if it is lost, PANOPTICA makes a copy for this lab id.
 
 ## What the licence does
 
 - Only the modules it lists start.
-- Versions published until ${dmy(until)} can be installed (Admin settings › Updates, or from a USB stick with the update
-  script). After that day everything keeps working and every record can still be exported; only new versions stop.
-- A module bought later: make a new licence for this lab id with the larger module set (\`--no-setup\`), and install the
-  package for those modules as an update; the licence file goes in Admin settings › Licence.
+- Up to ${users} people may have a working account at once (requests waiting and ended visits do not count). At that number,
+  accepting a request or adding a visitor is refused with a note to contact PANOPTICA; everyone else keeps working.
+- Updates are free.
+- An upgrade or a module bought later: make a new licence for this lab id (\`--no-setup\`); the lab's admin installs it in Admin
+  settings › Licence, on the server.
 
 Keep this sheet with the lab's records. ${code ? 'Destroy it, or strike out the setup code, once the setup is done.' : ''}
 `;
 writeFileSync(join(out, 'install-sheet.md'), sheet);
 made = '';
 console.log(`made ${out}
-  licence ${id} for ${lab} (lab id ${labId}): ${mods.join(', ')}, updates until ${until}
-  ${code ? 'setup code on install-sheet.md' : 'no setup code'}; package: ${pkgNote}`);
+  licence ${id} for ${lab}${acronym ? ` (${acronym})` : ''} (lab id ${labId}): ${mods.join(', ')}, tier ${tier}, ${users} people
+  ${code ? 'setup code on install-sheet.md' : 'no setup code'}`);

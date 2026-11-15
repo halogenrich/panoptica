@@ -54,7 +54,10 @@ export const MeCtx = createContext<{ me: Me; reload: () => void }>({
 
 /** What the sign-in screen knows about the lab, before anyone signs in. */
 export type LabPublic = {
+  /** the name the lab shows: its acronym or its full name, as it chose (0.49) */
   name: string;
+  fullName?: string;
+  acronym?: string;
   institution: string;
   departments: string[];
   domains: string[];
