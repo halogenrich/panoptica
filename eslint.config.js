@@ -33,7 +33,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/web/**/*.{ts,tsx}', 'modules/*/web/**/*.{ts,tsx}'],
+    files: ['apps/web/**/*.{ts,tsx}', 'modules/*/web/**/*.{ts,tsx}', 'tools/builder/web/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
     plugins: { 'react-hooks': reactHooks },
     rules: { 'react-hooks/rules-of-hooks': 'error', 'react-hooks/exhaustive-deps': 'off' },

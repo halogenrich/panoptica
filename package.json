@@ -14,7 +14,7 @@
     "build": "npm run build -w @psc/web",
     "start": "npm run start -w @psc/server",
     "test": "npm run test -w @psc/core && npm run test -w @psc/devices",
-    "typecheck": "tsc -p packages/core && tsc -p modules/devices/shared && tsc -p apps/server && tsc -p modules/devices/server && tsc -p apps/web --noEmit && tsc -p modules/devices/web && tsc -p tools",
+    "typecheck": "tsc -p packages/core && tsc -p modules/devices/shared && tsc -p apps/server && tsc -p modules/devices/server && tsc -p apps/web --noEmit && tsc -p modules/devices/web && tsc -p tools && tsc -p tools/builder/web",
     "test:server": "node --no-warnings tools/smoke.mjs",
     "test:browser": "node --import tsx tools/browser.mjs --built",
     "lint": "eslint .",
@@ -23,6 +23,7 @@
     "package": "node tools/package.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:server && npm run test:core && npm run build && node tools/package.mjs --no-web --boot && node --no-warnings tools/smoke.mjs --built && node tools/package.mjs out/core --modules none --boot && node --no-warnings tools/smoke.mjs --built --core",
     "test:core": "node --no-warnings tools/smoke.mjs --core",
+    "builder": "node tools/builder/ui.mjs",
     "test:browser:core": "node --import tsx tools/browser.mjs --built --core"
   },
   "devDependencies": {
@@ -37,7 +38,7 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1"
   },
-  "version": "0.49.0",
+  "version": "0.50.0",
   "overrides": {
     "@typescript-eslint/typescript-estree": {
       "minimatch": "^11.0.8"

@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.50.0 (2026-11-15)
+
+Nothing changes for labs in this release: it is for PANOPTICA's staff, and the builder is still not in the package labs receive.
+
+- **The licence builder has a page**: `npm run builder` opens it in the browser of the computer it runs on (it answers only there). A form with the lab's full name, acronym, modules and number of people makes the lab's licence file and its install sheet with the setup code.
+- **The list of licences issued**: every licence and its install sheet are kept in a folder chosen on that computer, outside the repository. **Download licence** gives a lab that lost its file the same file again; **Install sheet** opens the sheet to print; **New licence** makes an updated one for a lab in the list (an upgrade, a module added), with the same lab id and no setup code.
+- **The signing key is asked for with every licence** and is never saved, nor is where it is kept.
+- The command-line builder works as before and signs through the same code.
+
 ## 0.49.0 (2026-11-14)
 
 - **PANOPTICA Setup takes the lab's licence file**: no product key and no activation service any more. Setup asks for `licence.json`, shows the lab, its modules and how many people it covers, and installs the package for those modules from the ones it carries, checked against PANOPTICA's signature. The internet is not needed during the installation. Silent installs take `/LICENCE=` (Windows) or `--licence` (Mac).
