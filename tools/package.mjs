@@ -69,6 +69,7 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'esm',
+  // stays node22 while installs made before 0.50.1 run the package on their Node 22 (Setup installs Node 26 since 0.50.1)
   target: 'node22',
   minify: true,
   legalComments: 'none',

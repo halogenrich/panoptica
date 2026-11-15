@@ -214,7 +214,7 @@ export function cellGeom(l: Link): Promise<CellGeom | null> {
     geomCache.set(
       k,
       (async () => {
-        let rec: { met?: string; mask?: MaskD | null } | null = null;
+        let rec: { met?: string; mask?: MaskD | null } | null;
         if (l.kind === 'batch') {
           const snap = await batchSnap(l);
           const i = (snap?.stack?.sl ?? []).findIndex((s: any) => s.m === 'Metal evap');

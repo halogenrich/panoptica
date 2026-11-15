@@ -48,15 +48,13 @@ function SpinChart({ d }: { d: D }) {
     );
   const X = (t: number) => L + (t / total) * w,
     Y = (r: number) => T + h - (r / top) * h;
-  let t = 0,
-    prev = 0;
+  let t = 0;
   const pts = [`${X(0)},${Y(0)}`],
     segs: { t0: number; t1: number; rpm: number; n2: boolean; final: boolean }[] = [];
   for (const s of d.steps) {
     segs.push({ t0: t, t1: t + s.t, rpm: s.rpm, n2: s.n2, final: s.final });
     t += s.t;
-    prev = s.rpm;
-    pts.push(`${X(t)},${Y(prev)}`);
+    pts.push(`${X(t)},${Y(s.rpm)}`);
   }
   const xStep = nice(total / (W < 400 ? 4 : 6));
   const xt = Array.from({ length: Math.floor(total / xStep) + 1 }, (_, i) => i * xStep),
@@ -390,13 +388,11 @@ function Visual({ d }: { d: D; ctx: Ctx }) {
     top = maxRpm(d) || 1,
     W = 150,
     H = 70;
-  let t = 0,
-    rpm = 0;
+  let t = 0;
   const pts = ['0,' + H];
   for (const s of d.steps) {
     t += s.t;
-    rpm = s.rpm;
-    pts.push(`${(t / total) * W},${H - (rpm / top) * (H - 6)}`);
+    pts.push(`${(t / total) * W},${H - (s.rpm / top) * (H - 6)}`);
   }
   // dispenses before the spin sit at t = 0, the others at their time (clamped to the program)
   const marks = d.dp

@@ -24,7 +24,7 @@ const pem =
     : test && process.env.UPDATE_PUBLIC_KEY_FILE
       ? fs.readFileSync(process.env.UPDATE_PUBLIC_KEY_FILE, 'utf8')
       : fs.readFileSync(path.join(__dirname, '..', 'release.pub'), 'utf8');
-let ok = false;
+let ok;
 try {
   const sig = Buffer.from(fs.readFileSync(sigFile, 'utf8').trim(), 'base64');
   ok = sig.length === 64 && crypto.verify(null, fs.readFileSync(zip), crypto.createPublicKey(pem), sig);
