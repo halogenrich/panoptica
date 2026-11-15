@@ -7,7 +7,7 @@
 //      a licence from the builder; Setup run silently with it; PANOPTICA running in the background (the startup task; the launchd
 //      daemon) with no script to run by hand and its folder closed to other users; the first setup on this computer; the
 //      licence's lab and tier; an update from a fake GitHub, installed by the app and restarted through the task or the daemon;
-//      on macOS Setup run again over it (the data stays); the uninstaller removing the task or the daemon and keeping the data.
+//      Setup run again over it while it runs (the data stays; on Windows since 0.50.2); the uninstaller removing the task or the daemon and keeping the data.
 //      On macOS, with SHOTS=<folder>, the wizard's first pages are opened and screenshotted before the silent install.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
