@@ -74,6 +74,29 @@ begin
   Result := Exec(ExpandConstant('{tmp}\node.exe'), Q(ExpandConstant('{tmp}\helper.cjs')) + ' ' + Args, '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
+{ 0.50.2: an installed PANOPTICA is stopped before any file is replaced. Until then Setup run over a running install failed at
+  node\node.exe ("DeleteFile failed; code 5"), which the running PANOPTICA holds open. The task is ended, then whatever still
+  runs from this install's Node, and Setup waits until none is left. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+  Node: String;
+begin
+  Result := '';
+  Node := ExpandConstant('{app}\node\node.exe');
+  if not FileExists(Node) then exit;
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -Command "$n = ''' + Node + '''; ' +
+    'Stop-ScheduledTask -TaskName PANOPTICA -ErrorAction SilentlyContinue; ' +
+    'for ($i = 0; $i -lt 30; $i++) { ' +
+    '$p = @(Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $n }); ' +
+    'if ($p.Count -eq 0) { exit 0 }; ' +
+    '$p | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1 }; exit 1"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if Code <> 0 then
+    Result := 'PANOPTICA is running and could not be stopped. Restart this computer and run PANOPTICA Setup again. Nothing was changed.';
+end;
+
 { reads the licence file; fills the next page, or says what is wrong }
 function CheckLicence(): Boolean;
 var

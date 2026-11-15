@@ -2,6 +2,10 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.50.2 (2026-11-15)
+
+- **PANOPTICA Setup on Windows can be run over a PANOPTICA that is running.** It stopped with "DeleteFile failed; code 5. Access is denied." at `node.exe`, because the running PANOPTICA was using that file. Setup now stops PANOPTICA first, replaces it and starts it again; the lab's data stays as before. If PANOPTICA cannot be stopped, Setup says so before changing anything.
+
 ## 0.50.1 (2026-11-15)
 
 - **PANOPTICA Setup installs Node 26** instead of Node 22, on Windows and on a Mac. Node 26 receives security fixes until April 2029; Node 22 stops in April 2027. Nothing changes in how PANOPTICA looks or works.
