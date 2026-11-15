@@ -47,6 +47,7 @@ if (mode === 'prepare') {
   writeFileSync(join(work, 'key.pem'), k.privateKey.export({ type: 'pkcs8', format: 'pem' }));
   writeFileSync(join(work, 'pub.pem'), k.publicKey.export({ type: 'spki', format: 'pem' }));
   pack(pkgDir, join(work, 'packages'), k.privateKey);
+  writeFileSync(join(work, 'version'), JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).version);
   pack(newDir, join(work, 'new'), k.privateKey);
   console.log(`prepared ${work}: packages/ and new/, signed with a throwaway key`);
   process.exit(0);
@@ -217,7 +218,7 @@ async function shots() {
 
 try {
   console.log(`PANOPTICA Setup on ${mac ? 'macOS' : 'Windows'} (licence file, 0.49)`);
-  const v0 = JSON.parse(readFileSync(join(work, 'packages/index.json'), 'utf8')).version;
+  const v0 = readFileSync(join(work, 'version'), 'utf8').trim();
   if (mac) {
     mount = join(tmp, 'dmg');
     mkdirSync(mount);
