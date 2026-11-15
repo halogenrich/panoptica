@@ -70,6 +70,8 @@ export type LabPublic = {
   hasInstLogo?: boolean;
   /** the foot of the sign-in panel: the institution's name, its logo, or both */
   foot?: 'name' | 'logo' | 'both';
+  /** the lab's address as people open it (0.51), '' when it has none */
+  url?: string;
   /** while there is no admin: 'here' on the computer that runs the app, 'elsewhere' on others */
   /** 'code' (0.46): from another computer, with the one-time setup code on the install sheet */
   setup: 'here' | 'code' | 'elsewhere' | null;

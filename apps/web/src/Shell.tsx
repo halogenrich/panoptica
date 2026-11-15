@@ -172,9 +172,10 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   };
   const openLink = (l: { view: string; id: number | null }) => {
     setPop('');
-    if (l.view === 'users' || l.view === 'requests') {
+    if (l.view === 'users' || l.view === 'requests' || l.view === 'network') {
       try {
-        localStorage.setItem('psc-admin-tab', l.view === 'requests' ? 'requests' : 'updates');
+        // an Admin settings tab: access requests, the network (certificate notices, 0.51), else updates
+        localStorage.setItem('psc-admin-tab', l.view === 'users' ? 'updates' : l.view);
       } catch {
         /* ignore */
       }

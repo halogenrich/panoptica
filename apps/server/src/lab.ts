@@ -7,6 +7,7 @@ import { notify } from './social.js';
 import { isLocal, weakPassword, type Limiter } from './security.js';
 import { audit, ipOf } from './audit.js';
 import { hasSetupCode, noRoom, setupCodeOk } from './licence.js';
+import { applyNetwork, listening, planNetwork, publicUrl, settings as netSettings } from './network.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -134,6 +135,8 @@ export function registerLab(
       logoPlate: l.logoPlate,
       hasInstLogo: !!l.instLogo,
       foot: l.foot,
+      /** where the lab opens PANOPTICA (0.51): its address, for the sign-in screen and copied links; '' without one */
+      url: publicUrl(),
       // 'code' (0.46): from another computer, with the one-time setup code on the install sheet
       setup: setupNeeded() ? (isLocal(req) ? 'here' : hasSetupCode() ? 'code' : 'elsewhere') : null,
       // professors, offered as supervisors on the request form
@@ -209,6 +212,20 @@ export function registerLab(
     const a = p.data.admin;
     const problem = passwordProblem(a.password) || weakPassword(a.password);
     if (problem) return reply.code(400).send({ error: problem });
+    // the Network step (0.51), checked before anything is saved. From another computer only the lab's address is taken: who can
+    // open PANOPTICA stays the network (the person doing the setup is on it) and a certificate's key does not travel there
+    let plan: Extract<Awaited<ReturnType<typeof planNetwork>>, { ok: true }>['plan'] | null = null;
+    if (p.data.network) {
+      const n = p.data.network,
+        cur = netSettings(),
+        r = await planNetwork(
+          isLocal(req)
+            ? { open: n.open ?? cur.open, address: n.address ?? '', port: n.port, https: !!n.https, cert: n.cert }
+            : { open: cur.open, address: n.address ?? '', port: listening().port, https: listening().https },
+        );
+      if (!r.ok) return reply.code(400).send({ error: r.error });
+      plan = r.plan;
+    }
     const username = usernameFor(a.firstNames, a.surname, takenName);
     if (!username) return reply.code(400).send({ error: 'choose another surname for the username' });
     let id = 0;
@@ -236,6 +253,19 @@ export function registerLab(
     });
     audit({ user_id: id, username, ip: ipOf(req), action: 'Set up PANOPTICA (first admin)' });
     startSession(req, reply, { id, username });
+    if (plan)
+      try {
+        await applyNetwork(plan);
+      } catch (e) {
+        // the lab is set up; only the network stays as it was, and the admin sees why in Admin settings › Network
+        audit({
+          user_id: id,
+          username,
+          ip: ipOf(req),
+          action: 'Network settings not applied',
+          target: (e as Error).message,
+        });
+      }
     return { id, username };
   });
 

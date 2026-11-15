@@ -86,6 +86,28 @@ export const LabIn = z.object({
   foot: z.enum(['name', 'logo', 'both']).optional(),
 });
 /** The first setup, on the computer that runs the app: the first admin and the lab. */
+/**
+ * Network settings (0.51): who can open PANOPTICA, the lab's address, the port (none: 80, or 443 with HTTPS) and HTTPS with a
+ * certificate from IT, as its PEM text with the key's, or a PFX file (base64) with its password. Without `cert`, the
+ * certificate already kept is used. The address is cleaned and checked by the server (`cleanAddress`, `addressProblem`).
+ */
+export const NetworkIn = z.object({
+  open: z.enum(['computer', 'network']),
+  address: z.string().max(300).default(''),
+  port: z
+    .number()
+    .int()
+    .min(1, 'a port is a number from 1 to 65535')
+    .max(65535, 'a port is a number from 1 to 65535')
+    .nullish(),
+  https: z.boolean().default(false),
+  cert: z
+    .union([
+      z.object({ pem: z.string().min(1).max(200_000), key: z.string().min(1).max(200_000) }),
+      z.object({ pfx: z.string().min(1).max(400_000), pass: z.string().max(200).default('') }),
+    ])
+    .optional(),
+});
 export const SetupIn = z.object({
   admin: z.object({
     ...Names,
@@ -98,6 +120,8 @@ export const SetupIn = z.object({
   lab: LabIn,
   /** the one-time setup code, when the setup is done from another computer (0.46) */
   code: z.string().max(40).optional(),
+  /** the Network step (0.51); from another computer only the lab's address is taken */
+  network: NetworkIn.partial({ open: true }).optional(),
 });
 export const NewUser = z.object({
   username: z

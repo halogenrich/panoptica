@@ -2,7 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import qrcode from 'qrcode-generator';
 import { api } from '../api';
 
-type Net = { lan: boolean; port: number; host: string; addresses: { name: string; address: string }[] };
+type Net = {
+  lan: boolean;
+  port: number;
+  host: string;
+  addresses: { name: string; address: string }[];
+  /** the lab's address (0.51), and whether PANOPTICA answers with HTTPS */
+  url?: string;
+  https?: boolean;
+};
 
 /** QR code as an SVG (dark modules as one path), with a quiet zone of 4 modules. */
 function Qr({ text, size = 220 }: { text: string; size?: number }) {
@@ -32,8 +40,8 @@ function Qr({ text, size = 220 }: { text: string; size?: number }) {
 }
 
 /**
- * Invite a phone or another computer: the address of this app on the local network as a QR code. Works only when the app
- * was started for the network; otherwise explains how.
+ * Invite a phone or another computer: the address of this app on the local network as a QR code, the lab's address first when it
+ * has one (0.51). Works only when the network may open PANOPTICA; otherwise says where an admin changes that.
  */
 export default function Invite({ onClose }: { onClose: () => void }) {
   const [net, setNet] = useState<Net | null>(null),
@@ -51,8 +59,12 @@ export default function Invite({ onClose }: { onClose: () => void }) {
   const urls = net
     ? [
         ...new Set([
+          ...(net.url ? [net.url] : []),
           ...(remote ? [location.origin] : []),
-          ...net.addresses.map((a) => `http://${a.address}:${location.port || net.port}`),
+          ...net.addresses.map(
+            (a) =>
+              `${net.https ? 'https' : 'http'}://${a.address}${net.port === (net.https ? 443 : 80) ? '' : ':' + net.port}`,
+          ),
         ]),
       ]
     : [];
@@ -86,13 +98,9 @@ export default function Invite({ onClose }: { onClose: () => void }) {
           {net && !net.lan && !remote && (
             <div className="notice">
               <p>
-                <b>Only this computer can open the app right now.</b>
+                <b>Only this computer can open PANOPTICA right now.</b>
               </p>
-              <p>
-                Close the app window and start it with <b>start-network</b> (start-network.bat on Windows,
-                start-network.command on Mac, start-network.sh on Linux). Then open this again: it shows a QR code to
-                scan.
-              </p>
+              <p>An admin can let the network open it in Admin settings › Network, on this computer.</p>
             </div>
           )}
           {net &&
@@ -114,7 +122,7 @@ export default function Invite({ onClose }: { onClose: () => void }) {
                     <select value={pick} onChange={(e) => setPick(+e.target.value)}>
                       {urls.map((u, i) => (
                         <option key={u} value={i}>
-                          {u.replace(/^http:\/\//, '')}
+                          {u.replace(/^https?:\/\//, '')}
                           {net.addresses.find((a) => u.includes(a.address))
                             ? ` (${net.addresses.find((a) => u.includes(a.address))!.name})`
                             : ''}
