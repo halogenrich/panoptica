@@ -882,7 +882,7 @@ ok(
   'no notification for a version found while saving settings',
 );
 
-console.log('Licence (0.46)');
+console.log('Licence (0.46; tiers, no last day of updates, 0.49)');
 // licences signed with the test's key, by the builder PANOPTICA's staff use, or by hand for what the builder never makes
 const keys = join(tmp, 'keys');
 mkdirSync(keys, { recursive: true });
@@ -911,7 +911,7 @@ const built = (...a) => {
   };
 };
 const byHand = (l) => {
-  const body = JSON.stringify({ v: 1, issued: '2026-11-13', updatesUntil: '2100-12-31', ...l });
+  const body = JSON.stringify({ v: 1, issued: '2026-11-13', ...l });
   return JSON.stringify({ body, sig: sign(null, Buffer.from(body), testKey.privateKey).toString('base64') });
 };
 {
@@ -925,10 +925,24 @@ const byHand = (l) => {
     `the update was the package for its modules (${own(running)}, else panoptica.zip)`,
   );
   ok((await call('GET', '/api/licence')).j.licence === null, 'no licence: every module in the package runs');
-  const first = built('--lab', 'Smoke Lab', '--modules', 'devices', '--updates-until', '2026-01-01', '--no-setup');
+  const first = built(
+    '--lab',
+    'Smoke Laboratory',
+    '--acronym',
+    'SL',
+    '--modules',
+    'devices',
+    '--tier',
+    '1',
+    '--no-setup',
+  );
   const body1 = JSON.parse(JSON.parse(first.text).body);
+  ok(
+    body1.tier === 1 && body1.users === 10 && body1.acronym === 'SL' && !('updatesUntil' in body1),
+    'the builder writes the tier, its number of people and the acronym; no last day of updates',
+  );
   const forged = JSON.parse(first.text);
-  forged.body = forged.body.replace('2026-01-01', '2100-12-31');
+  forged.body = forged.body.replace('"users": 10', '"users": 1000');
   ok(
     /not signed/.test((await call('POST', '/api/licence', { text: JSON.stringify(forged) })).j.error),
     'a licence changed after PANOPTICA signed it is refused',
@@ -943,35 +957,53 @@ const byHand = (l) => {
     ),
     'and one signed by anyone else',
   );
+  ok(
+    (await call('POST', '/api/licence', { text: first.text }, { 'x-test-remote': '1' })).s === 403 &&
+      (await call('GET', '/api/licence', undefined, { 'x-test-remote': '1' })).j.here === false,
+    'the licence file is chosen only on the computer that runs PANOPTICA',
+  );
   const i1 = await call('POST', '/api/licence', { text: first.text });
   ok(
     i1.s === 200 &&
-      i1.j.licence.lab === 'Smoke Lab' &&
+      i1.j.licence.lab === 'Smoke Laboratory' &&
+      i1.j.licence.acronym === 'SL' &&
       i1.j.labId === body1.labId &&
+      i1.j.state === 'ok' &&
+      !i1.j.critical &&
+      i1.j.here === true &&
       !('setup' in i1.j.licence && i1.j.licence.setup),
     'the builder’s licence is installed for its lab',
   );
   const u1 = await call('PUT', '/api/updates/settings', {});
+  ok(u1.j.available && !('beyondLicence' in u1.j), 'updates are free: the newer release is offered');
   ok(
-    !u1.j.available && u1.j.beyondLicence && u1.j.updatesUntil === '2026-01-01',
-    'a release after its last day of updates is not offered',
+    readFileSync(join(root, 'tools/builder/builder.mjs'), 'utf8').includes('--tier') &&
+      /tier 3 needs the number/.test(
+        (() => {
+          try {
+            built('--lab', 'Big Lab', '--modules', 'devices', '--tier', '3');
+            return '';
+          } catch (e) {
+            return String(e.stderr);
+          }
+        })(),
+      ),
+    'tier 3 needs the number of people agreed with the lab',
   );
-  const d1 = await call('POST', '/api/updates/download');
-  ok(d1.s === 400 && /licence covers updates/.test(d1.j.error), 'nor downloaded');
-  const other = built('--lab', 'Another Lab', '--modules', 'devices', '--updates-until', '2100-12-31', '--no-setup');
+  const other = built('--lab', 'Another Lab', '--modules', 'devices', '--tier', '2', '--no-setup');
   ok(
     /another lab/.test((await call('POST', '/api/licence', { text: other.text })).j.error),
     'a licence for another lab is refused',
   );
   const renewed = built(
     '--lab',
-    'Smoke Lab',
+    'Smoke Laboratory',
     '--lab-id',
     body1.labId,
     '--modules',
     'devices',
-    '--updates-until',
-    '2100-12-31',
+    '--tier',
+    '2',
     '--no-setup',
   );
   ok((await call('POST', '/api/licence', { text: renewed.text })).s === 200, 'a renewal for the same lab is installed');
@@ -992,9 +1024,71 @@ const byHand = (l) => {
   );
   ok(
     /Setup code: `[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){3}`/.test(
-      built('--lab', 'Smoke Lab', '--modules', 'devices', '--updates-until', '2100-12-31').sheet,
+      built('--lab', 'Smoke Lab', '--modules', 'devices', '--tier', '1').sheet,
     ),
     'the builder puts a setup code on the install sheet',
+  );
+
+  // the tier (0.49): at the licence's number of people, no one new is let in; everyone else keeps working
+  const today = new Date().toISOString().slice(0, 10),
+    tierLicence = (users) =>
+      byHand({
+        id: 'L-TIER-' + users,
+        lab: 'Smoke Laboratory',
+        labId: body1.labId,
+        modules: MODULES,
+        tier: 3,
+        users,
+        issued: today,
+        made: new Date().toISOString(),
+      });
+  const guest = await call('POST', '/api/users', {
+    firstNames: 'Tia',
+    surnames: 'Guest',
+    surname: 'Guest',
+    email: 'tia@guest.example',
+    birthDate: '1990-01-01',
+    until: '2099-12-31',
+  });
+  await call('PATCH', `/api/users/${guest.j.id}`, { active: false });
+  const active = (await call('GET', '/api/licence')).j.active;
+  ok(
+    (await call('POST', '/api/licence', { text: tierLicence(active) })).s === 200,
+    'a licence at its number of people',
+  );
+  const lv = (await call('GET', '/api/licence')).j;
+  ok(lv.full && lv.active === active && lv.licence.users === active, 'counts the people with a working account');
+  const noVisitor = await call('POST', '/api/users', {
+    firstNames: 'Una',
+    surnames: 'More',
+    surname: 'More',
+    email: 'una@guest.example',
+    birthDate: '1990-01-01',
+    until: '2099-12-31',
+  });
+  ok(
+    noVisitor.s === 402 && noVisitor.j.error === `Your licence covers ${active} people. Contact PANOPTICA to upgrade`,
+    'at the limit a visitor is refused, with a note to contact PANOPTICA',
+  );
+  ok((await call('PATCH', `/api/users/${guest.j.id}`, { active: true })).s === 402, 'and so is enabling an account');
+  let waiting = (await call('GET', '/api/access-requests')).j.find((r) => r.status === 'pending');
+  if (!waiting) {
+    await call('POST', '/api/access-requests', { ...askBody, firstNames: 'Ivo', email: 'ivo@lab.example' });
+    waiting = (await call('GET', '/api/access-requests')).j.find((r) => r.status === 'pending');
+  }
+  const acc = await call('POST', `/api/access-requests/${waiting.id}/accept`, { tags: [] });
+  const cnt = (await call('GET', '/api/access-requests/count')).j;
+  ok(
+    acc.s === 402 && cnt.n >= 1 && /covers/.test(cnt.full),
+    'and accepting a request: it stays waiting, and the requests list says why',
+  );
+  ok((await call('GET', '/api/me')).s === 200, 'everyone who has an account keeps working');
+  ok((await call('POST', '/api/licence', { text: tierLicence(active + 50) })).s === 200, 'an upgrade');
+  ok(
+    (await call('POST', `/api/access-requests/${waiting.id}/accept`, { tags: [] })).s === 200 &&
+      (await call('PATCH', `/api/users/${guest.j.id}`, { active: true })).s === 200 &&
+      (await call('GET', '/api/access-requests/count')).j.full === '',
+    'after the upgrade, people are let in again',
   );
 }
 
@@ -1562,6 +1656,68 @@ console.log('A new lab: its licence at the first start, and the setup code (0.46
   );
   ok((await j3('POST', '/api/setup/code', { code: 'ABCD-EFGH-JKMN-PQRS' })).status === 409, 'and the code works once');
   s3.kill();
+}
+
+console.log('An install made by PANOPTICA Setup needs its licence (0.49)');
+{
+  const port4 = await freePort(),
+    base4 = `http://127.0.0.1:${port4}`,
+    cfg = join(tmp, 'config4');
+  mkdirSync(cfg, { recursive: true });
+  writeFileSync(join(cfg, 'install.json'), JSON.stringify({ by: 'setup' }));
+  const s4 = spawn(process.execPath, serverArgs, {
+    cwd: serverCwd,
+    env: { ...env, PORT: String(port4), DB_PATH: join(tmp, 'fresh4.db'), CONFIG_DIR: cfg },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log4 = '';
+  s4.stdout.on('data', (x) => (log4 += x));
+  s4.stderr.on('data', (x) => (log4 += x));
+  for (let i = 0; i < 300 && !log4.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
+  let c4 = '';
+  const j4 = async (m, path, body) => {
+    const r = await fetch(base4 + path, {
+      method: m,
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(c4 ? { cookie: c4 } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (r.headers.get('set-cookie')) c4 = r.headers.get('set-cookie').split(';')[0];
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  await j4('POST', '/api/login', { username: 'admin', password: PW });
+  const l4 = (await j4('GET', '/api/licence')).j;
+  ok(l4?.state === 'none' && l4.critical, 'no licence: a critical file missing, shown to admins');
+  const visitor = {
+    firstNames: 'Sam',
+    surnames: 'Visit',
+    surname: 'Visit',
+    email: 'sam@guest.example',
+    birthDate: '1990-01-01',
+    until: '2099-12-31',
+  };
+  const v4 = await j4('POST', '/api/users', visitor);
+  ok(v4.s === 402 && /licence file is missing/.test(v4.j.error), 'no one new is let in until it is installed');
+  ok((await j4('GET', '/api/me')).s === 200, 'the admin keeps working');
+  const fixed = await j4('POST', '/api/licence', {
+    text: byHand({ id: 'L-SMOKE-4', lab: 'Setup Lab', labId: 'setup-lab', modules: MODULES, tier: 1, users: 10 }),
+  });
+  ok(fixed.s === 200 && fixed.j.state === 'ok' && !fixed.j.critical, 'installed again on the server computer');
+  ok((await j4('POST', '/api/users', visitor)).s === 200, 'and people are let in again');
+  // the lab's own names (0.49), independent of the licence's
+  await j4('PUT', '/api/lab', { name: 'Laboratory of Thin Films', acronym: 'LTF', show: 'acronym' });
+  const p4 = (await j4('GET', '/api/lab/public')).j;
+  ok(
+    p4.name === 'LTF' && p4.fullName === 'Laboratory of Thin Films' && p4.acronym === 'LTF',
+    'the lab shows the name it chose: its acronym here',
+  );
+  await j4('PUT', '/api/lab', { acronym: '' });
+  ok(
+    (await j4('GET', '/api/lab/public')).j.name === 'Laboratory of Thin Films' &&
+      (await j4('GET', '/api/lab')).j.show === 'name',
+    'without an acronym it shows the full name',
+  );
+  s4.kill();
 }
 
 db.close();

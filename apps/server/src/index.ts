@@ -28,7 +28,7 @@ import { registerChemicals } from './chemicals.js';
 import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
 import { items, licenceStart, moduleNames, modules, skippedModules } from './modules.js';
-import { hasSetupCode, registerLicence } from './licence.js';
+import { hasSetupCode, licenceState, noRoom, registerLicence } from './licence.js';
 import { registerEquipment } from './equipment.js';
 import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
@@ -415,6 +415,18 @@ app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) 
   const d = p.data;
   if (id === req.user.id && (d.active === false || d.role === 'member'))
     return reply.code(400).send({ error: 'you cannot disable or demote yourself' });
+  // enabling an account, or giving an ended visit a new last day, lets one more person in: the licence's number counts (0.49)
+  {
+    const today = new Date().toISOString().slice(0, 10),
+      u = db.prepare('SELECT active,visitor_until FROM users WHERE id=? AND deleted=0').get(id) as
+        { active: number; visitor_until: string | null } | undefined,
+      works = (active: boolean, until: string | null) => active && (!until || until >= today);
+    if (u && !works(!!u.active, u.visitor_until)) {
+      const next = works(d.active ?? !!u.active, d.until === undefined ? u.visitor_until : d.until || null),
+        full = next ? noRoom() : '';
+      if (full) return reply.code(402).send({ error: full });
+    }
+  }
   if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, id);
   if (d.role) db.prepare('UPDATE users SET role=? WHERE id=?').run(d.role, id);
   if (d.active !== undefined) db.prepare('UPDATE users SET active=? WHERE id=?').run(d.active ? 1 : 0, id);
@@ -609,6 +621,10 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
 scheduleBackups((m) => app.log.info(m));
 await app.listen({ port: +(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });
 if (lic) console.log('  ' + lic);
+if (licenceState().critical)
+  console.log(
+    `  The licence file is ${licenceState().state === 'none' ? 'missing' : 'not valid'}: no one new can be let in until an admin installs it (Admin settings › Licence, on this computer).`,
+  );
 if (skippedModules().length)
   console.log(`  Not started (the licence does not list them): ${skippedModules().join(', ')}`);
 if (setupNeeded())

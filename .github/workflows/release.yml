@@ -45,7 +45,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-  # PANOPTICA Setup (0.47): the one Windows installer every lab uses with its product key; it carries no module
+  # PANOPTICA Setup (0.47): the one Windows installer every lab uses with its licence file; since 0.49 it carries the release's
+  # signed packages and needs no internet
   setup:
     needs: release
     if: needs.release.outputs.made == 'true'
@@ -61,10 +62,12 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ needs.release.outputs.version }}"
-          node tools/installer-build.mjs
+          # the release's signed packages go inside Setup (0.49): it installs the one the lab's licence file names
+          gh release download "v$v" --pattern "panoptica-*.zip*" --dir "$env:RUNNER_TEMP\packages"
+          node tools/installer-build.mjs --packages "$env:RUNNER_TEMP\packages"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          & $iscc /Q "/DAppVersion=$v" "/DService=${{ vars.ACTIVATION_URL }}" installer\panoptica.iss
+          & $iscc /Q "/DAppVersion=$v" installer\panoptica.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $f = "out\installer\PANOPTICA-Setup-$v.exe"
           (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower() + "  PANOPTICA-Setup-$v.exe" | Out-File -Encoding ascii "$f.sha256"
@@ -85,7 +88,8 @@ jobs:
       - name: Build and publish PANOPTICA Setup for macOS
         run: |
           v="${{ needs.release.outputs.version }}"
-          node tools/installer-build.mjs --mac --version "$v" --service "${{ vars.ACTIVATION_URL }}"
+          gh release download "v$v" --pattern "panoptica-*.zip*" --dir "$RUNNER_TEMP/packages"
+          node tools/installer-build.mjs --mac --version "$v" --packages "$RUNNER_TEMP/packages"
           cd out/installer
           shasum -a 256 "PANOPTICA-Setup-$v.dmg" > "PANOPTICA-Setup-$v.dmg.sha256"
           gh release upload "v$v" "PANOPTICA-Setup-$v.dmg" "PANOPTICA-Setup-$v.dmg.sha256" --clobber

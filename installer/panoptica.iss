@@ -1,15 +1,13 @@
-; PANOPTICA Setup (0.47): one installer for every lab. It carries Node and a small helper, no module and no lab data. The lab's
-; product key decides what is installed: the helper asks PANOPTICA's activation service what the key covers, downloads that
-; package (signed by PANOPTICA) and installs it as a task that starts with the computer. Built by the release workflow:
-;   ISCC.exe /DAppVersion=0.47.0 /DService=https://… installer\panoptica.iss
-; with installer\build\ holding node\node.exe and helper.cjs (tools/installer-build.mjs). Silent, for tests and IT:
-;   PANOPTICA-Setup.exe /VERYSILENT /KEY=XXXXX-… [/SERVICE=https://…] [/LAN=0] [/DIR=C:\PANOPTICA]
+; PANOPTICA Setup (0.47; licence file and packages inside 0.49): one installer for every lab. It carries Node, a small helper
+; and the release's signed packages, and no lab data. The lab's licence file decides what is installed: the helper reads it
+; (signed by PANOPTICA), takes the package for its modules, checks it and installs it as a task that starts with the computer.
+; No internet is needed. Built by the release workflow:
+;   ISCC.exe /DAppVersion=0.49.0 installer\panoptica.iss
+; with installer\build\ holding node\node.exe, helper.cjs and packages\ (tools/installer-build.mjs). Silent, for tests and IT:
+;   PANOPTICA-Setup.exe /VERYSILENT /LICENCE=C:\path\licence.json [/LAN=0] [/DIR=C:\PANOPTICA]
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
-#endif
-#ifndef Service
-  #define Service ""
 #endif
 
 [Setup]
@@ -34,19 +32,22 @@ SetupLogging=yes
 CloseApplications=no
 
 [Messages]
-WelcomeLabel2=This installs PANOPTICA on this computer, as the lab's server: it runs in the background and starts with the computer.%n%nHave the lab's product key ready. This computer needs the internet during the installation; afterwards PANOPTICA runs without it.
+WelcomeLabel2=This installs PANOPTICA on this computer, as the lab's server: it runs in the background and starts with the computer.%n%nHave the lab's licence file (licence.json) ready. The internet is not needed.
 FinishedHeadingLabel=PANOPTICA is installed
-FinishedLabel=PANOPTICA is running. Open it and type the product key once more to create the first admin and set up the lab.%n%nOn this computer: http://localhost:3000%nFrom the lab network: http://<this computer's name>:3000
-FinishedLabelNoIcons=PANOPTICA is running. Open it and type the product key once more to create the first admin and set up the lab.
+FinishedLabel=PANOPTICA is running. Open it to create the first admin and set up the lab.%n%nOn this computer: http://localhost:3000%nFrom the lab network: http://<this computer's name>:3000
+FinishedLabelNoIcons=PANOPTICA is running. Open it to create the first admin and set up the lab.
 
 [Files]
 Source: "build\node\*"; DestDir: "{app}\node"; Flags: recursesubdirs ignoreversion
 Source: "build\helper.cjs"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "..\release.pub"; DestDir: "{app}\installer"; Flags: ignoreversion
+; the packages, unpacked only for the installation (Setup's temporary folder is removed at the end)
+Source: "build\packages\*"; DestDir: "{tmp}\packages"; Flags: ignoreversion
 ; the same files, for the checks before anything is installed
 Source: "build\node\node.exe"; Flags: dontcopy
 Source: "build\helper.cjs"; Flags: dontcopy
 Source: "..\release.pub"; Flags: dontcopy
+Source: "build\packages\index.json"; Flags: dontcopy
 
 [Run]
 Filename: "http://localhost:3000"; Description: "Open PANOPTICA"; Flags: postinstall shellexec nowait skipifsilent
@@ -57,7 +58,7 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 
 [Code]
 var
-  KeyPage: TInputQueryWizardPage;
+  LicPage: TInputFileWizardPage;
   InfoPage: TOutputMsgMemoWizardPage;
   NetPage: TInputOptionWizardPage;
   Checked: Boolean;
@@ -73,30 +74,33 @@ begin
   Result := Exec(ExpandConstant('{tmp}\node.exe'), Q(ExpandConstant('{tmp}\helper.cjs')) + ' ' + Args, '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
-{ asks PANOPTICA what the key covers; fills the next page, or says what is wrong }
-function CheckKey(): Boolean;
+{ reads the licence file; fills the next page, or says what is wrong }
+function CheckLicence(): Boolean;
 var
   Code: Integer;
-  Ini, Err: String;
+  Ini, Err, Lab: String;
 begin
   Result := False;
   ExtractTemporaryFile('node.exe');
   ExtractTemporaryFile('helper.cjs');
   ExtractTemporaryFile('release.pub');
+  ExtractTemporaryFile('index.json');
   Ini := ExpandConstant('{tmp}\check.ini');
   DeleteFile(Ini);
-  Helper('check --key ' + Q(Trim(KeyPage.Values[0])) + ' --service ' + Q(Trim(KeyPage.Values[1])) + ' --dir ' + Q(WizardDirValue) + ' --out ' + Q(Ini), Code);
+  Helper('check --licence ' + Q(Trim(LicPage.Values[0])) + ' --packages ' + Q(ExpandConstant('{tmp}')) + ' --dir ' + Q(WizardDirValue) + ' --out ' + Q(Ini), Code);
   if GetIniString('result', 'ok', '0', Ini) <> '1' then begin
-    Err := GetIniString('result', 'error', 'The product key could not be checked. Is this computer on the internet?', Ini);
+    Err := GetIniString('result', 'error', 'The licence file could not be read.', Ini);
     SuppressibleMsgBox(Err, mbError, MB_OK, IDOK);
     Exit;
   end;
+  Lab := GetIniString('result', 'lab', '', Ini);
+  if GetIniString('result', 'acronym', '', Ini) <> '' then
+    Lab := Lab + ' (' + GetIniString('result', 'acronym', '', Ini) + ')';
   InfoPage.RichEditViewer.Lines.Text :=
-    'Lab: ' + GetIniString('result', 'lab', '', Ini) + #13#10 +
+    'Lab: ' + Lab + #13#10 +
     'Modules: ' + GetIniString('result', 'modules', '', Ini) + #13#10 +
-    'Updates until: ' + GetIniString('result', 'updates', '', Ini) + #13#10 +
-    'Computers with this key: ' + GetIniString('result', 'computers', '', Ini) + #13#10 + #13#10 +
-    'PANOPTICA ' + GetIniString('result', 'version', '', Ini) + ' (' + GetIniString('result', 'size', '', Ini) + ') will be downloaded and checked.';
+    'People: ' + GetIniString('result', 'tier', '', Ini) + #13#10 + #13#10 +
+    'PANOPTICA ' + GetIniString('result', 'version', '', Ini) + ' (' + GetIniString('result', 'size', '', Ini) + ') will be checked and installed.';
   if GetIniString('result', 'upgrade', '0', Ini) = '1' then
     InfoPage.RichEditViewer.Lines.Add(#13#10 + 'PANOPTICA is already installed here: its data stays, and the database is backed up first.');
   Checked := True;
@@ -105,14 +109,13 @@ end;
 
 procedure InitializeWizard;
 begin
-  KeyPage := CreateInputQueryPage(wpSelectDir, 'Product key', 'The key PANOPTICA gave the lab',
-    'It decides which modules are installed. PANOPTICA checks it now, over the internet.');
-  KeyPage.Add('Product key:', False);
-  KeyPage.Add('Activation service:', False);
-  KeyPage.Values[0] := ExpandConstant('{param:KEY|}');
-  KeyPage.Values[1] := ExpandConstant('{param:SERVICE|{#Service}}');
-  InfoPage := CreateOutputMsgMemoPage(KeyPage.ID, 'What this key covers', 'Check that this is the right lab',
+  LicPage := CreateInputFilePage(wpSelectDir, 'Licence file', 'The licence.json PANOPTICA gave the lab',
+    'It decides which modules are installed. Lost it? Contact PANOPTICA for a copy.');
+  LicPage.Add('Licence file:', 'Licence file (*.json)|*.json|All files|*.*', '.json');
+  LicPage.Values[0] := ExpandConstant('{param:LICENCE|}');
+  InfoPage := CreateOutputMsgMemoPage(LicPage.ID, 'What this licence covers', 'Check that this is the right lab',
     'PANOPTICA will be installed with:', '');
+  { who can open it: until 0.50 moves this to PANOPTICA's own settings }
   NetPage := CreateInputOptionPage(InfoPage.ID, 'Network', 'Who can open PANOPTICA',
     'PANOPTICA runs in the background as the PANOPTICA task and starts with this computer.', False, False);
   NetPage.Add('Let other computers on the lab network open it (port 3000; a firewall rule is added)');
@@ -122,12 +125,12 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = KeyPage.ID then begin
-    if Trim(KeyPage.Values[0]) = '' then begin
-      SuppressibleMsgBox('Type the product key.', mbError, MB_OK, IDOK);
+  if CurPageID = LicPage.ID then begin
+    if Trim(LicPage.Values[0]) = '' then begin
+      SuppressibleMsgBox('Choose the licence file.', mbError, MB_OK, IDOK);
       Result := False;
     end else
-      Result := CheckKey();
+      Result := CheckLicence();
   end;
 end;
 
@@ -136,14 +139,14 @@ var
   Code: Integer;
   Lan: String;
 begin
-  { silent installs skip the pages: the key is checked here }
+  { silent installs skip the pages: the licence is checked here }
   if (CurStep = ssInstall) and not Checked then
-    if not CheckKey() then Abort;
+    if not CheckLicence() then Abort;
   if CurStep = ssPostInstall then begin
     if NetPage.Values[0] then Lan := '1' else Lan := '0';
-    WizardForm.StatusLabel.Caption := 'Downloading PANOPTICA and starting it (a minute or two)...';
-    Exec(ExpandConstant('{app}\node\node.exe'), Q(ExpandConstant('{app}\installer\helper.cjs')) + ' install --key ' + Q(Trim(KeyPage.Values[0])) +
-      ' --service ' + Q(Trim(KeyPage.Values[1])) + ' --dir ' + Q(ExpandConstant('{app}')) + ' --lan ' + Lan, '', SW_HIDE, ewWaitUntilTerminated, Code);
+    WizardForm.StatusLabel.Caption := 'Installing PANOPTICA and starting it (a minute or two)...';
+    Exec(ExpandConstant('{app}\node\node.exe'), Q(ExpandConstant('{app}\installer\helper.cjs')) + ' install --licence ' + Q(Trim(LicPage.Values[0])) +
+      ' --packages ' + Q(ExpandConstant('{tmp}\packages')) + ' --dir ' + Q(ExpandConstant('{app}')) + ' --lan ' + Lan, '', SW_HIDE, ewWaitUntilTerminated, Code);
     if Code <> 0 then
       SuppressibleMsgBox('PANOPTICA could not be installed. What happened is in ' + ExpandConstant('{app}\panoptica\updates\install.log') +
         '. Run PANOPTICA Setup again once it is fixed: nothing of the lab''s data was touched.', mbError, MB_OK, IDOK);

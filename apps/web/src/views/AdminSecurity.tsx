@@ -315,23 +315,37 @@ export function Activity() {
   );
 }
 
-// ------------------------------------------------------------------ Licence (0.46)
+// ------------------------------------------------------------------ Licence (0.46; tiers, required file 0.49)
 type Lic = {
-  licence: { id: string; lab: string; labId: string; modules: string[]; issued: string; updatesUntil: string } | null;
+  licence: {
+    id: string;
+    lab: string;
+    acronym?: string;
+    labId: string;
+    modules: string[];
+    issued: string;
+    tier?: number;
+    users?: number;
+  } | null;
   labId: string | null;
+  state: 'ok' | 'none' | 'invalid';
+  critical: boolean;
+  active: number;
+  full: boolean;
+  here: boolean;
   running: string[];
   skipped: string[];
   names: Record<string, string>;
-  today: string;
-  byKey?: boolean;
-  changed?: string;
 };
 const dmy = (d: string) => d.split('-').reverse().join('/');
-/** The lab's licence: who it is for, its modules, until when updates come; and installing a new one. Never locks anyone out. */
+/**
+ * The lab's licence: who holds it, its modules, how many people it covers; and installing a new one, only on the computer that
+ * runs PANOPTICA. Never locks anyone out: at its number of people, or without it on an install made by Setup, only letting new
+ * people in is refused.
+ */
 export function Licence() {
   const [v, setV] = useState<Lic | null>(null),
     [err, setErr] = useState(''),
-    [msg, setMsg] = useState(''),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     api<Lic>('/licence')
@@ -349,21 +363,50 @@ export function Licence() {
       .finally(() => setBusy(false));
   };
   if (!v) return err ? <p className="err">{err}</p> : <p className="mut">Loading…</p>;
-  const l = v.licence,
-    name = (id: string) => v.names[id] ?? id,
-    ended = !!l && l.updatesUntil < v.today;
+  const l = v.state === 'ok' ? v.licence : null,
+    name = (id: string) => v.names[id] ?? id;
+  const choose = v.here ? (
+    <label className={'btn' + (l ? ' secondary' : '') + (busy ? ' disabled' : '')}>
+      {busy ? 'Installing…' : l ? 'Install a new licence…' : 'Choose the licence file…'}
+      <input
+        type="file"
+        accept=".json,application/json"
+        hidden
+        disabled={busy}
+        onChange={(e) => {
+          install(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
+    </label>
+  ) : (
+    <p className="small">
+      To {l ? 'install a new licence' : 'choose the licence file'}, open PANOPTICA on the computer that runs it.
+    </p>
+  );
   return (
     <div className="lic">
       <section className="group">
-        {!l ? (
-          <p>
-            No licence is installed. Every module in this package runs, and updates come as set under Updates. PANOPTICA
-            gives each lab a licence file: install it below.
-          </p>
+        {v.critical ? (
+          <div className="lic-missing">
+            <h4 className="err">
+              {v.state === 'none' ? 'The licence file is missing' : 'The licence file is not valid'}
+            </h4>
+            <p>
+              No one new can be let in until it is installed again. Everyone who has an account keeps working, with all
+              their data.
+            </p>
+          </div>
+        ) : !l ? (
+          <p>No licence is installed. Every module in this package runs, with no limit on people.</p>
         ) : (
           <dl className="lic-list">
             <dt>Lab</dt>
-            <dd>{l.lab}</dd>
+            <dd>
+              {l.lab}
+              {l.acronym && <span className="mut"> ({l.acronym})</span>}
+              <div className="mut small">The lab this licence was issued to.</div>
+            </dd>
             <dt>Modules</dt>
             <dd>
               {l.modules.length ? l.modules.map(name).join(', ') : 'None (the core alone)'}
@@ -384,14 +427,26 @@ export function Licence() {
                   </div>
                 ))}
             </dd>
-            <dt>Updates</dt>
+            <dt>People</dt>
             <dd>
-              {ended ? `Ended on ${dmy(l.updatesUntil)}` : `Until ${dmy(l.updatesUntil)}`}
-              <div className="mut small">
-                {ended
-                  ? 'Everything keeps working and all data can be exported; versions published since then are not installed. Contact PANOPTICA to renew.'
-                  : 'Versions published until then can be installed. After it, everything keeps working; only new versions stop.'}
-              </div>
+              {l.users ? (
+                <>
+                  {v.active} of {l.users}
+                  {l.tier && <span className="mut"> · tier {l.tier}</span>}
+                  {v.full ? (
+                    <div className="warn-text small">
+                      Your licence covers {l.users} {l.users === 1 ? 'person' : 'people'}. Contact PANOPTICA to upgrade.
+                      Until then no one new can be let in; everyone else keeps working.
+                    </div>
+                  ) : (
+                    <div className="mut small">
+                      People with a working account. Requests waiting and ended visits do not count.
+                    </div>
+                  )}
+                </>
+              ) : (
+                'No limit'
+              )}
             </dd>
             <dt>Licence</dt>
             <dd className="mut">
@@ -399,44 +454,12 @@ export function Licence() {
             </dd>
           </dl>
         )}
-        {v.byKey && (
-          <button
-            className="btn secondary"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              setErr('');
-              setMsg('');
-              api<Lic>('/licence/refresh', 'POST')
-                .then((x) => {
-                  setV(x);
-                  setMsg(
-                    x.changed ? 'Installed the key’s new licence.' : 'The installed licence is the key’s current one.',
-                  );
-                })
-                .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Check my licence
-          </button>
-        )}
-        <label className={'btn secondary' + (busy ? ' disabled' : '')}>
-          {busy ? 'Installing…' : l ? 'Install a new licence…' : 'Install the licence…'}
-          <input
-            type="file"
-            accept=".json,application/json"
-            hidden
-            disabled={busy}
-            onChange={(e) => {
-              install(e.target.files?.[0]);
-              e.target.value = '';
-            }}
-          />
-        </label>
+        {choose}
         {err && <p className="err small">{err}</p>}
-        {msg && <p className="small">{msg}</p>}
         <p className="mut small">
+          {l || v.critical
+            ? 'Lost the licence file? Contact PANOPTICA for a copy.'
+            : 'PANOPTICA gives each lab a licence file.'}{' '}
           A licence file is signed by PANOPTICA: one that was changed, or made for another lab, is refused. It is kept
           in the database, so a backup restored on another computer keeps it.
         </p>
@@ -450,12 +473,10 @@ type Upd = {
   current: string;
   repo: string;
   tokenSet: boolean;
+  defaultRepo?: string;
   available: boolean;
-  beyondLicence?: boolean;
-  updatesUntil?: string | null;
-  source?: 'key' | 'github';
-  keyEnd?: string | null;
-  service?: string | null;
+  /** an update script can be run by hand (not on an install made by PANOPTICA Setup, 0.49) */
+  byHand?: boolean;
   canInstall: boolean;
   checkedAt?: string;
   error?: string;
@@ -469,8 +490,6 @@ export function Updates() {
     [err, setErr] = useState(''),
     [token, setToken] = useState(''),
     [repo, setRepo] = useState<string | null>(null),
-    [key, setKey] = useState(''),
-    [service, setService] = useState<string | null>(null),
     [installing, setInstalling] = useState(false);
   const run = (label: string, p: Promise<Upd>) => {
     setBusy(label);
@@ -570,16 +589,8 @@ export function Updates() {
           ) : (
             'Not checked yet.'
           )}{' '}
-          The app checks {u.source === 'key' ? 'with PANOPTICA' : 'GitHub'} once a day and notifies admins when there is
-          a new version.
-          {u.updatesUntil && ` The licence covers versions published until ${dmy(u.updatesUntil)}.`}
+          The app checks GitHub once a day and notifies admins when there is a new version.
         </p>
-        {u.beyondLicence && L && (
-          <p className="small">
-            Version <b>{L.version}</b> was published on {when(L.published)}, after the licence’s last day of updates. It
-            is not installed; everything else keeps working. Contact PANOPTICA to renew.
-          </p>
-        )}
         {u.available && L && (
           <>
             <h4 className="upd-h">
@@ -608,7 +619,7 @@ export function Updates() {
                 </button>
               )}
             </div>
-            {u.downloaded?.version === L.version && (
+            {u.downloaded?.version === L.version && u.byHand && (
               <p className="mut small">
                 Or by hand: close the app window and run <b>update.bat</b> (Windows), <b>update.command</b> (Mac) or{' '}
                 <b>./update.sh</b> (Linux); it finds the downloaded file in the <code>updates</code> folder.
@@ -624,67 +635,16 @@ export function Updates() {
           <pre>{u.log}</pre>
         </details>
       )}
-      <h3 className="sub">Product key</h3>
-      <section className="group">
-        {u.source === 'key' ? (
-          <p className="small">
-            Updates come from PANOPTICA with this lab’s product key (ending in <b>{u.keyEnd}</b>): only the modules and
-            the versions its licence covers. A renewal or a module added arrives with the next check.
-          </p>
-        ) : (
-          <p className="small mut">
-            With the lab’s product key, updates come from PANOPTICA: only what the key covers. Typing it here also uses
-            one of the key’s computers (a backup restored on a new computer, for example). Without a key, updates come
-            from the GitHub repository below.
-          </p>
-        )}
-        <label className="fld">
-          <span>{u.source === 'key' ? 'Another product key' : 'Product key'}</span>
-          <input
-            autoComplete="off"
-            spellCheck={false}
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
-          />
-        </label>
-        <label className="fld">
-          <span>Activation service</span>
-          <input
-            value={service ?? u.service ?? ''}
-            onChange={(e) => setService(e.target.value)}
-            placeholder="https://…"
-          />
-        </label>
-        <div className="inline">
-          <button
-            className="btn"
-            disabled={!!busy || !key.trim() || !(service ?? u.service)}
-            onClick={() =>
-              run(
-                'key',
-                api<Upd>('/updates/settings', 'PUT', {
-                  key: key.trim(),
-                  ...(service ? { service: service.trim() } : {}),
-                }).then((x) => {
-                  setKey('');
-                  setService(null);
-                  return x;
-                }),
-              )
-            }
-          >
-            {busy === 'key' ? 'Activating…' : 'Activate this computer'}
-          </button>
-        </div>
-      </section>
-      <h3 className="sub">
-        From the GitHub repository{u.source === 'key' ? ' (not used while there is a product key)' : ''}
-      </h3>
+      <h3 className="sub">From the GitHub repository</h3>
       <section className="group">
         <label className="fld">
           <span>GitHub repository</span>
           <input value={repo ?? u.repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/name" />
+          {u.defaultRepo && u.repo !== u.defaultRepo && (
+            <button type="button" className="link small" onClick={() => setRepo(u.defaultRepo!)}>
+              Use PANOPTICA’s repository again
+            </button>
+          )}
         </label>
         <label className="fld">
           <span>

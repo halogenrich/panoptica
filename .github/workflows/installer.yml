@@ -1,20 +1,20 @@
 name: Installer
-# PANOPTICA Setup on Windows (0.47) and macOS (0.48): builds it and runs it end to end (tools/installer-e2e.mjs): a product key
-# against a throwaway activation service, PANOPTICA in the background (the startup task; the launchd daemon), an update installed
-# by the app and restarted by the task or the daemon, the uninstaller. On macOS the wizard's first pages are screenshotted too.
-# For pull requests that touch the installer, the key path or the update path, and on demand.
+# PANOPTICA Setup on Windows (0.47) and macOS (0.48): builds it with test packages inside (signed with a throwaway key, 0.49)
+# and runs it end to end (tools/installer-e2e.mjs): a licence file from the builder, PANOPTICA in the background (the startup
+# task; the launchd daemon) with no script to run by hand, an update from a fake GitHub installed by the app and restarted by the
+# task or the daemon, the uninstaller. On macOS the wizard's first pages are screenshotted too.
+# For pull requests that touch the installer, the licence or the update path, and on demand.
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - 'installer/**'
-      - 'services/**'
       - 'tools/installer-*.mjs'
+      - 'reset-password.*'
       - 'tools/builder/**'
       - 'update.bat'
       - 'update.command'
       - 'apps/server/src/updates.ts'
-      - 'apps/server/src/activation.ts'
       - 'apps/server/src/licence.ts'
       - 'apps/server/src/signature.ts'
       - '.github/workflows/installer.yml'
@@ -31,23 +31,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: The app packaged, and a newer one
+      - name: The app packaged, and a newer one, signed with a throwaway key
         shell: bash
         run: |
           npm run build
           node tools/package.mjs "$RUNNER_TEMP/a" --no-web
           node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0
+          node tools/installer-e2e.mjs prepare "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica" "$RUNNER_TEMP/work"
       - name: Build PANOPTICA Setup
         shell: pwsh
         run: |
-          node tools/installer-build.mjs
+          node tools/installer-build.mjs --packages "$env:RUNNER_TEMP\work\packages"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          & $iscc /Q /DAppVersion=test /DService=http://127.0.0.1:4799 installer\panoptica.iss
+          & $iscc /Q /DAppVersion=test installer\panoptica.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Install, set up, update, uninstall
         shell: bash
-        run: node tools/installer-e2e.mjs out/installer/PANOPTICA-Setup-test.exe "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica"
+        run: node tools/installer-e2e.mjs run out/installer/PANOPTICA-Setup-test.exe "$RUNNER_TEMP/work"
 
   setup-mac:
     runs-on: macos-latest
@@ -59,15 +60,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: The app packaged, and a newer one
+      - name: The app packaged, and a newer one, signed with a throwaway key
         run: |
           npm run build
           node tools/package.mjs "$RUNNER_TEMP/a" --no-web
           node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0
+          node tools/installer-e2e.mjs prepare "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica" "$RUNNER_TEMP/work"
       - name: Build PANOPTICA Setup
-        run: node tools/installer-build.mjs --mac --version test --service http://127.0.0.1:4799
+        run: node tools/installer-build.mjs --mac --version test --packages "$RUNNER_TEMP/work/packages"
       - name: Install, set up, update, install again, uninstall
-        run: node tools/installer-e2e.mjs out/installer/PANOPTICA-Setup-test.dmg "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica"
+        run: node tools/installer-e2e.mjs run out/installer/PANOPTICA-Setup-test.dmg "$RUNNER_TEMP/work"
         env:
           SHOTS: ${{ runner.temp }}/shots
       - uses: actions/upload-artifact@v4

@@ -61,7 +61,10 @@ const Background = z
   .refine((v) => v === '' || /^data:image\/(png|jpeg|webp);base64,/.test(v), 'use a JPEG, PNG or WebP image');
 /** Lab setup: name, institution, who may ask for access (email domains), departments, working hours, login images. */
 export const LabIn = z.object({
-  name: z.string().trim().min(1, 'give the lab a name').max(80).optional(),
+  name: z.string().trim().min(1, 'give the lab’s full name').max(120).optional(),
+  /** 0.49: the lab's acronym, and which of the two names the interface shows */
+  acronym: z.string().trim().max(24).optional(),
+  show: z.enum(['name', 'acronym']).optional(),
   institution: z.string().trim().max(120).optional(),
   domains: z
     .array(
@@ -205,9 +208,6 @@ export const UpdateSettingsIn = z.object({
     .regex(/^[\w.-]+\/[\w.-]+$/, 'repository as owner/name')
     .optional(),
   token: z.string().max(400).optional(),
-  /** 0.47: the lab's product key, and the activation service's address (when it is not the one the installer set) */
-  key: z.string().max(60).optional(),
-  service: z.string().url().max(200).optional(),
 });
 
 /** Own profile: display name and photo (square JPEG or PNG, resized in the browser; '' removes it). */

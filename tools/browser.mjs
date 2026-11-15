@@ -1,11 +1,12 @@
 // Browser tests: the main flows clicked through in a real browser (Chromium), on a new install.
 //   node --import tsx tools/browser.mjs            the server from source (apps/server/src) with the built web app (apps/web/dist)
 //   node --import tsx tools/browser.mjs --built    the packaged server (out/panoptica, from tools/package.mjs)
-// Flows: first setup, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
+// Flows: first setup (installed as PANOPTICA Setup does, with a licence), the licence in Admin settings, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
 // sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +28,28 @@ const PORT = await freePort(),
   base = `http://127.0.0.1:${PORT}`,
   tmp = mkdtempSync(join(tmpdir(), 'panoptica-browser-'));
 const PW = 'Browser-test-1!';
+// installed as PANOPTICA Setup does (0.49): config/install.json and the lab's licence, signed with a throwaway key
+const testKey = generateKeyPairSync('ed25519'),
+  licenceBody = JSON.stringify({
+    v: 1,
+    id: 'L-BROWSER-1',
+    lab: 'Browser Laboratory of Thin Films',
+    acronym: 'BLTF',
+    labId: 'browser-lab',
+    modules: CORE ? [] : ['devices'],
+    tier: 1,
+    users: 10,
+    issued: '2026-11-14',
+  });
+mkdirSync(join(tmp, 'config'), { recursive: true });
+writeFileSync(join(tmp, 'config/install.json'), JSON.stringify({ by: 'setup' }));
+writeFileSync(
+  join(tmp, 'config/licence.json'),
+  JSON.stringify({
+    body: licenceBody,
+    sig: sign(null, Buffer.from(licenceBody), testKey.privateKey).toString('base64'),
+  }),
+);
 
 const srv = spawn(
   process.execPath,
@@ -42,6 +65,8 @@ const srv = spawn(
       CONFIG_DIR: join(tmp, 'config'),
       UPDATES_DIR: join(tmp, 'updates'),
       ADMIN_PASSWORD: '', // a new install: the first setup makes the admin
+      PANOPTICA_TEST: '1',
+      UPDATE_PUBLIC_KEY: testKey.publicKey.export({ type: 'spki', format: 'pem' }),
       ...(CORE && !BUILT ? { PANOPTICA_MODULES: 'none' } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -144,14 +169,32 @@ try {
     await page.locator('input[type=password]').nth(0).fill(PW);
     await page.locator('input[type=password]').nth(1).fill(PW);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.locator('.setup-page input').first().fill('Test Lab');
-    await page.locator('.setup-page input').nth(1).fill('Example University');
+    // the lab's full name and acronym, shown by its acronym (0.49)
+    await page.getByLabel('Full name', { exact: true }).fill('Test Laboratory of Thin Films');
+    await page.getByLabel('Acronym', { exact: true }).fill('Test Lab');
+    await page.locator('.setup-page').getByRole('tab', { name: 'Acronym' }).click();
+    await page.locator('.setup-rail').getByText('Test Lab').waitFor();
+    await page.getByLabel('Institution', { exact: true }).fill('Example University');
     for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue' }).click();
     await page.locator('.setup-foot .btn').click(); // finish
     await page.locator('.top .brand').getByText('Test Lab').waitFor();
     await later();
     username = (await api('GET', '/me')).j.username;
     expect(!!username, 'no account after the setup');
+  });
+
+  await step('Admin settings › Licence shows the licence’s lab, modules and people', async () => {
+    await page.evaluate(() => (window.location.hash = '#/users'));
+    await page.getByRole('tab', { name: 'Licence', exact: true }).click();
+    const lic = page.locator('.lic');
+    await lic.getByText('Browser Laboratory of Thin Films').waitFor();
+    await lic.getByText('1 of 10').waitFor();
+    await lic.getByText('Choose', { exact: false }).or(lic.getByText('Install a new licence…')).first().waitFor();
+    await page.getByRole('tab', { name: 'Lab setup', exact: true }).click();
+    expect(
+      (await page.getByLabel('Acronym', { exact: true }).inputValue()) === 'Test Lab',
+      'the lab’s own acronym is not in Lab setup',
+    );
   });
 
   await step('sign out and sign in again', async () => {

@@ -1,14 +1,17 @@
 // Prepares PANOPTICA Setup (0.47): installer/build/ with node/node.exe (Node 22 for Windows x64, checked against nodejs.org's
-// SHA-256 list) and helper.cjs (installer/helper.mjs bundled with fflate). Then, on Windows with Inno Setup:
-//   ISCC.exe /DAppVersion=<version> /DService=<activation service> installer\panoptica.iss   → out\installer\
-//   node tools/installer-build.mjs [--node <version>] [--helper-only]
+// SHA-256 list), helper.cjs (installer/helper.mjs bundled with fflate) and, since 0.49, packages/: the release's signed
+// packages (panoptica-<modules>.zip and .sig, one per combination of modules) with index.json (their version, sizes and
+// SHA-256). Setup carries them, so it needs no internet; the lab's licence file decides which one is installed.
+//   node tools/installer-build.mjs --packages <folder with the release's packages> [--node <version>] [--helper-only]
+// Then, on Windows with Inno Setup:
+//   ISCC.exe /DAppVersion=<version> installer\panoptica.iss   → out\installer\
 // For macOS (0.48), --mac: Node 22 for Apple silicon and for Intel (the processor decides which one is installed), and on a Mac
-// the Setup app (installer/mac: the wizard compiled for both, setup.sh, the uninstaller) in a disk image:
-//   node tools/installer-build.mjs --mac [--version <version>] [--service <activation service>]
+// the Setup app (installer/mac: the wizard compiled for both, setup.sh, the uninstaller, the packages) in a disk image:
+//   node tools/installer-build.mjs --mac --packages <folder> [--version <version>]
 //      → out/installer/PANOPTICA Setup.app and out/installer/PANOPTICA-Setup-<version>.dmg
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -30,6 +33,34 @@ await build({
 });
 console.log('helper.cjs bundled');
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
+// the packages Setup carries (0.49): every panoptica-<modules>.zip with its signature (not panoptica.zip, the same bytes as the
+// package with every module, kept for labs before 0.46)
+if (!args.includes('--helper-only')) {
+  const from = arg('--packages');
+  if (!from) throw new Error('give the folder with the release’s packages: --packages <folder>');
+  const to = join(out, 'packages'),
+    files = {};
+  let version = '';
+  mkdirSync(to, { recursive: true });
+  for (const f of readdirSync(from).filter((f) => /^panoptica-.+\.zip$/.test(f))) {
+    if (!existsSync(join(from, f + '.sig'))) throw new Error(`${f} has no signature (${f}.sig)`);
+    const data = readFileSync(join(from, f));
+    // the version inside the package
+    const pkg = unzipSync(new Uint8Array(data), { filter: (x) => x.name === 'panoptica/package.json' })[
+      'panoptica/package.json'
+    ];
+    if (!pkg) throw new Error(`${f} is not a PANOPTICA package`);
+    const v = JSON.parse(Buffer.from(pkg).toString('utf8')).version;
+    if (version && v !== version) throw new Error(`the packages are of different versions (${version}, ${v})`);
+    version = v;
+    copyFileSync(join(from, f), join(to, f));
+    copyFileSync(join(from, f + '.sig'), join(to, f + '.sig'));
+    files[f] = { size: data.length, sha256: createHash('sha256').update(data).digest('hex') };
+  }
+  if (!version) throw new Error(`no panoptica-<modules>.zip in ${from}`);
+  writeFileSync(join(to, 'index.json'), JSON.stringify({ version, files }, null, 2));
+  console.log(`packages ${version}: ${Object.keys(files).join(', ')}`);
+}
 // the newest Node 22, or the one asked for
 const want = arg('--node', 'latest-v22.x'),
   base = `https://nodejs.org/dist/${want.startsWith('latest') ? want : 'v' + want.replace(/^v/, '')}`;
@@ -66,7 +97,6 @@ if (args.includes('--mac')) {
   }
   if (process.platform === 'darwin') {
     const version = arg('--version', JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version),
-      service = arg('--service', ''),
       src = join(root, 'installer/mac'),
       dist = join(root, 'out/installer'),
       app = join(dist, 'PANOPTICA Setup.app'),
@@ -104,7 +134,7 @@ if (args.includes('--mac')) {
     for (const f of ['setup.sh', 'Uninstall PANOPTICA.command']) cpSync(join(src, f), join(res, f));
     cpSync(join(out, 'helper.cjs'), join(res, 'helper.cjs'));
     cpSync(join(root, 'release.pub'), join(res, 'release.pub'));
-    if (service) writeFileSync(join(res, 'service.txt'), service + '\n');
+    execFileSync('ditto', [join(out, 'packages'), join(res, 'packages')]);
     for (const arch of ['arm64', 'x64']) execFileSync('ditto', [join(mac, 'node-' + arch), join(res, 'node-' + arch)]);
     // signed for this computer alone (no Apple Developer ID yet): macOS asks once whether to open it
     execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', app], { stdio: 'inherit' });

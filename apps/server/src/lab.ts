@@ -4,9 +4,9 @@ import { DEFAULT_HOURS, passwordProblem, usernameFor, type WorkDay } from '@psc/
 import { db, tagHas, tx } from './db.js';
 import { hash } from './auth.js';
 import { notify } from './social.js';
-import { weakPassword, type Limiter } from './security.js';
+import { isLocal, weakPassword, type Limiter } from './security.js';
 import { audit, ipOf } from './audit.js';
-import { hasSetupCode, setupCodeOk } from './licence.js';
+import { hasSetupCode, noRoom, setupCodeOk } from './licence.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -23,7 +23,12 @@ const setMeta = (k: string, v: unknown) =>
     .run(k, JSON.stringify(v));
 
 export type Lab = {
+  /** the lab's full name */
   name: string;
+  /** its acronym (0.49) */
+  acronym: string;
+  /** which of the two the interface shows: sign-in screen, top bar, exports, run sheets (0.49) */
+  show: 'name' | 'acronym';
   institution: string;
   domains: string[];
   departments: string[];
@@ -44,6 +49,8 @@ export function lab(): Lab {
   const d = JSON.parse(getMeta('lab') ?? '{}');
   return {
     name: d.name ?? '',
+    acronym: d.acronym ?? '',
+    show: d.show === 'acronym' && d.acronym ? 'acronym' : 'name',
     institution: d.institution ?? '',
     domains: d.domains ?? [],
     departments: d.departments ?? [],
@@ -56,9 +63,11 @@ export function lab(): Lab {
     foot: d.foot ?? 'name',
   };
 }
+/** The name the lab shows (0.49): its acronym when it chose that, else its full name. */
+export const shownName = (l: Lab = lab()) => (l.show === 'acronym' && l.acronym ? l.acronym : l.name);
 const figure = () => JSON.parse(getMeta('figure') ?? '{}') as { watermark?: string; group?: string };
 
-/** Saves lab settings; the logo is the figure logo (one logo for the app), and the lab's name is the name on figures. */
+/** Saves lab settings; the logo is the figure logo (one logo for the app), and the name the lab shows is the name on slides. */
 function saveLab(p: ReturnType<typeof LabIn.parse>) {
   const { logo, background, instLogo, ...rest } = p;
   const cur = lab();
@@ -66,24 +75,20 @@ function saveLab(p: ReturnType<typeof LabIn.parse>) {
   if (background !== undefined) next.background = background;
   if (instLogo !== undefined) next.instLogo = instLogo;
   if (background !== undefined || instLogo !== undefined || logo !== undefined) next.bgV = Date.now() % 1e9;
+  if (next.show === 'acronym' && !next.acronym) next.show = 'name';
   setMeta('lab', next);
   const f = figure();
-  // the lab's name is also the name next to the logo on exported figures
-  if (logo !== undefined || rest.name)
+  // the name the lab shows is also the name next to the logo on slides
+  if (logo !== undefined || rest.name || rest.acronym !== undefined || rest.show)
     setMeta('figure', {
       ...f,
       ...(logo !== undefined ? { watermark: logo } : {}),
-      ...(rest.name ? { group: rest.name } : {}),
+      ...(next.name ? { group: shownName(next) } : {}),
     });
 }
 
 /** The setup is needed while there is no admin (a fresh install that was not given ADMIN_PASSWORD). */
 export const setupNeeded = () => !db.prepare("SELECT 1 FROM users WHERE role='admin' AND deleted=0 LIMIT 1").get();
-/** The computer that runs the app (not another computer on the network, and not through a proxy). Tests can ask to be seen as
- * another computer. */
-const isLocal = (req: any) =>
-  !(process.env.PANOPTICA_TEST === '1' && req.headers['x-test-remote']) &&
-  /^(127\.|::1$|::ffff:127\.)/.test(req.socket?.remoteAddress ?? '');
 
 /** Usernames in use or waiting (pending requests keep theirs until decided). Declined requests free theirs. */
 const takenName = (u: string) =>
@@ -115,7 +120,10 @@ export function registerLab(
     const l = lab(),
       f = figure();
     return {
-      name: l.name,
+      // the name the lab shows (its acronym or full name, 0.49), and both
+      name: shownName(l),
+      fullName: l.name,
+      acronym: l.acronym,
       institution: l.institution,
       departments: l.departments,
       domains: l.domains,
@@ -370,6 +378,8 @@ export function registerLab(
   );
   app.get('/api/access-requests/count', { preHandler: auth(true) }, async () => ({
     n: (db.prepare("SELECT COUNT(*) AS n FROM access_requests WHERE status='pending'").get() as { n: number }).n,
+    /** why no one more can be let in (the licence, 0.49), or '' */
+    full: noRoom(),
   }));
   app.get('/api/access-requests/:id/photo', { preHandler: auth(true) }, async (req: any, reply) => {
     const r = db.prepare('SELECT photo FROM access_requests WHERE id=?').get(+req.params.id) as
@@ -383,6 +393,9 @@ export function registerLab(
     if (!p.success) return bad(reply, p);
     const r = db.prepare("SELECT * FROM access_requests WHERE id=? AND status='pending'").get(+req.params.id) as any;
     if (!r) return reply.code(404).send({ error: 'this request was already answered' });
+    // the licence's number of people (0.49): the request stays waiting
+    const full = noRoom();
+    if (full) return reply.code(402).send({ error: full });
     let id = 0;
     tx(() => {
       id = Number(
@@ -441,6 +454,8 @@ export function registerLab(
     const d = p.data;
     if (d.until < new Date().toISOString().slice(0, 10))
       return reply.code(400).send({ error: 'the last day of the visit is already past' });
+    const full = noRoom();
+    if (full) return reply.code(402).send({ error: full });
     const username = usernameFor(d.firstNames, d.surname, takenName);
     if (!username) return reply.code(400).send({ error: 'choose another surname for the username' });
     const id = db

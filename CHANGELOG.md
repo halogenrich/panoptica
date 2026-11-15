@@ -2,6 +2,18 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.49.0 (2026-11-14)
+
+- **PANOPTICA Setup takes the lab's licence file**: no product key and no activation service any more. Setup asks for `licence.json`, shows the lab, its modules and how many people it covers, and installs the package for those modules from the ones it carries, checked against PANOPTICA's signature. The internet is not needed during the installation. Silent installs take `/LICENCE=` (Windows) or `--licence` (Mac).
+- **Licences by size, updates free**: a licence covers up to 10 active people (tier 1), up to 50 (tier 2), or a number agreed with the lab (tier 3). Updates have no last day any more. At the licence's number, accepting an access request, adding a visitor and enabling an account are refused with "Your licence covers N people. Contact PANOPTICA to upgrade."; Admin settings › Licence and the access requests say so before anyone tries. Everyone who has an account keeps working.
+- **The licence file is required on an install made by Setup**: if it is missing or not valid, Admin settings says so on every tab, and no one new can be let in until it is installed again. Nothing else stops. A manual install keeps working without one.
+- **A licence is installed only on the computer that runs PANOPTICA**; from another computer the Licence tab says so. Lost the file? PANOPTICA makes a copy for the lab.
+- **The lab's full name and acronym**: first setup and Admin settings › Lab setup ask for both and for which one PANOPTICA shows (sign-in screen, top bar, exports, run sheets). The names in the licence are PANOPTICA's record and are shown only under Licence.
+- **No scripts to run by hand on an install made by Setup**: the start, update, version and restore scripts are left out (the app keeps its update script for itself), and on Windows the install folder is open only to administrators and the system. `reset-password` stays, for an administrator who lost the admin password, and finds the Node that Setup installed.
+- Updates come from GitHub again (Admin settings › Updates, with the read-only token while the repository is private). The Product key section and Check my licence are gone.
+- Admin settings' tabs scroll sideways on a narrow screen instead of widening the page.
+- **For PANOPTICA's staff**: the builder takes `--lab` (full name), `--acronym`, `--tier` and `--users`, and its install sheet describes the Setup install. `services/activation` and `tools/builder/keys.mjs` are removed.
+
 ## 0.48.0 (2026-11-14)
 
 - **PANOPTICA Setup for macOS**: each release also carries `PANOPTICA-Setup-<version>.dmg`, for Macs with Apple silicon or Intel (macOS 12 or later). It works like the Windows wizard: the lab's product key, what it covers, whether the lab network may open PANOPTICA, then an administrator's password; it downloads only the key's package, checks PANOPTICA's signature, and installs PANOPTICA in `/Library/PANOPTICA` as a service that starts with the Mac (and again if it stops by itself), with Node allowed through the firewall when the lab network may open it. Only the system can read what PANOPTICA writes (the database, backups). Running Setup again upgrades in place and keeps the data; **Uninstall PANOPTICA** in `/Library/PANOPTICA` removes the service and keeps the data.
