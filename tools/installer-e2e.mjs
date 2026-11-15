@@ -233,21 +233,21 @@ try {
     execFileSync('hdiutil', ['attach', '-nobrowse', '-readonly', '-mountpoint', mount, setup], { stdio: 'inherit' });
     await shots();
   }
-  const r = mac
-    ? macSetup()
-    : spawnSync(
-        setup,
-        [
-          '/VERYSILENT',
-          '/SUPPRESSMSGBOXES',
-          '/NORESTART',
-          `/DIR=${DIR}`,
-          `/LICENCE=${licence}`,
-          '/LAN=0',
-          `/LOG=${join(tmp, 'setup.log')}`,
-        ],
-        { env: { ...process.env, ...test }, stdio: 'inherit' },
-      );
+  const winSetup = (log) =>
+    spawnSync(
+      setup,
+      [
+        '/VERYSILENT',
+        '/SUPPRESSMSGBOXES',
+        '/NORESTART',
+        `/DIR=${DIR}`,
+        `/LICENCE=${licence}`,
+        '/LAN=0',
+        `/LOG=${join(tmp, log)}`,
+      ],
+      { env: { ...process.env, ...test }, stdio: 'inherit' },
+    );
+  const r = mac ? macSetup() : winSetup('setup.log');
   ok(r.status === 0, 'Setup ran silently with the licence file, without the internet');
   let v = null;
   for (let i = 0; i < 60 && !(v = await version()); i++) await sleep(1000);
@@ -329,12 +329,17 @@ try {
     !inRoot().some((f) => HAND.test(f)) && inRoot('internal').includes(mac ? 'update.command' : 'update.bat'),
     'after the update, still no script to run by hand',
   );
-  if (mac) {
-    // Setup again over it: the program is replaced, the lab stays
-    ok(macSetup().status === 0, 'Setup ran again over the installed PANOPTICA');
-    for (let i = 0; i < 60 && !(v = await version()); i++) await sleep(1000);
-    ok(!!v && (await call('GET', '/api/me')).s === 200, 'PANOPTICA runs again, with the lab and its admin');
-  }
+  // Setup again over it, while PANOPTICA is running: the program is replaced, the lab stays.
+  // On Windows too since 0.50.2: Setup could not replace node.exe while the running PANOPTICA held it.
+  const again = mac ? macSetup() : winSetup('setup-again.log');
+  if (!mac && again.status !== 0)
+    try {
+      console.log(readFileSync(join(tmp, 'setup-again.log'), 'latin1').split('\n').slice(-40).join('\n'));
+    } catch {}
+  ok(again.status === 0, 'Setup ran again over the installed PANOPTICA while it was running');
+  v = null;
+  for (let i = 0; i < 90 && !(v = await version()); i++) await sleep(1000);
+  ok(!!v && (await call('GET', '/api/me')).s === 200, 'PANOPTICA runs again, with the lab and its admin');
   // the uninstaller: the task or the daemon goes, the data stays
   const un = mac
     ? spawnSync('sudo', [join(DIR, 'Uninstall PANOPTICA.command')], { stdio: 'inherit' })
