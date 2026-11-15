@@ -72,7 +72,7 @@ jobs:
         run: node tools/installer-e2e.mjs run out/installer/PANOPTICA-Setup-test.dmg "$RUNNER_TEMP/work"
         env:
           SHOTS: ${{ runner.temp }}/shots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: setup-mac-screens
