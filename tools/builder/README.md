@@ -1,8 +1,35 @@
 # The licence builder (PANOPTICA staff only)
 
 Labs install PANOPTICA with **PANOPTICA Setup** (the Windows `.exe` and the macOS `.dmg` attached to each release). Setup asks
-for the lab's licence file, which decides which package it installs. `builder.mjs` makes that file and the install sheet for
-the crew. It is not part of the package labs receive.
+for the lab's licence file, which decides which package it installs. The builder makes that file and the install sheet for the
+crew. It is not part of the package labs receive.
+
+## The page (0.50)
+
+```
+npm run builder
+```
+
+It opens in the browser of the computer it runs on, and answers only there (127.0.0.1, and only to its own page). Close the
+terminal window, or press Ctrl+C, to stop it.
+
+- **The list's folder**: the first time, choose the folder where the list of licences is kept (Browse… opens the system's
+  folder chooser on macOS and Windows; the path can also be typed). It must be outside the repository, since it holds lab names.
+  Each licence gets a folder there, `<lab>-<licence id>/`, with `licence.json` and `install-sheet.md`; the list is read from
+  those files. The folder is remembered for the next time (`.panoptica-builder.json` in your home folder holds its path and
+  nothing else); **Change folder** opens another. `--data <folder>` starts on a folder without remembering it.
+- **New lab**: full name, acronym, modules, how many people (tier 1 up to 10, tier 2 up to 50, tier 3 a number agreed with
+  the lab) and the signing key file. The result shows the setup code and gives the licence file and the install sheet.
+- **The signing key is asked for with every licence.** It is read to sign that licence and let go: the key is never
+  written anywhere, and neither is where it is. A key that is not PANOPTICA's makes nothing.
+- **Download licence**: the same file again, for a lab that lost it. **Install sheet** opens the sheet as a page to print.
+- **New licence** (on a lab's row): an upgrade or an added module, agreed with the lab first. It keeps the lab's id and has
+  no setup code; the lab's admin installs it in Admin settings › Licence, on the server. The earlier licences stay in the
+  list.
+
+Options: `--data <folder>`, `--port <n>` (a free one otherwise), `--no-open` (prints the address instead of opening it).
+
+## The command line
 
 ```
 node tools/builder/builder.mjs --lab "Full lab name" [--acronym ABC] --modules devices --tier 1|2|3 [--users N] \

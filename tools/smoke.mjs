@@ -3,7 +3,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -1718,6 +1718,171 @@ console.log('An install made by PANOPTICA Setup needs its licence (0.49)');
     'without an acronym it shows the full name',
   );
   s4.kill();
+}
+
+// the builder's page (0.50): the same licences as the command line, kept in a folder the person chooses. Once is enough: it
+// does not depend on how the app was started
+if (!BUILT && !CORE) {
+  console.log('The builder’s page and its list of licences (0.50)');
+  const bport = await freePort(),
+    bbase = `http://127.0.0.1:${bport}`,
+    list = join(tmp, 'issued');
+  const ui = spawn(
+    process.execPath,
+    [join(root, 'tools/builder/ui.mjs'), '--port', String(bport), '--no-open', '--pub', join(keys, 'pub.pem')],
+    { env: { ...process.env, PANOPTICA_BUILDER_SETTINGS: join(tmp, 'builder.json') }, stdio: 'pipe' },
+  );
+  let ulog = '';
+  ui.stdout.on('data', (d) => (ulog += d));
+  ui.stderr.on('data', (d) => (ulog += d));
+  const b = async (method, path, body, headers = {}) => {
+    const r = await fetch(bbase + path, {
+      method,
+      headers: { ...(body ? { 'content-type': 'application/json', origin: bbase } : {}), ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const t = await r.text();
+    let j = null;
+    try {
+      j = JSON.parse(t);
+    } catch {
+      /* a page or a file */
+    }
+    return { s: r.status, j, t };
+  };
+  for (let i = 0; ; i++) {
+    try {
+      if ((await fetch(bbase + '/api/state')).ok) break;
+    } catch {
+      /* not up yet */
+    }
+    if (i > 240) throw new Error('the builder’s page did not start:\n' + ulog);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const s0 = (await b('GET', '/api/state')).j;
+  ok(s0.folder === null && s0.labs.length === 0, 'it starts with no folder: the person chooses where the list is kept');
+  ok(
+    (await b('GET', '/')).t.includes('Licence builder') && (await b('GET', '/app.js')).s === 200,
+    'the page is served with the app’s own styles and components',
+  );
+  ok(
+    (await b('POST', '/api/folder', { path: list }, { origin: 'http://evil.example' })).s === 403 &&
+      // under another name (a site that points its own name at 127.0.0.1); fetch cannot set Host, so a plain request
+      (await new Promise((done) =>
+        // read to the end and on a connection of its own: one left open is reset when the builder stops (Windows)
+        request(
+          { port: bport, host: '127.0.0.1', path: '/api/state', headers: { host: 'evil.example' }, agent: false },
+          (r) => {
+            r.resume();
+            r.on('end', () => done(r.statusCode));
+          },
+        )
+          .on('error', () => done(0))
+          .end(),
+      )) === 403,
+    'it answers only to its own page, on this computer',
+  );
+  ok(
+    /inside the repository/.test((await b('POST', '/api/folder', { path: join(root, 'out/issued') })).j.error) &&
+      !existsSync(join(root, 'out/issued')),
+    'a folder inside the repository is refused: the list holds lab names',
+  );
+  ok((await b('POST', '/api/folder', { path: list })).j.folder === list, 'the chosen folder is created and used');
+  const keyText = readFileSync(join(keys, 'key.pem'), 'utf8'),
+    want = { lab: 'Builder Page Laboratory', acronym: 'BPL', modules: ['devices'], tier: 1 };
+  ok(/signing key/.test((await b('POST', '/api/licences', want)).j.error), 'the key is asked for with every licence');
+  const stranger = generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' });
+  ok(
+    /not PANOPTICA’s signing key/.test((await b('POST', '/api/licences', { ...want, key: stranger })).j.error) &&
+      /not a signing key/.test((await b('POST', '/api/licences', { ...want, key: 'hello' })).j.error) &&
+      (await b('GET', '/api/state')).j.labs.length === 0,
+    'another key, or a file that is no key, makes nothing',
+  );
+  ok(
+    /more than 50/.test((await b('POST', '/api/licences', { ...want, tier: 3, users: 40, key: keyText })).j.error),
+    'tier 3 is for more than 50 people',
+  );
+  const m1 = (await b('POST', '/api/licences', { ...want, key: keyText })).j;
+  ok(
+    /^L-\d{6}-[0-9a-f]{4}$/.test(m1.id) &&
+      /^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){3}$/.test(m1.code) &&
+      m1.labs.length === 1 &&
+      m1.labs[0].licences[0].setup,
+    'a new lab gets a licence with a setup code, and is in the list',
+  );
+  const f1 = await b('GET', `/api/licences/${m1.id}/licence.json`),
+    body50 = JSON.parse(f1.j.body);
+  ok(
+    body50.lab === 'Builder Page Laboratory' && body50.acronym === 'BPL' && body50.tier === 1 && body50.users === 10,
+    'the licence carries the names, the modules and the tier of the form',
+  );
+  ok(
+    (await call('POST', '/api/licence', { text: f1.t })).j?.error?.includes('another lab'),
+    'PANOPTICA reads it as a signed licence (of another lab here)',
+  );
+  ok(
+    (await b('GET', `/api/licences/${m1.id}/licence.json`)).t === f1.t,
+    'a lab that lost its file gets the same file again',
+  );
+  const sheet50 = await b('GET', `/api/licences/${m1.id}/sheet`);
+  ok(
+    sheet50.t.includes(m1.code) &&
+      sheet50.t.includes('<ol>') &&
+      (await b('GET', `/api/licences/${m1.id}/install-sheet.md`)).t.includes(m1.code),
+    'the install sheet is kept, with the setup code, and opens as a page to print',
+  );
+  const m2 = (await b('POST', '/api/licences', { ...want, tier: 2, labId: m1.labId, key: keyText })).j,
+    body51 = JSON.parse((await b('GET', `/api/licences/${m2.id}/licence.json`)).j.body);
+  ok(
+    m2.labs.length === 1 &&
+      m2.labs[0].licences.length === 2 &&
+      m2.labs[0].licences[0].id === m2.id &&
+      body51.labId === body50.labId &&
+      body51.users === 50 &&
+      !body51.setup &&
+      m2.code === '',
+    'a new licence for a lab in the list keeps its lab id and has no setup code',
+  );
+  ok(
+    (await b('POST', '/api/licences', { ...want, labId: 'no-such-lab', key: keyText })).s === 404,
+    'a lab id that is not in the list is refused',
+  );
+  const everything = readdirSync(list, { recursive: true })
+    .map((f) => {
+      try {
+        return readFileSync(join(list, String(f)), 'utf8');
+      } catch {
+        return ''; // a folder
+      }
+    })
+    .join('\n');
+  ok(
+    !everything.includes('PRIVATE KEY') &&
+      !readFileSync(join(tmp, 'builder.json'), 'utf8').includes('key') &&
+      !ulog.includes('PRIVATE'),
+    'the key is nowhere: not in the list’s folder, not in what is remembered, not in the log',
+  );
+  ui.kill();
+  // the builder started again remembers the folder, and reads the list from the licence files themselves
+  const ui2 = spawn(
+    process.execPath,
+    [join(root, 'tools/builder/ui.mjs'), '--port', String(bport), '--no-open', '--pub', join(keys, 'pub.pem')],
+    { env: { ...process.env, PANOPTICA_BUILDER_SETTINGS: join(tmp, 'builder.json') }, stdio: 'ignore' },
+  );
+  let s2 = null;
+  for (let i = 0; i < 240 && !s2; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    try {
+      s2 = await (await fetch(bbase + '/api/state')).json();
+    } catch {
+      /* not up yet */
+    }
+  }
+  ok(
+    s2?.folder === list && s2.labs[0]?.licences.length === 2,
+    'started again, it opens the same folder and shows the same list',
+  );
+  ui2.kill();
 }
 
 db.close();

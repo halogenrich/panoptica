@@ -2,7 +2,7 @@
 //   node --import tsx tools/browser.mjs            the server from source (apps/server/src) with the built web app (apps/web/dist)
 //   node --import tsx tools/browser.mjs --built    the packaged server (out/panoptica, from tools/package.mjs)
 // Flows: first setup (installed as PANOPTICA Setup does, with a licence), the licence in Admin settings, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
-// sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
+// sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption, the builder's page. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
@@ -501,6 +501,88 @@ try {
       else await page.getByText(/From the recipes of 0 running and done batches/).waitFor();
     },
   );
+
+  // the builder's page (0.50) is not part of the package: it runs from the repository, on PANOPTICA's own computer
+  if (!CORE)
+    await step('the builder’s page makes a licence, keeps it in the list and gives it again', async () => {
+      const bport = await freePort(),
+        pub = join(tmp, 'builder-pub.pem'),
+        list = join(tmp, 'issued');
+      writeFileSync(pub, testKey.publicKey.export({ type: 'spki', format: 'pem' }));
+      const ui = spawn(
+        process.execPath,
+        [join(root, 'tools/builder/ui.mjs'), '--port', String(bport), '--no-open', '--pub', pub],
+        { env: { ...process.env, PANOPTICA_BUILDER_SETTINGS: join(tmp, 'builder.json') }, stdio: 'ignore' },
+      );
+      try {
+        const bp = await ctx.newPage();
+        bp.setDefaultTimeout(10_000);
+        bp.on('pageerror', (e) => errors.push(e.message));
+        for (let i = 0; ; i++) {
+          try {
+            await bp.goto(`http://127.0.0.1:${bport}/`);
+            break;
+          } catch {
+            if (i > 120) throw new Error('the builder’s page did not start');
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+        await bp.getByRole('heading', { name: 'Where to keep the list of licences' }).waitFor();
+        await bp.getByLabel('Folder').fill(list);
+        await bp.getByRole('button', { name: 'Use this folder' }).click();
+        await bp.getByText('No licences yet').waitFor();
+        await bp.getByRole('button', { name: 'New lab' }).first().click();
+        const dlg = bp.getByRole('dialog', { name: 'New lab' });
+        await dlg.getByLabel('Full name').fill('Browser Builder Laboratory');
+        await dlg.getByLabel('Acronym (optional)').fill('BBL');
+        await dlg.getByRole('button', { name: 'Make licence' }).click();
+        await dlg.getByText('Choose the signing key file.').waitFor();
+        await dlg.locator('input[type=file]').setInputFiles({
+          name: 'signing.pem',
+          mimeType: 'application/x-pem-file',
+          buffer: Buffer.from(testKey.privateKey.export({ type: 'pkcs8', format: 'pem' })),
+        });
+        await dlg.getByRole('button', { name: 'Make licence' }).click();
+        const made = bp.getByRole('dialog', { name: 'Licence made' });
+        expect(
+          /^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){3}$/.test(await made.locator('.b-code code').innerText()),
+          'no setup code is shown for the new lab',
+        );
+        const [dl] = await Promise.all([
+          bp.waitForEvent('download'),
+          made.getByRole('link', { name: 'Download licence' }).click(),
+        ]);
+        expect(dl.suggestedFilename() === 'licence.json', 'the licence does not download as licence.json');
+        await made.getByRole('button', { name: 'Done' }).click();
+        const row = bp.locator('.b-list tbody').filter({ hasText: 'Browser Builder Laboratory' });
+        await row.getByText('Up to 10 people').waitFor();
+        // an upgrade: a new licence for the same lab, the earlier one still there to download
+        await row.getByRole('button', { name: 'New licence' }).click();
+        const up = bp.getByRole('dialog', { name: 'New licence for BBL' });
+        await up.getByRole('tab', { name: 'Up to 50' }).click();
+        await up.locator('input[type=file]').setInputFiles({
+          name: 'signing.pem',
+          mimeType: 'application/x-pem-file',
+          buffer: Buffer.from(testKey.privateKey.export({ type: 'pkcs8', format: 'pem' })),
+        });
+        await up.getByRole('button', { name: 'Make licence' }).click();
+        await bp.getByRole('dialog', { name: 'Licence made' }).getByText('No setup code').waitFor();
+        await bp.getByRole('dialog', { name: 'Licence made' }).getByRole('button', { name: 'Done' }).click();
+        await row.getByText('Up to 50 people').waitFor();
+        await row.getByRole('button', { name: 'Show 1 earlier' }).click();
+        await row.locator('tr.b-earlier').getByRole('link', { name: 'Download licence' }).waitFor();
+        expect((await bp.locator('.b-list tbody').count()) === 1, 'the upgrade made a second lab');
+        // on a phone the list fits the screen
+        await bp.setViewportSize({ width: 390, height: 844 });
+        expect(
+          await bp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          'the list is wider than a phone',
+        );
+        await bp.close();
+      } finally {
+        ui.kill();
+      }
+    });
 
   console.log(`All ${passed} browser flows passed`);
   await browser.close();
