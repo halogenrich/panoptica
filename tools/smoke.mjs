@@ -1769,9 +1769,16 @@ if (!BUILT && !CORE) {
     (await b('POST', '/api/folder', { path: list }, { origin: 'http://evil.example' })).s === 403 &&
       // under another name (a site that points its own name at 127.0.0.1); fetch cannot set Host, so a plain request
       (await new Promise((done) =>
-        request({ port: bport, host: '127.0.0.1', path: '/api/state', headers: { host: 'evil.example' } }, (r) =>
-          done(r.statusCode),
-        ).end(),
+        // read to the end and on a connection of its own: one left open is reset when the builder stops (Windows)
+        request(
+          { port: bport, host: '127.0.0.1', path: '/api/state', headers: { host: 'evil.example' }, agent: false },
+          (r) => {
+            r.resume();
+            r.on('end', () => done(r.statusCode));
+          },
+        )
+          .on('error', () => done(0))
+          .end(),
       )) === 403,
     'it answers only to its own page, on this computer',
   );
