@@ -5,13 +5,9 @@
 //   node tools/installer-build.mjs --packages <folder with the release's packages> [--node <version>] [--helper-only]
 // Then, on Windows with Inno Setup:
 //   ISCC.exe /DAppVersion=<version> installer\panoptica.iss   → out\installer\
-// For macOS (0.48), --mac: Node 26 for Apple silicon and for Intel (the processor decides which one is installed), and on a Mac
-// the Setup app (installer/mac: the wizard compiled for both, setup.sh, the uninstaller, the packages) in a disk image:
-//   node tools/installer-build.mjs --mac --packages <folder> [--version <version>]
-//      → out/installer/PANOPTICA Setup.app and out/installer/PANOPTICA-Setup-<version>.dmg
+// (Setup for macOS, 0.48 to 0.50, is gone since 0.51: the lab's server is a Windows mini PC.)
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -77,86 +73,7 @@ async function nodeFile(pattern, what) {
   return { name, data };
 }
 
-if (args.includes('--mac')) {
-  const mac = join(out, 'mac');
-  for (const arch of ['arm64', 'x64']) {
-    const { name, data } = await nodeFile(
-        new RegExp(`node-v${NODE}\\.[\\d.]+-darwin-${arch}\\.tar\\.gz$`),
-        `macOS ${arch}`,
-      ),
-      top = name.replace('.tar.gz', ''),
-      to = join(mac, 'node-' + arch);
-    mkdirSync(to, { recursive: true });
-    writeFileSync(join(mac, name), data);
-    execFileSync('tar', [
-      '-xzf',
-      join(mac, name),
-      '-C',
-      to,
-      '--strip-components=1',
-      `${top}/bin/node`,
-      `${top}/LICENSE`,
-    ]);
-    rmSync(join(mac, name));
-    console.log(`${top}: bin/node and its LICENSE`);
-  }
-  if (process.platform === 'darwin') {
-    const version = arg('--version', JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version),
-      src = join(root, 'installer/mac'),
-      dist = join(root, 'out/installer'),
-      app = join(dist, 'PANOPTICA Setup.app'),
-      exe = join(app, 'Contents/MacOS/PANOPTICA Setup'),
-      res = join(app, 'Contents/Resources');
-    rmSync(app, { recursive: true, force: true });
-    mkdirSync(join(app, 'Contents/MacOS'), { recursive: true });
-    mkdirSync(res, { recursive: true });
-    // the wizard for Apple silicon and for Intel, in one program
-    for (const [t, a] of [
-      ['arm64-apple-macos12', 'arm64'],
-      ['x86_64-apple-macos12', 'x64'],
-    ])
-      execFileSync(
-        'xcrun',
-        [
-          'swiftc',
-          '-O',
-          '-parse-as-library',
-          '-swift-version',
-          '5',
-          '-target',
-          t,
-          join(src, 'Setup.swift'),
-          '-o',
-          join(mac, 'setup-' + a),
-        ],
-        { stdio: 'inherit' },
-      );
-    execFileSync('lipo', ['-create', '-output', exe, join(mac, 'setup-arm64'), join(mac, 'setup-x64')]);
-    writeFileSync(
-      join(app, 'Contents/Info.plist'),
-      readFileSync(join(src, 'Info.plist'), 'utf8').replaceAll('@VERSION@', version.replace(/[^\w.-]/g, '')),
-    );
-    for (const f of ['setup.sh', 'Uninstall PANOPTICA.command']) cpSync(join(src, f), join(res, f));
-    cpSync(join(out, 'helper.cjs'), join(res, 'helper.cjs'));
-    cpSync(join(root, 'release.pub'), join(res, 'release.pub'));
-    execFileSync('ditto', [join(out, 'packages'), join(res, 'packages')]);
-    for (const arch of ['arm64', 'x64']) execFileSync('ditto', [join(mac, 'node-' + arch), join(res, 'node-' + arch)]);
-    // signed for this computer alone (no Apple Developer ID yet): macOS asks once whether to open it
-    execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', app], { stdio: 'inherit' });
-    const stage = join(mac, 'dmg');
-    rmSync(stage, { recursive: true, force: true });
-    mkdirSync(stage);
-    execFileSync('ditto', [app, join(stage, 'PANOPTICA Setup.app')]);
-    const dmg = join(dist, `PANOPTICA-Setup-${version}.dmg`);
-    rmSync(dmg, { force: true });
-    execFileSync(
-      'hdiutil',
-      ['create', '-volname', 'PANOPTICA Setup', '-srcfolder', stage, '-fs', 'HFS+', '-format', 'UDZO', '-ov', dmg],
-      { stdio: 'inherit' },
-    );
-    console.log(`PANOPTICA Setup ${version} for macOS: ${dmg}`);
-  }
-} else if (!args.includes('--helper-only')) {
+if (!args.includes('--helper-only')) {
   const { name, data } = await nodeFile(new RegExp(`node-v${NODE}\\.[\\d.]+-win-x64\\.zip$`), 'Windows x64');
   const files = unzipSync(new Uint8Array(data), {
     filter: (f) => /\/(node\.exe|LICENSE)$/.test(f.name) && f.name.split('/').length === 2,

@@ -1,6 +1,6 @@
 # The licence builder (PANOPTICA staff only)
 
-Labs install PANOPTICA with **PANOPTICA Setup** (the Windows `.exe` and the macOS `.dmg` attached to each release). Setup asks
+Labs install PANOPTICA with **PANOPTICA Setup** (the Windows `.exe` attached to each release). Setup asks
 for the lab's licence file, which decides which package it installs. The builder makes that file and the install sheet for the
 crew. It is not part of the package labs receive.
 

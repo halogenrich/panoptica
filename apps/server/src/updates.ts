@@ -286,8 +286,6 @@ function install(lan: boolean) {
     child.unref();
   } else {
     const log = openSync(join(DIR, 'update.log'), 'a');
-    // installed by PANOPTICA Setup on a Mac (0.48), launchd runs the app: the script runs in its own session, outlives this
-    // process (the daemon abandons its process group) and starts the daemon again (PANOPTICA_LAUNCHD names it)
     // under systemd the updater must run outside the service, or stopping the service would stop it too
     // (a unit starts with a clean environment: it is given the app folder, the log to write to, and a test's signing key)
     const pass = ['PANOPTICA_TEST', 'UPDATE_PUBLIC_KEY'].flatMap((k) =>
