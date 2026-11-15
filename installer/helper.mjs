@@ -6,14 +6,19 @@
 //   node helper.cjs check   --licence F --packages P --dir D --out result.ini
 //      reads the lab's licence (signed by PANOPTICA) and finds the package for its modules among the ones Setup carries
 //      (P/index.json). Writes result.ini ([result] ok=1, lab=…, or error=…) for the wizard's pages.
-//   node helper.cjs install --licence F --packages P --dir D --lan 1|0 [--task 0]
+//   node helper.cjs install --licence F --packages P --dir D [--out result.ini] [--task 0]
 //      checks the licence and the package (SHA-256 and PANOPTICA's signature), puts it in D/panoptica (an existing install keeps
 //      its data: the database is backed up first and only program files are replaced), leaves the licence for the app and marks
-//      the install as made by Setup (config/install.json), and starts PANOPTICA in the background whenever the computer starts
-//      (port 3000), as a task run by the system, with a firewall rule when the lab network may open it. The install folder is
-//      the administrators' and the system's only. No script to run by hand is left in it (0.49): the app keeps its update script in internal/, and
-//      reset-password stays, for administrators, to recover a lost admin password. Progress goes to
-//      D/panoptica/updates/install.log.
+//      the install as made by Setup (config/install.json), and starts PANOPTICA in the background whenever the computer starts,
+//      as a task run by the system. The install folder is the administrators' and the system's only. No script to run by hand
+//      is left in it (0.49): the app keeps its update script in internal/, and reset-password stays, for administrators, to
+//      recover a lost admin password. Progress goes to D/panoptica/updates/install.log; result.ini gets the address to open.
+//   0.51: the runtime is also copied as node/PANOPTICA.exe with PANOPTICA's name and icon (runtime.mjs), and the task runs that,
+//      so Task Manager shows PANOPTICA. The tray icon (D/tray) may be read and run by everyone who signs in to this computer.
+//      Who can open PANOPTICA, its port and HTTPS are PANOPTICA's own settings (config/network.json, Admin settings › Network),
+//      and PANOPTICA keeps the firewall rule in step with them. A new install starts open to the network on port 80, so the
+//      first setup can be done from another computer with the setup code; an install from before 0.51 keeps what it had (port
+//      3000; the network when its wizard's checkbox was ticked).
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
@@ -28,6 +33,9 @@ import {
   appendFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
+import { get as httpGet } from 'node:http';
+import { get as httpsGet } from 'node:https';
+import { brandRuntime } from './runtime.mjs';
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 
@@ -36,8 +44,7 @@ const [cmd, ...args] = process.argv.slice(2),
 const win = process.platform === 'win32',
   dir = opt('--dir') ?? 'C:\\PANOPTICA',
   root = join(dir, 'panoptica'),
-  TASK = 'PANOPTICA',
-  PORT = 3000;
+  TASK = 'PANOPTICA';
 const here = dirname(process.argv[1]);
 /** Scripts a manual install runs by hand; an install made by Setup has none (0.49). */
 const HAND_RUN = /^(start|start-network|update|version|restore)\.(bat|command|sh)$|^install-shortcut\.sh$/;
@@ -81,13 +88,33 @@ const ps = (script) =>
   execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { stdio: 'pipe' })
     .toString()
     .trim();
-const up = async () => {
-  try {
-    return (await fetch(`http://127.0.0.1:${PORT}/api/version`, { signal: AbortSignal.timeout(2000) })).ok;
-  } catch {
-    return false;
-  }
+/** Where PANOPTICA answers on this computer: what it wrote for the tray when it started, else its settings, else port 3000. */
+const where = () => {
+  const read = (f) => {
+    try {
+      return JSON.parse(readFileSync(f, 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+  const s = read(join(dir, 'tray', 'server.json')) ?? read(join(root, 'config', 'network.json')) ?? {};
+  return { port: s.port ?? 3000, https: !!s.https, local: s.local ?? '' };
 };
+/** PANOPTICA answers (its certificate is for the lab's name, not 127.0.0.1: not checked here). */
+const up = () =>
+  new Promise((res) => {
+    const w = where(),
+      q = (w.https ? httpsGet : httpGet)(
+        `${w.https ? 'https' : 'http'}://127.0.0.1:${w.port}/api/version`,
+        { timeout: 2000, rejectUnauthorized: false },
+        (r) => {
+          r.resume();
+          res(r.statusCode === 200);
+        },
+      );
+    q.on('error', () => res(false));
+    q.on('timeout', () => q.destroy());
+  });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The licence file the lab was given: its text and what it says, when PANOPTICA signed it. */
@@ -148,6 +175,8 @@ async function check() {
         tier: tierText(l),
         version: p.version,
         size: Math.round(p.size / 1048576) + ' MB',
+        // the Node this Setup carries is the one running this helper (the wizard's "What will be installed", 0.51)
+        node: process.versions.node,
         upgrade: existsSync(root) ? 1 : 0,
       }),
     );
@@ -191,13 +220,16 @@ function lockDown() {
   });
   // what is inside takes the folder's permissions again
   execFileSync('icacls', [join(dir, '*'), '/reset', '/T', '/C', '/Q'], { stdio: 'pipe' });
-  log('Install folder: administrators and the system only');
+  // the tray icon (0.51) runs for whoever signs in here: its folder may be read and run (it holds the program, PANOPTICA's
+  // port and version, and the token for backups and update checks from this computer)
+  if (existsSync(join(dir, 'tray')))
+    execFileSync('icacls', [join(dir, 'tray'), '/grant', '*S-1-5-32-545:(OI)(CI)RX', '/Q'], { stdio: 'pipe' });
+  log('Install folder: administrators and the system only; the tray icon for everyone who signs in');
 }
 
 async function install() {
   mkdirSync(join(root, 'updates'), { recursive: true });
   logFile = join(root, 'updates', 'install.log');
-  const lan = opt('--lan') !== '0';
   log(`Installing in ${root} (computer ${hostname()})`);
   const { text, l } = readLicence(),
     p = packageFor(l);
@@ -257,7 +289,27 @@ async function install() {
     JSON.stringify({ by: 'setup', version: p.version, at: new Date().toISOString() }, null, 2),
   );
   rmSync(join(dir, 'install.json'), { force: true }); // the copy 0.48 kept for its wizard
-  if (win) lockDown();
+  // who can open it and on which port (0.51): PANOPTICA's own settings from now on. A new install is open to the network on
+  // port 80 until its first setup decides; an older install keeps what its wizard set (port 3000)
+  const net = join(root, 'config/network.json');
+  if (!existsSync(net)) {
+    let open = 'network';
+    if (existing)
+      try {
+        open = /set HOST=0\.0\.0\.0/.test(readFileSync(join(root, 'run.cmd'), 'utf8')) ? 'network' : 'computer';
+      } catch {}
+    writeFileSync(net, JSON.stringify({ open, port: existing ? 3000 : 80 }, null, 2));
+    log(`Network: ${open === 'network' ? 'open to the network' : 'this computer only'}, port ${existing ? 3000 : 80}`);
+  }
+  if (win) {
+    // the runtime under PANOPTICA's name and icon, for Task Manager (0.51)
+    const node = join(dir, 'node');
+    if (existsSync(join(node, 'node.exe'))) {
+      brandRuntime(join(node, 'node.exe'), join(node, 'PANOPTICA.exe'), join(here, 'panoptica.ico'), p.version);
+      log('Runtime: node\\PANOPTICA.exe');
+    }
+    lockDown();
+  }
 
   if (opt('--task') === '0' || !win) return log('Done (start it with the start script)');
   // how the task starts it: the Node this installer carries, the lab network or not, and the task's name, so an update the app
@@ -265,9 +317,10 @@ async function install() {
   const test = Object.entries(testEnv())
     .map(([k, v]) => `set "${k}=${v}"\r\n`)
     .join('');
+  // the port and who can open it are in config/network.json (0.51); the runtime is PANOPTICA.exe
   writeFileSync(
     join(root, 'run.cmd'),
-    `@echo off\r\nrem Started by the PANOPTICA task at startup (made by the installer; it rewrites this file)\r\ncd /d "%~dp0"\r\nset "PATH=${join(dir, 'node')};%PATH%"\r\nset PORT=${PORT}\r\nset HOST=${lan ? '0.0.0.0' : '127.0.0.1'}\r\nset OPEN_BROWSER=0\r\nset PANOPTICA_TASK=${TASK}\r\n${test}if not exist updates mkdir updates\r\ncd apps\\server\r\nnode --no-warnings dist\\server.mjs >> ..\\..\\updates\\server.log 2>&1\r\n`,
+    `@echo off\r\nrem Started by the PANOPTICA task at startup (made by the installer; it rewrites this file)\r\ncd /d "%~dp0"\r\nset "PATH=${join(dir, 'node')};%PATH%"\r\nset OPEN_BROWSER=0\r\nset PANOPTICA_TASK=${TASK}\r\n${test}if not exist updates mkdir updates\r\ncd apps\\server\r\nPANOPTICA.exe --no-warnings dist\\server.mjs >> ..\\..\\updates\\server.log 2>&1\r\n`,
   );
   ps(
     [
@@ -279,26 +332,17 @@ async function install() {
     ].join('; '),
   );
   log('Task PANOPTICA registered: it starts PANOPTICA when the computer starts');
-  try {
-    execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${TASK}`], { stdio: 'ignore' });
-  } catch {}
-  if (lan) {
-    execFileSync('netsh', [
-      'advfirewall',
-      'firewall',
-      'add',
-      'rule',
-      `name=${TASK}`,
-      'dir=in',
-      'action=allow',
-      'protocol=TCP',
-      `localport=${PORT}`,
-    ]);
-    log(`Firewall: the lab network may open port ${PORT}`);
-  }
+  // what an earlier start wrote for the tray says nothing about this one
+  rmSync(join(dir, 'tray', 'server.json'), { force: true });
   ps(`Start-ScheduledTask -TaskName '${TASK}'`);
   for (let i = 0; i < 90; i++) {
-    if (await up()) return log(`PANOPTICA is running: http://localhost:${PORT}`);
+    if (await up()) {
+      const w = where(),
+        url =
+          w.local || `${w.https ? 'https' : 'http'}://localhost${w.port === (w.https ? 443 : 80) ? '' : ':' + w.port}`;
+      if (opt('--out')) writeFileSync(opt('--out'), ini({ ok: 1, url }));
+      return log(`PANOPTICA is running: ${url}`);
+    }
     await sleep(1000);
   }
   throw new Error(`PANOPTICA did not start within 90 s: look at ${join(root, 'updates', 'server.log')}`);

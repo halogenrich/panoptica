@@ -20,6 +20,7 @@ import { backupNow } from './backup.js';
 import { signedByPanoptica } from './signature.js';
 import { licence, setupInstall } from './licence.js';
 import { modules, skippedModules } from './modules.js';
+import { listening } from './network.js';
 
 /**
  * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (the app
@@ -32,11 +33,15 @@ import { modules, skippedModules } from './modules.js';
  * 0.46: a release carries one package per combination of modules (panoptica-devices.zip; panoptica-core.zip has none); the
  * app takes the one for the modules its licence lists (else those it has), and falls back to panoptica.zip (every module).
  * 0.49: updates are free for every licensed lab (no last day of updates), and come from GitHub only: the product keys and the
- * activation service of 0.47 are gone. The repository is one default (DEFAULT_REPO); when the shipped releases move to a public
- * repository, that default changes and lab servers need no token.
+ * activation service of 0.47 are gone. The repository is one default (DEFAULT_REPO).
+ * 0.51: releases are published to a public repository that holds only them (no source), so lab servers need no token. A token
+ * saved before (for the private repository) is not sent there. If the public repository has no release and a token is kept,
+ * the private one is asked as before (LEGACY_REPO), so an install keeps its updates whatever happens to the public one.
  */
 /** Where releases come from, unless config/update.json or UPDATE_REPO (tests) says otherwise. */
-export const DEFAULT_REPO = 'halogenrich/panoptica';
+export const DEFAULT_REPO = 'PANOPTICA-Labs/panopticalm';
+/** Where they came from until 0.50 (private: it needs the token). */
+export const LEGACY_REPO = 'halogenrich/panoptica';
 type Settings = { repo: string; token?: string };
 type Release = {
   version: string;
@@ -45,6 +50,8 @@ type Release = {
   notes: string;
   published: string;
   url: string;
+  /** the repository it was found in (0.51: the public one, or the private one as a fallback) */
+  repo?: string;
   zip?: { id: number; size: number; name: string };
   sha?: { id: number };
   sig?: { id: number };
@@ -85,19 +92,21 @@ export const newer = (a: string, b: string) => {
   return false;
 };
 
-async function gh(path: string, accept = 'application/vnd.github+json') {
-  const s = settings();
-  const r = await fetch(`${API}${path}`, {
+/** The token goes only to a repository other than the public default (0.51): the private one it was made for. */
+const tokenFor = (repo: string) => (repo === DEFAULT_REPO && !process.env.UPDATE_REPO ? undefined : settings().token);
+async function gh(path: string, accept = 'application/vnd.github+json', repo = settings().repo) {
+  const token = tokenFor(repo);
+  const r = await fetch(`${API}/repos/${repo}${path}`, {
     headers: {
       accept,
       'user-agent': 'panoptica-updater',
       'x-github-api-version': '2022-11-28',
-      ...(s.token ? { authorization: `Bearer ${s.token}` } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     redirect: 'follow',
     signal: AbortSignal.timeout(120_000),
   });
-  if (!s.token && [401, 403, 404].includes(r.status))
+  if (!token && [401, 403, 404].includes(r.status))
     throw new Error('GitHub refused the request: if the repository is private, add a read-only token below');
   if (r.status === 404) throw new Error('no release found, or the token cannot read this repository');
   if (r.status === 401 || r.status === 403)
@@ -114,7 +123,16 @@ export async function checkNow(current: string, notify = true): Promise<State> {
   const s = settings(),
     st = getState();
   try {
-    const j = (await (await gh(`/repos/${s.repo}/releases/latest`)).json()) as any;
+    let repo = s.repo,
+      j: any;
+    try {
+      j = await (await gh('/releases/latest', undefined, repo)).json();
+    } catch (e) {
+      // the public repository answered nothing: the private one, with the token kept from before 0.51
+      if (repo !== DEFAULT_REPO || !s.token || process.env.UPDATE_REPO) throw e;
+      repo = LEGACY_REPO;
+      j = await (await gh('/releases/latest', undefined, repo)).json();
+    }
     // this lab's package; else every module in one (releases before 0.46, and the fallback); else the name before 0.36
     const names: string[] = (j.assets ?? []).map((a: any) => a.name),
       zipName = [packageName(wanted()), 'panoptica.zip', 'perovskite-lab.zip'].find((n) => names.includes(n)),
@@ -126,6 +144,7 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       notes: j.body ?? '',
       published: j.published_at,
       url: j.html_url,
+      repo,
       zip: zipName ? { id: asset(zipName).id, size: asset(zipName).size, name: zipName } : undefined,
       sha: zipName && asset(zipName + '.sha256') ? { id: asset(zipName + '.sha256').id } : undefined,
       sig: zipName && asset(zipName + '.sig') ? { id: asset(zipName + '.sig').id } : undefined,
@@ -164,23 +183,24 @@ function remember(st: State, latest: Release | undefined, current: string, notif
 }
 
 async function download(): Promise<State> {
-  const s = settings(),
-    st = getState(),
-    rel = st.latest;
+  const st = getState(),
+    rel = st.latest,
+    repo = rel?.repo ?? settings().repo,
+    bin = 'application/octet-stream';
   if (!rel?.zip || !rel.sha) throw new Error('this release has no panoptica.zip with its checksum');
-  const sum = (await (await gh(`/repos/${s.repo}/releases/assets/${rel.sha.id}`, 'application/octet-stream')).text())
+  const sum = (await (await gh(`/releases/assets/${rel.sha.id}`, bin, repo)).text())
     .trim()
     .split(/\s+/)[0]
     .toLowerCase();
   const zip = Buffer.from(
-    await (await gh(`/repos/${s.repo}/releases/assets/${rel.zip.id}`, 'application/octet-stream')).arrayBuffer(),
+    await (await gh(`/releases/assets/${rel.zip.id}`, bin, repo)).arrayBuffer(),
   );
   const got = createHash('sha256').update(zip).digest('hex');
   if (!/^[0-9a-f]{64}$/.test(sum) || got !== sum)
     throw new Error('the downloaded file does not match its checksum; nothing was installed');
   // the checksum catches a damaged download; the signature says who made the package
   if (!rel.sig) throw new Error('this release is not signed by PANOPTICA; nothing was installed');
-  const sig = await (await gh(`/repos/${s.repo}/releases/assets/${rel.sig.id}`, 'application/octet-stream')).text();
+  const sig = await (await gh(`/releases/assets/${rel.sig.id}`, bin, repo)).text();
   if (!signedByPanoptica(zip, sig))
     throw new Error('the signature of this release is not PANOPTICA’s; nothing was installed');
   mkdirSync(DIR, { recursive: true });
@@ -205,7 +225,8 @@ function install(lan: boolean) {
   if (!f || !existsSync(f)) throw new Error('download the update first');
   writeFileSync(join(DIR, 'restarting'), new Date().toISOString()); // the start script's window closes instead of waiting for a key
   const args = [f, 'restart', ...(lan ? ['lan'] : [])],
-    env = { ...process.env, PSC_ROOT: ROOT, OPEN_BROWSER: '0' };
+    // the update script waits for this port to be free (0.51: the port is a setting, not always 3000)
+    env = { ...process.env, PSC_ROOT: ROOT, OPEN_BROWSER: '0', PORT: String(listening().port) };
   // the script replaces itself during the update, so a copy runs (a script edited while it runs can misbehave). An install made by
   // PANOPTICA Setup (0.49) has no scripts to run by hand: the update script is kept in internal/, for the app alone
   const script =
@@ -232,7 +253,6 @@ function install(lan: boolean) {
         'UPDATE_PUBLIC_KEY_FILE',
         'UPDATE_API',
         'UPDATE_REPO',
-        'PORT',
         'HOST',
       ];
     writeFileSync(
@@ -241,6 +261,7 @@ function install(lan: boolean) {
         '@echo off',
         ...keep.filter((k) => process.env[k]).map((k) => `set "${k}=${process.env[k]}"`),
         `set "PSC_ROOT=${ROOT}"`,
+        `set "PORT=${listening().port}"`,
         'set OPEN_BROWSER=0',
         `call "${run}" ${args.map((a) => `"${a}"`).join(' ')} >> "${join(DIR, 'update.log')}" 2>&1`,
         '',
@@ -329,6 +350,8 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
       current,
       repo: s.repo,
       tokenSet: !!s.token,
+      /** 0.51: the token is used only for a repository other than the default (or the fallback to LEGACY_REPO) */
+      tokenUsed: !!s.token && (s.repo !== DEFAULT_REPO || st.latest?.repo === LEGACY_REPO),
       defaultRepo: DEFAULT_REPO,
       ...st,
       available: !!st.latest && newer(st.latest.version, current),

@@ -115,7 +115,6 @@ const LABEL: Record<string, string> = {
   'POST /api/updates/install': 'Started installing an update',
   'GET /api/audit/export': 'Exported the activity log',
   'PUT /api/network': 'Changed the network settings',
-  'POST /api/tray/updates': 'Checked for updates from the tray icon on the server computer',
 };
 /** Changes not worth a line: presence, personal view settings, marking notifications read. */
 const SKIP = [
@@ -126,7 +125,7 @@ const SKIP = [
   // logged by the handlers themselves, with who and what
   /^POST \/api\/login\//,
   /^POST \/api\/setup$/,
-  /^POST \/api\/tray\/backup$/,
+  /^POST \/api\/tray\//,
   /^POST \/api\/network\/check$/,
   /^POST \/api\/access-requests/,
   /^POST \/api\/users$/,

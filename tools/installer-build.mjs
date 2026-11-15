@@ -6,7 +6,10 @@
 // Then, on Windows with Inno Setup:
 //   ISCC.exe /DAppVersion=<version> installer\panoptica.iss   → out\installer\
 // (Setup for macOS, 0.48 to 0.50, is gone since 0.51: the lab's server is a Windows mini PC.)
+// 0.51: also tray/PANOPTICA-tray.exe (installer/tray/Tray.cs, compiled with Windows' own .NET Framework compiler, or Mono's mcs
+// elsewhere) and panoptica.ico, the icon the helper gives PANOPTICA.exe.
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +31,41 @@ await build({
   logLevel: 'warning',
 });
 console.log('helper.cjs bundled');
+// the tray icon (0.51): C# 5, so the compiler every Windows has builds it; the icons go inside it
+{
+  const src = join(root, 'installer/tray'),
+    exe = join(out, 'tray', 'PANOPTICA-tray.exe');
+  mkdirSync(join(out, 'tray'), { recursive: true });
+  copyFileSync(join(src, 'panoptica.ico'), join(out, 'panoptica.ico'));
+  const csc = [
+    join(process.env.WINDIR ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'),
+    '/usr/bin/mcs',
+  ].find((f) => existsSync(f));
+  if (!csc) {
+    if (!args.includes('--helper-only'))
+      throw new Error('no C# compiler for the tray icon (Windows has one; elsewhere: mono-mcs)');
+  } else {
+    const mono = csc.endsWith('mcs');
+    execFileSync(
+      csc,
+      [
+        '-nologo',
+        ...(mono ? ['-langversion:5'] : []),
+        '-target:winexe',
+        '-optimize+',
+        `-win32icon:${join(src, 'panoptica.ico')}`,
+        `-resource:${join(src, 'panoptica.ico')},panoptica.ico`,
+        `-resource:${join(src, 'panoptica-stopped.ico')},panoptica-stopped.ico`,
+        '-r:System.Windows.Forms.dll',
+        '-r:System.Drawing.dll',
+        `-out:${exe}`,
+        join(src, 'Tray.cs'),
+      ].map((a) => (mono ? a : a.replace(/^-/, '/'))),
+      { stdio: 'inherit' },
+    );
+    console.log('tray/PANOPTICA-tray.exe compiled');
+  }
+}
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
 // the packages Setup carries (0.49): every panoptica-<modules>.zip with its signature (not panoptica.zip, the same bytes as the
 // package with every module, kept for labs before 0.46)

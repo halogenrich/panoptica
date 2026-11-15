@@ -5,15 +5,14 @@ import { createServer as createHttp, type IncomingMessage, type Server, type Ser
 import { createServer as createHttps } from 'node:https';
 import { createServer as createTcp, type AddressInfo } from 'node:net';
 import { hostname, networkInterfaces } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { connect, createServer as createTls, type SecureContextOptions } from 'node:tls';
 import type { FastifyInstance } from 'fastify';
 import { NetworkIn } from '@psc/schema';
 import { addressProblem, cleanAddress, defaultPort, isIp, labUrl, type NetOpen } from '@psc/core';
 import { db } from './db.js';
-import { CONFIG_DIR, ROOT, readConfig, writeConfig } from './config.js';
+import { CONFIG_DIR, readConfig, trayDir, writeConfig } from './config.js';
 import { isLocal } from './security.js';
-import { setupInstall } from './licence.js';
 import { notify } from './social.js';
 
 /**
@@ -255,15 +254,22 @@ async function up(net: Net, tls: SecureContextOptions | null, cert: Cert | null,
 
 /** For the tray icon and Setup, on an install made by Setup: where PANOPTICA answers on this computer (tray/server.json). */
 function status() {
-  const f =
-    process.env.PANOPTICA_STATUS_FILE ||
-    (setupInstall() && existsSync(join(ROOT, '..', 'tray')) ? join(ROOT, '..', 'tray', 'server.json') : '');
-  if (!f) return;
+  const d = trayDir();
+  if (!d) return;
+  const f = join(d, 'server.json');
   try {
-    if (!existsSync(dirname(f))) return;
+    if (!existsSync(d)) return;
     writeFileSync(
       f,
-      JSON.stringify({ pid: process.pid, port: live.port, https: live.https, version, at: new Date().toISOString() }),
+      JSON.stringify({
+        pid: process.pid,
+        port: live.port,
+        https: live.https,
+        version,
+        local: localUrl(),
+        url: publicUrl(),
+        at: new Date().toISOString(),
+      }),
     );
   } catch (e) {
     log(`could not write ${f}: ${(e as Error).message}`);

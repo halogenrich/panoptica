@@ -25,3 +25,13 @@ export function writeConfig(name: string, value: unknown) {
   }
 }
 export const hasConfig = (name: string) => existsSync(join(CONFIG_DIR, name));
+/**
+ * The tray icon's folder (0.51): next to the app folder on an install made by PANOPTICA Setup (config/install.json), where
+ * PANOPTICA leaves server.json and token for it; PANOPTICA_TRAY_DIR in tests. '' when there is none.
+ */
+export const trayDir = () =>
+  process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TRAY_DIR
+    ? process.env.PANOPTICA_TRAY_DIR
+    : hasConfig('install.json') && existsSync(join(ROOT, '..', 'tray'))
+      ? join(ROOT, '..', 'tray')
+      : '';

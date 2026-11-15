@@ -6,6 +6,8 @@ cd /d "%ROOTDIR%"
 title PANOPTICA - update
 
 rem update.bat [zip] [restart] [lan]   restart: started by the app (Admin settings > Updates); waits for it to stop, then starts it again
+rem the port PANOPTICA listens on (0.51: given by the app; 3000 when run by hand)
+if not defined PORT set PORT=3000
 set ZIP=%~1
 set MODE=%~2
 set NET=%~3
@@ -22,7 +24,7 @@ if "%ZIP%"=="" (
 )
 if /i "%MODE%"=="restart" (
   call :log Waiting for the app to stop...
-  powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ if(-not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue)){exit 0}; Start-Sleep 1 }; exit 1"
+  powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue)){exit 0}; Start-Sleep 1 }; exit 1"
   if errorlevel 1 call :log The app did not stop within 90 s.
 )
 if "%ZIP%"=="" (
@@ -31,7 +33,7 @@ if "%ZIP%"=="" (
   %HOLD% & exit /b 1
 )
 
-powershell -NoProfile -Command "if(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue){exit 1}"
+powershell -NoProfile -Command "if(Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue){exit 1}"
 if errorlevel 1 (
   call :log The app is running. Close its window first, then run update.bat again.
   %HOLD% & exit /b 1

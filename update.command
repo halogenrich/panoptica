@@ -11,9 +11,9 @@ back() {
 }
 fail() { echo "$1"; read -p "Press Enter"; exit 1; }
 [ -z "$ZIP" ] && ZIP=$(ls -t updates/panoptica*.zip updates/perovskite-lab*.zip "$HOME"/Downloads/panoptica*.zip "$HOME"/Downloads/perovskite-lab*.zip 2>/dev/null | head -1)
-if [ "$MODE" = restart ]; then for _ in $(seq 60); do lsof -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done; fi
+if [ "$MODE" = restart ]; then for _ in $(seq 60); do lsof -iTCP:${PORT:-3000} -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done; fi
 [ -z "$ZIP" ] && fail "No panoptica*.zip found in Downloads. Usage: ./update.command [path/to/zip]"
-if lsof -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then fail "The app is running. Close its window first, then run the update again."; fi
+if lsof -iTCP:${PORT:-3000} -sTCP:LISTEN >/dev/null 2>&1; then fail "The app is running. Close its window first, then run the update again."; fi
 OLD=$(node -p "require('./package.json').version")
 echo "Current version: $OLD"; echo "Update file:     $ZIP"
 # only packages signed by PANOPTICA are installed (the signature file sits next to the zip)

@@ -1,13 +1,12 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { ROOT } from './config.js';
+import { trayDir } from './config.js';
 import { isLocal } from './security.js';
 import { audit } from './audit.js';
 import { backupNow } from './backup.js';
 import { checkNow, newer } from './updates.js';
-import { setupInstall } from './licence.js';
 
 /**
  * The tray icon on the computer that runs PANOPTICA (0.51, Windows; `installer/tray`): a small program started when someone
@@ -17,13 +16,6 @@ import { setupInstall } from './licence.js';
  * Installing an update stays an admin's action in the app.
  */
 let token = '';
-/** The tray's folder: next to the app folder on an install made by Setup; PANOPTICA_TRAY_DIR in tests. */
-const trayDir = () =>
-  process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TRAY_DIR
-    ? process.env.PANOPTICA_TRAY_DIR
-    : setupInstall() && existsSync(join(ROOT, '..', 'tray'))
-      ? join(ROOT, '..', 'tray')
-      : '';
 
 export function registerTray(app: FastifyInstance, version: string) {
   const dir = trayDir();
@@ -60,11 +52,15 @@ export function registerTray(app: FastifyInstance, version: string) {
   });
   app.post('/api/tray/updates', { preHandler: gate }, async () => {
     const st = await checkNow(version);
+    audit({ username: 'server computer', action: 'Checked for updates from the tray icon on the server computer' });
     return {
       current: version,
       latest: st.latest?.version ?? null,
       available: !!st.latest && newer(st.latest.version, version),
-      error: st.error ?? '',
+      error:
+        st.error === 'fetch failed'
+          ? 'GitHub could not be reached: is this computer on the internet?'
+          : (st.error ?? ''),
     };
   });
 }
