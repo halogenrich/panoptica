@@ -4,7 +4,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
-import { createServer as createNetServer } from 'node:net';
+import { connect, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1883,6 +1883,208 @@ if (!BUILT && !CORE) {
     'started again, it opens the same folder and shows the same list',
   );
   ui2.kill();
+}
+
+console.log('Network settings and HTTPS, the tray icon (0.51)');
+{
+  const port5 = await freePort(),
+    cfg = join(tmp, 'config5'),
+    trayDir = join(tmp, 'tray5'),
+    fw = join(tmp, 'firewall5.log');
+  mkdirSync(cfg, { recursive: true });
+  mkdirSync(trayDir, { recursive: true });
+  let base5 = `http://127.0.0.1:${port5}`;
+  const s5 = spawn(process.execPath, serverArgs, {
+    cwd: serverCwd,
+    env: {
+      ...env,
+      PORT: String(port5),
+      DB_PATH: join(tmp, 'fresh5.db'),
+      CONFIG_DIR: cfg,
+      PANOPTICA_TRAY_DIR: trayDir,
+      PANOPTICA_TEST_FIREWALL: fw,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log5 = '';
+  s5.stdout.on('data', (x) => (log5 += x));
+  s5.stderr.on('data', (x) => (log5 += x));
+  for (let i = 0; i < 300 && !log5.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+  let c5 = '';
+  const j5 = async (m, path, body, headers = {}, b = base5) => {
+    const r = await fetch(b + path, {
+      method: m,
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(c5 ? { cookie: c5 } : {}), ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (r.headers.get('set-cookie')) c5 = r.headers.get('set-cookie').split(';')[0];
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  await j5('POST', '/api/login', { username: 'admin', password: PW });
+  const n0 = (await j5('GET', '/api/network')).j;
+  ok(
+    n0?.open === 'computer' && n0.port === port5 && !n0.https && n0.url === '' && n0.here,
+    'before any setting: as it was started (this computer, its port, no address)',
+  );
+  const st0 = JSON.parse(readFileSync(join(trayDir, 'server.json'), 'utf8'));
+  ok(st0.port === port5 && st0.local === `http://localhost:${port5}`, 'the tray icon is told the port and the address');
+  // only on this computer
+  ok(
+    (await j5('PUT', '/api/network', { open: 'network' }, { 'x-test-remote': '1' })).s === 403 &&
+      (await j5('GET', '/api/network', undefined, { 'x-test-remote': '1' })).j.here === false,
+    'from another computer the settings are shown, not changed',
+  );
+  // refused, and nothing changes
+  const bad = await j5('PUT', '/api/network', { open: 'network', address: 'lab server' });
+  ok(bad.s === 400 && /letters, digits/.test(bad.j.error), 'an address with a space is refused');
+  const held = createNetServer();
+  const heldPort = await freePort();
+  await new Promise((r) => held.listen(heldPort, '127.0.0.1', r));
+  const taken = await j5('PUT', '/api/network', { open: 'computer', port: heldPort });
+  ok(taken.s === 400 && /used by another program/.test(taken.j.error), 'a port another program holds is refused');
+  held.close();
+  ok(
+    (await j5('PUT', '/api/network', { open: 'network', address: 'lab.example', https: true })).j?.error?.includes(
+      'choose the certificate',
+    ),
+    'HTTPS without a certificate is refused',
+  );
+  ok(
+    (await j5('GET', '/api/version')).s === 200 && !existsSync(join(cfg, 'network.json')),
+    'after refusals: still on its port, nothing saved',
+  );
+  // the address alone: nothing listens again
+  const a = await j5('PUT', '/api/network', { open: 'network', address: 'https://Lab.Example:9/x', port: port5 });
+  ok(
+    a.s === 200 && a.j.address === 'lab.example' && a.j.url === `http://lab.example:${port5}`,
+    'the address is saved, cleaned',
+  );
+  ok((await j5('GET', '/api/lab/public')).j.url === `http://lab.example:${port5}`, 'the sign-in screen has it');
+  ok(readFileSync(fw, 'utf8').includes(`localport=${port5}`), 'the firewall lets the network reach the port');
+  // another port: PANOPTICA moves while it runs
+  const port6 = await freePort();
+  const moved = await j5('PUT', '/api/network', { open: 'computer', address: 'lab.example', port: port6 });
+  // open connections stay a moment (the answer to the change travels on one); a new one is refused
+  await new Promise((r) => setTimeout(r, 3000));
+  const old = await new Promise((r) => {
+    const sock = connect(port5, '127.0.0.1', () => {
+      sock.destroy();
+      r('open');
+    });
+    sock.on('error', () => r('closed'));
+  });
+  base5 = `http://127.0.0.1:${port6}`;
+  ok(moved.s === 200 && moved.j.port === port6 && old === 'closed', 'moved to another port; the old one is closed');
+  ok((await j5('GET', '/api/me')).s === 200, 'and the session still works there');
+  ok(
+    /delete rule name=PANOPTICA\s*$/.test(readFileSync(fw, 'utf8')),
+    'this computer alone: the firewall rule is removed',
+  );
+  ok(JSON.parse(readFileSync(join(trayDir, 'server.json'), 'utf8')).port === port6, 'the tray icon follows the port');
+  // the tray: a backup and an update check with its token, nothing without it
+  const token = readFileSync(join(trayDir, 'token'), 'utf8');
+  ok(
+    (await j5('POST', '/api/tray/backup', {}, { cookie: '' })).s === 403 &&
+      (await j5('POST', '/api/tray/backup', {}, { 'x-tray-token': token, 'x-test-remote': '1' })).s === 403,
+    'the tray’s requests need its token, from this computer',
+  );
+  const tb = await j5('POST', '/api/tray/backup', {}, { 'x-tray-token': token });
+  ok(tb.s === 200 && /manual/.test(tb.j.name), 'the tray icon makes a backup');
+  const tu = await j5('POST', '/api/tray/updates', {}, { 'x-tray-token': token });
+  ok(tu.s === 200 && tu.j.current && 'available' in tu.j, 'the tray icon checks for updates');
+  const acts = (await j5('GET', '/api/audit?limit=20')).j;
+  const list = JSON.stringify(acts);
+  ok(
+    list.includes('Made a backup from the tray icon on the server computer') &&
+      list.includes('Changed the network settings'),
+    'the activity log has the tray’s backup and the network changes',
+  );
+  // HTTPS with a certificate made here (when openssl is on this computer)
+  let ossl = true;
+  const certs = join(tmp, 'certs5');
+  mkdirSync(certs, { recursive: true });
+  const mk = (name, cn, days) =>
+    execFileSync(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        `${name}.key`,
+        '-out',
+        `${name}.pem`,
+        '-days',
+        String(days),
+        '-subj',
+        `/CN=${cn}`,
+        '-addext',
+        `subjectAltName=DNS:${cn}`,
+      ],
+      { cwd: certs, stdio: 'ignore' },
+    );
+  try {
+    mk('lab', 'lab.example', 20);
+    mk('other', 'other.example', 20);
+  } catch {
+    ossl = false;
+  }
+  if (!ossl) console.log('  (no openssl here: HTTPS checks skipped; the Installer workflow runs them on Windows)');
+  else {
+    const pem = readFileSync(join(certs, 'lab.pem'), 'utf8'),
+      key = readFileSync(join(certs, 'lab.key'), 'utf8');
+    const wrong = await j5('PUT', '/api/network', {
+      open: 'computer',
+      address: 'lab.example',
+      https: true,
+      cert: { pem, key: readFileSync(join(certs, 'other.key'), 'utf8') },
+    });
+    ok(wrong.s === 400 && /does not belong/.test(wrong.j.error), 'a key that is not the certificate’s is refused');
+    const name = await j5('PUT', '/api/network', {
+      open: 'computer',
+      address: 'lab2.example',
+      https: true,
+      cert: { pem, key },
+    });
+    ok(
+      name.s === 400 && /for lab\.example, not for lab2\.example/.test(name.j.error),
+      'a certificate for another name is refused',
+    );
+    const port7 = await freePort();
+    const h = await j5('PUT', '/api/network', {
+      open: 'computer',
+      address: 'lab.example',
+      https: true,
+      port: port7,
+      cert: { pem, key },
+    });
+    ok(h.s === 200 && h.j.https && h.j.certificate?.days <= 20, 'HTTPS with the certificate and its key');
+    const https = await import('node:https');
+    const got = await new Promise((res) =>
+      https
+        .get(`https://127.0.0.1:${port7}/api/lab/public`, { rejectUnauthorized: false }, (r) => {
+          let d = '';
+          r.on('data', (x) => (d += x));
+          r.on('end', () => res(JSON.parse(d)));
+        })
+        .on('error', () => res(null)),
+    );
+    ok(got?.url === `https://lab.example:${port7}`, 'it answers with HTTPS, and gives the https address');
+    ok(
+      existsSync(join(cfg, 'tls-cert.pem')) && existsSync(join(cfg, 'tls-key.pem')),
+      'the certificate is kept on this computer',
+    );
+    const notes = new DatabaseSync(join(tmp, 'fresh5.db'))
+      .prepare("SELECT text FROM notifications WHERE kind='certificate'")
+      .all();
+    ok(
+      notes.length === 1 && /expires on .*days left/.test(notes[0].text),
+      'admins are told the certificate expires within 30 days',
+    );
+  }
+  s5.kill();
 }
 
 db.close();

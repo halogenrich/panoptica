@@ -99,7 +99,7 @@ Lab id: \`${labId}\` (the builder needs it for this lab's next licences).
 ## On the lab's server
 
 1. Copy \`licence.json\` to the server (a USB stick is fine). The internet is not needed.
-2. Run PANOPTICA Setup ${version} or later (the Windows \`.exe\` or the macOS \`.dmg\` from the release), as an administrator.
+2. Run PANOPTICA Setup ${version} or later (the \`.exe\` from the release), as an administrator.
    On the Licence file page, choose \`licence.json\`: Setup shows the lab, the modules and the tier. Setup installs the package
    for these modules and starts PANOPTICA in the background whenever the computer starts.
 3. ${

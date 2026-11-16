@@ -102,6 +102,15 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
   const start = (() => {
     const r = parseRoute();
+    // #/updates and #/network (0.51: the tray icon opens Updates) are tabs of Admin settings
+    if (r && (r.view === 'updates' || r.view === 'network') && me.role === 'admin') {
+      try {
+        localStorage.setItem('psc-admin-tab', r.view);
+      } catch {
+        /* private window */
+      }
+      return { view: 'users', id: null };
+    }
     if (!r || !KEYS.has(r.view)) return null;
     if (r.view === 'dash' && !(me.role === 'admin' || me.professor || me.manager)) return null;
     if (r.view === 'users' && me.role !== 'admin') return null;
@@ -172,9 +181,10 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
   };
   const openLink = (l: { view: string; id: number | null }) => {
     setPop('');
-    if (l.view === 'users' || l.view === 'requests') {
+    if (l.view === 'users' || l.view === 'requests' || l.view === 'network') {
       try {
-        localStorage.setItem('psc-admin-tab', l.view === 'requests' ? 'requests' : 'updates');
+        // an Admin settings tab: access requests, the network (certificate notices, 0.51), else updates
+        localStorage.setItem('psc-admin-tab', l.view === 'users' ? 'updates' : l.view);
       } catch {
         /* ignore */
       }

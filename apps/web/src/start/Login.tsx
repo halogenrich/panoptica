@@ -46,6 +46,12 @@ export function SignInFrame({
       </div>
       <section className="signin-panel">
         <Wordmark lab={lab.name} />
+        {/* the lab's address (0.51): where to open PANOPTICA, also when this page was reached another way */}
+        {!preview && lab.url && (
+          <a className="signin-address small" href={lab.url}>
+            {lab.url.replace(/^https?:\/\//, '')}
+          </a>
+        )}
         <div className="signin-body">{children}</div>
         {(showName || showInst) && (
           <div className="signin-foot">

@@ -3,6 +3,7 @@ import { api } from './api';
 import { LabCtx, MeCtx, PrefCtx, brandText, type LabPublic, type Me, type Prefs } from './ctx';
 import Shell from './Shell';
 import { live, stopLive } from './lib/live';
+import { setLabUrl } from './lib/route';
 import Login from './start/Login';
 import Setup, { SetupCode, SetupElsewhere } from './start/Setup';
 import { PasswordRules, passwordOk } from './start/parts';
@@ -14,7 +15,10 @@ export default function App() {
     [setupCode, setSetupCode] = useState('');
   const loadLab = () =>
     api<LabPublic>('/lab/public')
-      .then(setLab)
+      .then((l) => {
+        setLabUrl(l.url);
+        setLab(l);
+      })
       .catch(() => {});
   useEffect(() => {
     loadLab();
@@ -75,10 +79,10 @@ export default function App() {
             <Shell me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
           </MeCtx.Provider>
         ) : lab.setup === 'here' ? (
-          <Setup onDone={signedIn2} />
+          <Setup onDone={signedIn2} net0={lab.network} />
         ) : lab.setup === 'code' ? (
           setupCode ? (
-            <Setup onDone={signedIn2} code={setupCode} />
+            <Setup onDone={signedIn2} code={setupCode} net0={lab.network} />
           ) : (
             <SetupCode lab={lab} onOk={setSetupCode} />
           )

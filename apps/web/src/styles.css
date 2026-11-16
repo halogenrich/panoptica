@@ -8578,3 +8578,59 @@ input[type='color']:focus-visible {
 .lic-missing p {
   margin: 0;
 }
+
+/* ============ network settings (0.51): Admin settings › Network and the first setup's Network step ============ */
+.net-form {
+  gap: 16px;
+}
+/* a field whose control is a toggle: the toggle as wide as its choices (0.51) */
+.fld.seg-fld {
+  justify-items: start;
+}
+.net-https {
+  display: grid;
+  gap: 5px;
+}
+.net-url {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* the certificate: its format, then the files, indented under the HTTPS box they belong to */
+.net-cert {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding-left: 26px;
+}
+.net-files {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.net-files.pem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.net-files .fld {
+  width: min(280px, 100%);
+}
+.net-file .small {
+  overflow-wrap: anywhere;
+}
+.net-port input {
+  width: 110px;
+}
+.net-port {
+  justify-items: start;
+}
+/* the lab's address under the wordmark on the sign-in panel */
+.signin-address {
+  margin-top: 6px;
+  color: var(--mut);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.signin-address:hover {
+  color: var(--ac);
+}

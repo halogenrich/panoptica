@@ -13,9 +13,12 @@ export function parseRoute(hash = window.location.hash): Route | null {
   return m ? { view: m[1], id: m[2] ? +m[2] : null } : null;
 }
 export const routeHash = (view: string, id?: number | null) => `#/${view}${id ? '/' + id : ''}`;
-/** The full address of an item, as people open it (the address this browser uses for the app). */
+let labUrl = '';
+/** The lab's address (0.51, Admin settings › Network), used in copied links in place of the one this browser happens to use. */
+export const setLabUrl = (u?: string) => (labUrl = (u ?? '').replace(/\/$/, ''));
+/** The full address of an item, as people open it: the lab's address, else the address this browser uses for the app. */
 export const itemUrl = (view: string, id?: number | null) =>
-  window.location.origin + window.location.pathname + routeHash(view, id);
+  (labUrl ? labUrl + '/' : window.location.origin + window.location.pathname) + routeHash(view, id);
 
 /** Adds a history entry for the route, unless the address already is that. */
 export function pushRoute(view: string, id?: number | null) {

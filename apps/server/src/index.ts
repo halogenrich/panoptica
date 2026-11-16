@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { randomBytes } from 'node:crypto';
-import { hostname, networkInterfaces } from 'node:os';
+import { createServer } from 'node:http';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,6 +36,8 @@ import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
 import { registerUpdates } from './updates.js';
 import { registerEvents } from './events.js';
 import { registerLab, setupNeeded } from './lab.js';
+import { listening, localUrl, registerNetwork, startNetwork } from './network.js';
+import { registerTray } from './tray.js';
 import {
   BACKUP_DIR,
   backupKey,
@@ -75,18 +77,20 @@ if (process.env.PANOPTICA_TEST === '1' && process.env.PANOPTICA_TEST_MODULE)
 // a licence the installer left is installed before anything starts (with modules, the first of them did this already)
 const lic = licenceStart();
 
-// HTTPS: either the university's web server in front of the app (TRUST_PROXY=1, it forwards the client address and https),
-// or the app itself with a certificate (TLS_CERT and TLS_KEY: paths to PEM files).
-const tls =
-  process.env.TLS_CERT && process.env.TLS_KEY
-    ? { cert: readFileSync(process.env.TLS_CERT), key: readFileSync(process.env.TLS_KEY) }
-    : null;
+// HTTPS: the app itself with a certificate (0.51: Admin settings › Network; before, TLS_CERT and TLS_KEY, still read), or the
+// university's web server in front of it (TRUST_PROXY=1: it forwards the client address and https).
+// The listening is network.ts's (0.51): it can change port, address and certificate while PANOPTICA runs, so Fastify gets a
+// server it never listens on and hands over its request handler.
+let routing: Parameters<typeof createServer>[1] = () => {};
 const app = Fastify({
   logger: true,
   trustProxy: process.env.TRUST_PROXY === '1',
-  ...(tls ? { https: tls } : {}),
+  serverFactory: (handler: typeof routing) => {
+    routing = handler;
+    return createServer();
+  },
 } as Parameters<typeof Fastify>[0]) as unknown as FastifyInstance;
-const HTTPS = !!tls || process.env.SECURE_COOKIES === '1';
+const HTTPS = process.env.SECURE_COOKIES === '1';
 await app.register(cookie);
 registerSecurity(app);
 const WEEK = 7 * 864e5,
@@ -548,18 +552,9 @@ const VERSION = JSON.parse(
 ).version;
 /** The version, and the modules installed (the app shows only their pages). */
 app.get('/api/version', async () => ({ version: VERSION, modules: modules().map((m) => m.id) }));
-/** Where other devices can reach the app: only when it was started for the network (start-network / start lan). */
-app.get('/api/network', { preHandler: auth() }, async () => {
-  const host = process.env.HOST || '127.0.0.1',
-    lan = host === '0.0.0.0' || host === '::',
-    port = +(process.env.PORT || 3000);
-  const addresses = Object.entries(networkInterfaces()).flatMap(([name, list]) =>
-    (list ?? [])
-      .filter((a) => a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
-      .map((a) => ({ name, address: a.address })),
-  );
-  return { lan, port, host: hostname(), addresses };
-});
+/** Who can open it, the lab's address, the port and HTTPS (0.51), and where other devices reach it (the phone invitation). */
+registerNetwork(app, auth, bad, setupNeeded);
+registerTray(app, VERSION);
 
 // ---- admin: database backups ----
 app.get('/api/backups', { preHandler: auth(true) }, async () => ({
@@ -606,9 +601,9 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
   const old = Date.now() - 90 * 864e5;
   return {
     https: req.protocol === 'https',
-    tls: !!tls,
+    tls: listening().https,
     trustProxy: process.env.TRUST_PROXY === '1',
-    lan: ['0.0.0.0', '::'].includes(process.env.HOST || ''),
+    lan: listening().open === 'network',
     admins: users.filter((u) => u.role === 'admin').map((u) => u.name),
     temporary: users.filter((u) => u.must_change).map((u) => u.name),
     idle: users
@@ -619,7 +614,11 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
   };
 });
 scheduleBackups((m) => app.log.info(m));
-await app.listen({ port: +(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });
+await app.ready();
+const net = await startNetwork(routing, VERSION, (m) => app.log.info(m));
+app.log.info(`Server listening at ${localUrl()}`); // the line Fastify's own listen printed; scripts and tests wait for it
+console.log(`  PANOPTICA ${VERSION}: ${localUrl()}${net.net.open === 'network' ? ' (open to the network)' : ''}`);
+if (net.note) console.log('  ' + net.note);
 if (lic) console.log('  ' + lic);
 if (licenceState().critical)
   console.log(
@@ -630,6 +629,6 @@ if (skippedModules().length)
 if (setupNeeded())
   console.log(
     hasSetupCode()
-      ? `\n  PANOPTICA is not set up yet. Open it from any computer on the network (port ${process.env.PORT || 3000}) and enter the setup code from the install sheet, or open http://localhost:${process.env.PORT || 3000} on this computer.\n`
-      : `\n  PANOPTICA is not set up yet. Open http://localhost:${process.env.PORT || 3000} on this computer to create the first admin and set up the lab.\n`,
+      ? `\n  PANOPTICA is not set up yet. Open it from any computer on the network (port ${net.port}) and enter the setup code from the install sheet, or open ${localUrl()} on this computer.\n`
+      : `\n  PANOPTICA is not set up yet. Open ${localUrl()} on this computer to create the first admin and set up the lab.\n`,
   );
