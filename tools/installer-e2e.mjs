@@ -89,6 +89,13 @@ const pwsh = (c) => spawnSync('powershell.exe', ['-NoProfile', '-Command', c], {
 /** The firewall rule PANOPTICA keeps (0.51), as netsh shows it. */
 const rule = () =>
   spawnSync('netsh', ['advfirewall', 'firewall', 'show', 'rule', 'name=PANOPTICA'], { encoding: 'utf8' }).stdout;
+/** PANOPTICA changes the firewall rule in the background (netsh takes a second or two): waits for it, up to 15 s. */
+const ruleBecomes = async (test) => {
+  let r = '';
+  for (let i = 0; i < 30 && !test((r = rule())); i++) await sleep(500);
+  if (!test(r)) console.log(r);
+  return test(r);
+};
 /** The tray icon's test modes: --status, --backup. */
 const trayRun = (a) => {
   const r = spawnSync(join(DIR, 'tray', 'PANOPTICA-tray.exe'), [a], { encoding: 'utf8', timeout: 120_000 });
@@ -245,7 +252,7 @@ try {
     desc === 'PANOPTICA' && +procs >= 1,
     `PANOPTICA runs as PANOPTICA.exe, described as PANOPTICA (${desc}, ${procs})`,
   );
-  ok(/LocalPort:\s+80\b/.test(rule()), 'the firewall lets the network reach port 80');
+  ok(await ruleBecomes((r) => /LocalPort:\s+80\b/.test(r)), 'the firewall lets the network reach port 80');
   const trayExe = join(DIR, 'tray', 'PANOPTICA-tray.exe');
   spawn(trayExe, [], { detached: true, stdio: 'ignore' }).unref();
   await sleep(5000);
@@ -320,7 +327,10 @@ try {
   let n = await call('PUT', '/api/network', { open: 'computer', address: 'panoptica-e2e.example', port: 8080 });
   ok(n.s === 200 && n.j?.port === 8080, 'moved to port 8080, this computer alone');
   ok((await fetch('http://127.0.0.1:8080/api/version')).ok, 'it answers on port 8080');
-  ok(!/Rule Name:\s+PANOPTICA/.test(rule()), 'the firewall rule is gone: only this computer may open it');
+  ok(
+    await ruleBecomes((r) => !/Rule Name:\s+PANOPTICA/.test(r)),
+    'the firewall rule is gone: only this computer may open it',
+  );
   await sleep(1500);
   ok(trayRun('--status').out.startsWith(`running ${v0} http://localhost:8080`), 'the tray icon follows the port');
   const base80 = base;
@@ -390,7 +400,10 @@ try {
     plain.status === 301 && plain.location === 'https://panoptica-e2e.example/batches',
     'port 80 sends people on to HTTPS',
   );
-  ok(/LocalPort:\s+(443,80|80,443)\b/.test(rule()), 'the firewall lets the network reach ports 443 and 80');
+  ok(
+    await ruleBecomes((r) => /LocalPort:\s+(443,80|80,443)\b/.test(r)),
+    'the firewall lets the network reach ports 443 and 80',
+  );
   await sleep(1500);
   ok(
     trayRun('--status').out.startsWith(`running ${v0} https://panoptica-e2e.example`),

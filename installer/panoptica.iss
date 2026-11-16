@@ -112,12 +112,14 @@ begin
   Result := '';
   Dir := ExpandConstant('{app}');
   if not FileExists(Dir + '\node\node.exe') then exit;
+  { the tray icons first, every signed-in person's, by name: the name is PANOPTICA's alone (0.51) }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM PANOPTICA-tray.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -ExecutionPolicy Bypass -Command "$d = ''' + Dir + '''; ' +
     '$ours = @($d + ''\node\node.exe'', $d + ''\node\PANOPTICA.exe'', $d + ''\tray\PANOPTICA-tray.exe''); ' +
     'Stop-ScheduledTask -TaskName PANOPTICA -ErrorAction SilentlyContinue; ' +
     'for ($i = 0; $i -lt 30; $i++) { ' +
-    '$p = @(Get-Process -Name node, PANOPTICA, PANOPTICA-tray -ErrorAction SilentlyContinue | Where-Object { $ours -contains $_.Path }); ' +
+    '$p = @(Get-Process -Name node, PANOPTICA -ErrorAction SilentlyContinue | Where-Object { $ours -contains $_.Path }) + @(Get-Process -Name PANOPTICA-tray -ErrorAction SilentlyContinue); ' +
     'if ($p.Count -eq 0) { exit 0 }; ' +
     '$p | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1 }; exit 1"',
     '', SW_HIDE, ewWaitUntilTerminated, Code);
