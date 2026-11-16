@@ -937,13 +937,19 @@ function Results({
     // the table sits at the bottom of the slide; the figures take the height above it, as large as the width allows
     tTop = 1040 - 36 - rh * tRows.length,
     hasJv = jvItems.length > 0,
-    // the J–V figure keeps its shape at the full height; the box plots take the rest of the width and the same height
     fh = tTop - 40 - 190,
-    jw = hasJv ? Math.min((760 / 520) * fh, 900) : 0,
+    // 0.51.2: the box plots first, so each panel is a little wider than tall (wider with more groups: two boxes per group); the
+    // J–V figure, at least 680 px wide, takes the rest. They were squashed when the J–V figure took its full 900 px first
+    nP = panels.length,
+    pCols = nP <= 2 ? Math.max(nP, 1) : nP <= 4 ? 2 : 3,
+    pRows = Math.ceil(nP / pCols) || 1,
+    aspect = Math.min(1.6, Math.max(1, 0.6 + 0.15 * new Set(rows.map((r) => r.gid)).size)),
+    bw = Math.min(1740 - (hasJv ? 740 : 0), (fh * pCols * aspect) / pRows),
+    bh = Math.min(fh, (bw * pRows) / (pCols * aspect)),
+    jw = hasJv ? Math.min(1740 - 60 - bw, (760 / 520) * fh, 900) : 0,
     jh = hasJv ? (520 / 760) * jw : 0,
-    bw = 1830 - 90 - (hasJv ? jw + 60 : 0),
-    bh = Math.min(fh, bw * 0.75),
-    mEnd = refGroup ? 1690 : 1830,
+    // the last column, PCE relative to the reference, needs about 160 px
+    mEnd = refGroup ? 1660 : 1830,
     mw = (mEnd - 700) / Math.max(show.length, 1),
     // [label, unit, x of the right edge]; the first column (group) starts at the left margin
     cols: [string, string, number][] = [
@@ -978,10 +984,16 @@ function Results({
             )}
           </g>
         ))}
+        {/* on two lines like the other headers with a unit: on one line it ran over the last parameters' headers (0.51.2) */}
         {refGroup && (
-          <text x={1830} y={tTop} textAnchor="end" fill="#5f6570" fontSize={tfs - 4}>
-            PCE relative to the reference
-          </text>
+          <g textAnchor="end">
+            <text x={1830} y={tTop} fill="#5f6570" fontSize={tfs - 4}>
+              PCE relative
+            </text>
+            <text x={1830} y={tTop + 24} fill="#8a8f98" fontSize={tfs - 8}>
+              to the reference
+            </text>
+          </g>
         )}
         <line x1={90} x2={1830} y1={tTop + 36} y2={tTop + 36} stroke="#c7cad1" strokeWidth={1.5} />
         {tRows.map((t, i) => {

@@ -411,6 +411,41 @@ try {
           const s = await exportPng(name);
           expect(s.w >= 1000 && s.h >= 1000, `${name}: the export is ${s.w} × ${s.h} px`);
         }
+        if (process.env.SHOTS) {
+          // to look at (0.51.2): the ITO seen steeply from above, and the layers' order seen from below, exploded
+          const view = page.locator('.viewer').first(),
+            bb = await view.boundingBox(),
+            cx = bb.x + bb.width / 2,
+            cy = bb.y + bb.height / 2;
+          await page.getByRole('button', { name: 'View settings' }).click(); // closed, so the stack fills the view
+          await page.mouse.move(cx, cy);
+          await page.mouse.wheel(0, -700);
+          const drag = async (dx, dy) => {
+            await page.mouse.move(cx, cy);
+            await page.mouse.down();
+            await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
+            await page.mouse.up();
+            await page.waitForTimeout(1200);
+          };
+          for (const [name, dx, dy] of [
+            ['view-steep.png', 0, 160],
+            ['view-steep-turned.png', 220, 0],
+            ['view-low.png', 0, -260],
+            ['view-mid.png', 0, 90],
+          ]) {
+            await drag(dx, dy);
+            await view.screenshot({ path: join(root, 'out', name) });
+          }
+          await page.getByRole('button', { name: 'View settings' }).click();
+          await page.getByRole('button', { name: 'Flip: view from below' }).click();
+          await page.getByRole('button', { name: 'View settings' }).click();
+          await page.waitForTimeout(1500);
+          await view.screenshot({ path: join(root, 'out', 'view-flipped.png') });
+          await drag(0, 200);
+          await view.screenshot({ path: join(root, 'out', 'view-flipped-steep.png') });
+          await page.getByRole('button', { name: 'View settings' }).click();
+          await page.getByRole('button', { name: 'Show top side' }).click();
+        }
         // the legend switch is remembered in this browser: back as it was for the other flows
         if (!(await legend.isChecked())) await legend.click();
         await page.getByRole('button', { name: 'Tags', exact: true }).click();
@@ -502,6 +537,62 @@ try {
       const one = (await api('GET', `/iv/${list[0].id}`)).j;
       expect((one.curves ?? []).length === 4, `expected 4 curves, got ${(one.curves ?? []).length}`);
       await page.getByText(/PCE/).first().waitFor();
+    });
+
+  if (!CORE)
+    await step('a comparison’s slide: box plots wider than tall, no table header over another (0.51.2)', async () => {
+      const devs = (await api('GET', '/comparisons/devices')).j;
+      expect(devs?.length > 0, 'no device to compare');
+      const m = devs[0],
+        member = { set: m.set, sample: m.sample, substrate: m.substrate };
+      const r = await api('POST', '/comparisons', {
+        name: 'Browser comparison',
+        data: {
+          groups: [
+            { id: 'a', name: 'Reference', ref: true, members: [member] },
+            { id: 'b', name: 'Without annealing', members: [member] },
+            { id: 'c', name: 'With annealing', members: [member] },
+          ],
+        },
+      });
+      expect(r.s === 200, 'comparison not saved: ' + JSON.stringify(r.j));
+      await page.goto(`${base}/#/cmp/${r.j.id}`);
+      await later();
+      const slide = async (as) => {
+        await page.getByRole('button', { name: 'Export', exact: true }).first().click();
+        const row = page.locator('.ov-exp-row').filter({ hasText: 'Box plots, J–V and table' });
+        const [dl] = await Promise.all([
+          page.waitForEvent('download'),
+          row.getByRole('menuitem', { name: as.toUpperCase() }).click(),
+        ]);
+        return (await import('node:fs')).readFileSync(await dl.path());
+      };
+      const svg = (await slide('svg')).toString('utf8');
+      if (process.env.SHOTS) writeFileSync(join(root, 'out', 'comparison-slide.png'), await slide('png'));
+      // laid out in a page of its own: the table's headers (grey) must not run into each other
+      const p2 = await ctx.newPage();
+      await p2.setContent(`<!doctype html><body style="margin:0">${svg}</body>`);
+      const got = await p2.evaluate(() => {
+        const root = document.querySelector('body > svg');
+        const heads = [...root.querySelectorAll(':scope > g text')]
+          .filter((t) => t.getAttribute('fill') === '#5f6570')
+          .map((t) => ({ s: t.textContent, b: t.getBBox() }));
+        const clash = [];
+        for (let i = 0; i < heads.length; i++)
+          for (let j = i + 1; j < heads.length; j++) {
+            const a = heads[i].b,
+              b = heads[j].b;
+            if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height)
+              clash.push(`${heads[i].s} / ${heads[j].s}`);
+          }
+        const box = root.querySelector(':scope > svg');
+        return { clash, n: heads.length, w: +box.getAttribute('width'), h: +box.getAttribute('height') };
+      });
+      await p2.close();
+      expect(got.n >= 4, `table headers not found (${got.n})`);
+      expect(!got.clash.length, 'table headers overlap: ' + got.clash.join(', '));
+      // six panels in three columns and two rows: the box plots' area at least 1.5 times as wide as tall
+      expect(got.w / got.h >= 1.5, `the box plots are squashed: ${Math.round(got.w)} × ${Math.round(got.h)}`);
     });
 
   await step(
