@@ -7,7 +7,7 @@ import { notify } from './social.js';
 import { isLocal, weakPassword, type Limiter } from './security.js';
 import { audit, ipOf } from './audit.js';
 import { hasSetupCode, noRoom, setupCodeOk } from './licence.js';
-import { applyNetwork, listening, planNetwork, publicUrl, settings as netSettings } from './network.js';
+import { applyNetwork, listening, localUrl, planNetwork, publicUrl, settings as netSettings } from './network.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -139,6 +139,10 @@ export function registerLab(
       url: publicUrl(),
       // 'code' (0.46): from another computer, with the one-time setup code on the install sheet
       setup: setupNeeded() ? (isLocal(req) ? 'here' : hasSetupCode() ? 'code' : 'elsewhere') : null,
+      // how PANOPTICA listens, for the first setup's Network step (0.51); nothing once it is set up
+      ...(setupNeeded()
+        ? { network: { open: listening().open, port: listening().port, https: listening().https } }
+        : {}),
       // professors, offered as supervisors on the request form
       professors: db
         .prepare(
@@ -266,7 +270,8 @@ export function registerLab(
           target: (e as Error).message,
         });
       }
-    return { id, username };
+    // where this computer opens PANOPTICA now: the browser follows it when the port or HTTPS changed
+    return { id, username, local: localUrl() };
   });
 
   // ---- sign-in, step by step: what the username needs next ----

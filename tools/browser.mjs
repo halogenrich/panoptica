@@ -175,7 +175,13 @@ try {
     await page.locator('.setup-page').getByRole('tab', { name: 'Acronym' }).click();
     await page.locator('.setup-rail').getByText('Test Lab').waitFor();
     await page.getByLabel('Institution', { exact: true }).fill('Example University');
-    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    // the Network step (0.51): the lab's address, checked by the server before going on
+    await page.getByRole('heading', { name: 'Network' }).waitFor();
+    await page.getByLabel('The lab’s address').fill('HTTP://Panoptica-Browser.Example/');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('heading', { name: 'Sign-in screen' }).waitFor();
+    for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Continue' }).click();
     await page.locator('.setup-foot .btn').click(); // finish
     await page.locator('.top .brand').getByText('Test Lab').waitFor();
     await later();
@@ -197,9 +203,52 @@ try {
     );
   });
 
+  await step('Admin settings › Network shows the lab’s address; the sign-in footer is a toggle', async () => {
+    const port = new URL(base).port;
+    const url = `http://panoptica-browser.example${port && port !== '80' ? ':' + port : ''}`;
+    await page.getByRole('tab', { name: 'Network', exact: true }).click();
+    await page.locator('.net dd').getByText(url, { exact: true }).waitFor();
+    expect((await api('GET', '/lab/public')).j.url === url, 'the lab’s address is not public');
+    // nothing changed: Save stays off; a wrong address is named before saving
+    const save = page.locator('.net-form').getByRole('button', { name: 'Save' });
+    expect(await save.isDisabled(), 'Save is on with nothing changed');
+    await page.getByLabel('The lab’s address').fill('lab server');
+    await page
+      .locator('.net-form .err')
+      .getByText(/letters, digits/)
+      .waitFor();
+    await page.getByLabel('The lab’s address').fill('panoptica-browser.example');
+    // the footer of the sign-in panel: Name / Logo / Both, shown once there is an institution logo
+    await page.getByRole('tab', { name: 'Lab setup', exact: true }).click();
+    await page
+      .locator('.fld', { hasText: 'Institution logo' })
+      .locator('input[type=file]')
+      .setInputFiles({
+        name: 'inst.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      });
+    await page.getByRole('tab', { name: 'Both', exact: true }).click();
+    // Lab setup saves section by section: the Save of the section that holds the footer
+    await page
+      .locator('section, form')
+      .filter({ hasText: 'At the bottom of the sign-in panel' })
+      .last()
+      .getByRole('button', { name: 'Save', exact: true })
+      .click();
+    let foot = '';
+    for (let i = 0; i < 40 && foot !== 'both'; i++, await page.waitForTimeout(250))
+      foot = (await api('GET', '/lab/public')).j.foot;
+    expect(foot === 'both', `the footer was saved as ${foot}, not Both`);
+  });
+
   await step('sign out and sign in again', async () => {
     await page.getByRole('button', { name: 'Sign out' }).first().click();
     await page.getByRole('heading', { name: 'Sign in' }).waitFor();
+    await page.locator('.signin-address').getByText('panoptica-browser.example').waitFor();
     await page.getByLabel('Username').fill(username);
     await page.getByLabel('Password').fill(PW);
     await page.keyboard.press('Enter');

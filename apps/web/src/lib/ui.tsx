@@ -17,6 +17,8 @@ export function Seg<T extends string>({
       {opts.map(([k, l]) => (
         <button
           key={k}
+          // never submits the form it sits in (0.51: the sign-in footer toggle in Lab setup saved the form when clicked)
+          type="button"
           role="tab"
           aria-selected={k === value}
           className={k === value ? 'on' : ''}

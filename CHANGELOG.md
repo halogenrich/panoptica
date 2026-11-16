@@ -2,6 +2,21 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.51.0 (2026-11-15)
+
+- **Network settings in PANOPTICA**: Admin settings has a **Network** tab, and the first setup a **Network** step: who can open PANOPTICA (this computer, or the network), the lab's address (the name IT gave the computer), the port, and HTTPS with a certificate from IT (a certificate and key file, or one PFX file with its password). Saving applies them at once, without stopping PANOPTICA. If the address, port or certificate is wrong (a key that does not belong to the certificate, a certificate that expired or is for another name, a port another program uses), nothing changes and the reason is shown. These settings are changed on the computer that runs PANOPTICA; from other computers the tab shows them.
+- **The lab's address** shows on the sign-in screen, and copied links and the phone invitation use it.
+- **HTTPS**: with a certificate, PANOPTICA answers on port 443 and sends people who type `http://` on to it. Admins are told 30 days, and again 7 days, before the certificate expires.
+- **The firewall follows the setting** on an install made by PANOPTICA Setup: open to the network, or closed when only this computer may open PANOPTICA.
+- **Tray icon** on the computer that runs PANOPTICA: it shows whether PANOPTICA is running, starting or stopped. Right-click for Open PANOPTICA, Copy the lab's address, Check for updates (a newer version opens Admin settings › Updates, where an admin installs it), Make a backup (in the activity log as made from the server computer) and Restart PANOPTICA (Windows asks for an administrator).
+- **PANOPTICA in Task Manager**: it runs as `PANOPTICA.exe`, with its own name and icon, instead of Node.js.
+- **PANOPTICA Setup** no longer asks whether the network may open PANOPTICA (that is in PANOPTICA now). A new install is open to the network on port 80 until its first setup, so the first setup can be done from another computer with the setup code; the Network step then decides. An install that is upgraded keeps what it had (port 3000). A new page, **What will be installed**, lists PANOPTICA, the Node.js version it runs on and the tray icon; nothing is downloaded.
+- **Updates come from PANOPTICA's public releases**, with no token needed. A token saved before keeps working as a fallback.
+- **PANOPTICA Setup for macOS is gone**: the lab's server is a Windows computer. A Mac can still run PANOPTICA from the zip with `start.command`.
+- At the bottom of the sign-in panel: **Name / Logo / Both** is a toggle, like Full name / Acronym, shown once there is an institution logo.
+- Fix: clicking a toggle inside a form no longer saves the form.
+- Manual installs keep port 3000 and their start scripts until an admin changes the network settings.
+
 ## 0.50.2 (2026-11-15)
 
 - **PANOPTICA Setup on Windows can be run over a PANOPTICA that is running.** It stopped with "DeleteFile failed; code 5. Access is denied." at `node.exe`, because the running PANOPTICA was using that file. Setup now stops PANOPTICA first, replaces it and starts it again; the lab's data stays as before. If PANOPTICA cannot be stopped, Setup says so before changing anything.

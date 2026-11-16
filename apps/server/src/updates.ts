@@ -192,9 +192,7 @@ async function download(): Promise<State> {
     .trim()
     .split(/\s+/)[0]
     .toLowerCase();
-  const zip = Buffer.from(
-    await (await gh(`/releases/assets/${rel.zip.id}`, bin, repo)).arrayBuffer(),
-  );
+  const zip = Buffer.from(await (await gh(`/releases/assets/${rel.zip.id}`, bin, repo)).arrayBuffer());
   const got = createHash('sha256').update(zip).digest('hex');
   if (!/^[0-9a-f]{64}$/.test(sum) || got !== sum)
     throw new Error('the downloaded file does not match its checksum; nothing was installed');

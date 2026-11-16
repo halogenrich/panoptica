@@ -4,6 +4,7 @@ import { api } from '../api';
 import type { LabPublic, Me } from '../ctx';
 import { Seg } from '../lib/ui';
 import { SignInFrame } from './Login';
+import { NetworkFields, draftProblem, movedTo, netBody, type NetDraft } from './Network';
 import {
   NameFields,
   PasswordRules,
@@ -269,24 +270,27 @@ export function LookFields({
               />
             </label>
             {inst && (
-              <button type="button" className="link" onClick={() => set({ instLogo: '' })}>
+              <button type="button" className="link" onClick={() => set({ instLogo: '', foot: 'name' })}>
                 Remove
               </button>
             )}
           </div>
         </div>
-        <label className="fld">
-          <span>At the bottom of the sign-in panel</span>
-          <select value={d.foot} onChange={(e) => set({ foot: e.target.value as LabDraft['foot'] })}>
-            <option value="name">The institution's name</option>
-            <option value="logo" disabled={!inst}>
-              The institution's logo
-            </option>
-            <option value="both" disabled={!inst}>
-              The logo and the name
-            </option>
-          </select>
-        </label>
+        {inst && (
+          <div className="fld seg-fld">
+            <span>At the bottom of the sign-in panel</span>
+            <Seg
+              small
+              value={d.foot}
+              on={(foot) => set({ foot })}
+              opts={[
+                ['name', 'Name'],
+                ['logo', 'Logo'],
+                ['both', 'Both'],
+              ]}
+            />
+          </div>
+        )}
         {err && <p className="err small">{err}</p>}
       </div>
     </>
@@ -347,10 +351,22 @@ export function HoursFields({ hours, set }: { hours: WorkDay[]; set: (h: WorkDay
 }
 export const hoursOk = (h: WorkDay[]) => h.every((d) => !d.on || d.from < d.to);
 
-const STEPS = ['Welcome', 'Your account', 'The lab', 'Sign-in screen', 'Working hours', 'Finish'];
+const STEPS = ['Welcome', 'Your account', 'The lab', 'Network', 'Sign-in screen', 'Working hours', 'Finish'];
 
-/** The first setup, on the computer that runs PANOPTICA: the first admin, the lab, the sign-in screen, the working hours. */
-export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?: string }) {
+/**
+ * The first setup: the first admin, the lab, the network (0.51), the sign-in screen, the working hours. On the computer that runs
+ * PANOPTICA every network setting is there; from another computer (with the setup code) only the lab's address.
+ */
+export default function Setup({
+  onDone,
+  code,
+  net0,
+}: {
+  onDone: (m: Me) => void;
+  code?: string;
+  /** how PANOPTICA listens now (from /api/lab/public while it is not set up) */
+  net0?: { open: 'computer' | 'network'; port: number; https: boolean };
+}) {
   const [step, setStep] = useState(0),
     [n, setN] = useState<NameParts>({ firstNames: '', surnames: '', surname: '' }),
     [email, setEmail] = useState(''),
@@ -361,27 +377,56 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
     [again, setAgain] = useState(''),
     [lab, setLab] = useState<LabDraft>(blankLab),
     [err, setErr] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    // from another computer the network is not changed here; on this one it starts as PANOPTICA listens now
+    [net, setNet] = useState<NetDraft>(() => ({
+      open: net0?.open ?? 'network',
+      address: '',
+      https: false,
+      port: net0 && net0.port !== (net0.https ? 443 : 80) && !net0.https ? String(net0.port) : '',
+      cert: null,
+      format: 'pem',
+    })),
+    [netErr, setNetErr] = useState('');
   const setL = (p: Partial<LabDraft>) => setLab((x) => ({ ...x, ...p }));
+  const remote = !!code;
+  /** The Network step asks the server before going on, so a wrong certificate or a taken port shows here. */
+  const nextFromNetwork = () => {
+    const p = remote ? draftProblem({ ...net, https: false, port: '' }, false) : draftProblem(net, false);
+    if (p) return setNetErr(p);
+    if (remote) return setStep(step + 1);
+    setBusy(true);
+    setNetErr('');
+    api('/network/check', 'POST', netBody(net))
+      .then(() => setStep(step + 1))
+      .catch((e) => setNetErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
+      .finally(() => setBusy(false));
+  };
   const accountOk =
     !!n.firstNames.trim() &&
     surnameChoices(n.surnames).length > 0 &&
     /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) &&
     !!birth &&
     passwordOk(pw, again);
-  const can = [true, accountOk, !!lab.name.trim(), true, hoursOk(lab.hours), true][step];
+  const can = [true, accountOk, !!lab.name.trim(), true, true, hoursOk(lab.hours), true][step];
   const finish = () => {
     setBusy(true);
     setErr('');
     const body = labBody(lab);
     // the admin's department joins the list
     if (dept.trim() && !body.departments.includes(dept.trim())) body.departments.push(dept.trim());
-    api<Me>('/setup', 'POST', {
+    api<Me & { local?: string }>('/setup', 'POST', {
       admin: { ...n, email, birthDate: birth, department: dept, photo, password: pw },
       lab: body,
+      network: remote ? { address: net.address } : netBody(net),
       ...(code ? { code } : {}),
     })
-      .then(onDone)
+      .then((m) => {
+        // PANOPTICA moved (another port, HTTPS): this browser follows it there, on this computer
+        const to = !remote && m.local ? movedTo(m.local) : '';
+        if (to) return location.assign(to + '/');
+        onDone(m);
+      })
       .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
       .finally(() => setBusy(false));
   };
@@ -469,12 +514,34 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
           )}
           {step === 3 && (
             <>
+              <h1>Network</h1>
+              {remote ? (
+                <>
+                  <p className="mut">
+                    Give the lab’s address if IT made one. Who can open PANOPTICA, its port and HTTPS are set on the
+                    computer that runs it, in Admin settings › Network. Until then it stays open to the network.
+                  </p>
+                  <NetworkFields d={net} set={(p) => setNet((x) => ({ ...x, ...p }))} only="address" />
+                </>
+              ) : (
+                <>
+                  <p className="mut">
+                    Who can open PANOPTICA and where. Everything here can be changed later in Admin settings › Network.
+                  </p>
+                  <NetworkFields d={net} set={(p) => setNet((x) => ({ ...x, ...p }))} />
+                </>
+              )}
+              {netErr && <p className="err">{netErr}</p>}
+            </>
+          )}
+          {step === 4 && (
+            <>
               <h1>Sign-in screen</h1>
               <p className="mut">The lab's picture fills the left side; its logo sits in the corner.</p>
               <LookFields d={lab} set={setL} />
             </>
           )}
-          {step === 4 && (
+          {step === 5 && (
             <>
               <h1>Working hours</h1>
               <p className="mut">
@@ -483,7 +550,7 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
               <HoursFields hours={lab.hours} set={(hours) => setL({ hours })} />
             </>
           )}
-          {step === 5 && (
+          {step === 6 && (
             <>
               <h1>Ready</h1>
               <dl className="setup-sum">
@@ -495,6 +562,14 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
                 <dd>
                   <Wordmark lab={shownName(lab)} size="s" />
                   {lab.institution.trim() && <span className="mut"> at {lab.institution.trim()}</span>}
+                </dd>
+                <dt>Network</dt>
+                <dd>
+                  {remote
+                    ? net.address.trim() || 'No address given'
+                    : `${net.open === 'network' ? 'The network' : 'This computer only'}${
+                        net.address.trim() ? `, ${net.https ? 'https' : 'http'}://${net.address.trim()}` : ''
+                      }${net.port.trim() ? `, port ${net.port}` : ''}`}
                 </dd>
                 <dt>Access</dt>
                 <dd>
@@ -522,8 +597,13 @@ export default function Setup({ onDone, code }: { onDone: (m: Me) => void; code?
           )}
           <div className="grow" />
           {step < STEPS.length - 1 ? (
-            <button type="button" className="btn" disabled={!can} onClick={() => setStep(step + 1)}>
-              Continue
+            <button
+              type="button"
+              className="btn"
+              disabled={!can || busy}
+              onClick={() => (step === 3 ? nextFromNetwork() : setStep(step + 1))}
+            >
+              {busy && step === 3 ? 'Checking…' : 'Continue'}
             </button>
           ) : (
             <button type="button" className="btn" disabled={busy} onClick={finish}>

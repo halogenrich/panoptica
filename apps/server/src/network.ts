@@ -428,8 +428,8 @@ export async function planNetwork(input: Input): Promise<{ ok: true; plan: Plan 
     next.cert = cur.cert;
     next.pass = cur.pass;
   }
-  // a port PANOPTICA does not hold yet must be free
-  const mine = live.servers.length && host === live.net.host && (port === live.port || (live.redirect && port === 80));
+  // a port PANOPTICA does not hold yet must be free (its own is let go and taken again, for this computer or the network)
+  const mine = live.servers.length && (port === live.port || (live.redirect && port === 80));
   if (!mine) {
     const probe = createTcp();
     try {

@@ -79,10 +79,10 @@ export default function App() {
             <Shell me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
           </MeCtx.Provider>
         ) : lab.setup === 'here' ? (
-          <Setup onDone={signedIn2} />
+          <Setup onDone={signedIn2} net0={lab.network} />
         ) : lab.setup === 'code' ? (
           setupCode ? (
-            <Setup onDone={signedIn2} code={setupCode} />
+            <Setup onDone={signedIn2} code={setupCode} net0={lab.network} />
           ) : (
             <SetupCode lab={lab} onOk={setSetupCode} />
           )
