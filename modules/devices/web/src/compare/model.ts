@@ -23,7 +23,15 @@ export interface DeviceRow {
 }
 export type Member = { set: number; sample: string; substrate: string };
 export type Group = { id: string; name: string; ref?: boolean; members: Member[] };
-export type CmpData = { groups: Group[]; dir?: Dir | 'both'; relative?: boolean; metrics?: MetricKey[] };
+export type CmpStat = 'median' | 'mean';
+export type CmpData = {
+  groups: Group[];
+  dir?: Dir | 'both';
+  relative?: boolean;
+  /** what the tables show, with ± SD (0.52.1); median when absent */
+  stat?: CmpStat;
+  metrics?: MetricKey[];
+};
 export interface Comparison {
   id: number;
   name: string;

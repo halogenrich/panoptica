@@ -35,7 +35,7 @@ import {
   type MetricKey,
 } from '../iv/model';
 import type { Batch } from '../views/Batches';
-import { SlideFrame, useSlide } from '@web/views/overview/slides';
+import { SF, SlideFrame, useSlide } from '@web/views/overview/slides';
 import {
   autoGroups,
   batchFacts,
@@ -47,6 +47,7 @@ import {
   splitName,
   type CRow,
   type CmpData,
+  type CmpStat,
   type Comparison,
   type DeviceRow,
   type Group,
@@ -57,6 +58,15 @@ const ALL_KEYS: MetricKey[] = METRICS.map((m) => m.key);
 const DIR_NAME = { rev: 'Backward', fwd: 'Forward', both: 'Both directions' } as const;
 const gColor = (i: number) => SERIES[i % SERIES.length]; // figures (exported, always on white)
 const safe = (s: string) => s.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'comparison';
+const STAT_NAME = { median: 'Median', mean: 'Mean' } as const;
+// width of a text in the exported tables' font, to size their columns (0.52.1)
+let measure: CanvasRenderingContext2D | null | undefined;
+const textW = (s: string, px: number, weight = 400) => {
+  if (measure === undefined) measure = document.createElement('canvas').getContext('2d');
+  if (!measure) return s.length * px * 0.6;
+  measure.font = `${weight} ${px}px ${SF}`;
+  return measure.measureText(s).width;
+};
 
 /** Comparisons: groups of devices from any measurements, side by side. */
 export default function Comparisons({
@@ -380,6 +390,8 @@ function Detail({ id, onBack }: { id: number; onBack: () => void }) {
           onDismissOdd={() => setOdd([])}
           setDir={(d) => setData({ dir: d })}
           setRel={(r) => setData({ relative: r })}
+          avg={c.data.stat ?? 'median'}
+          setAvg={(v) => setData({ stat: v })}
           setMetrics={(m) => setData({ metrics: m })}
         />
       </div>
@@ -790,6 +802,8 @@ function Results({
   onDismissOdd,
   setDir,
   setRel,
+  avg,
+  setAvg,
   setMetrics,
 }: {
   c: Comparison;
@@ -803,6 +817,8 @@ function Results({
   onDismissOdd: () => void;
   setDir: (d: Dir | 'both') => void;
   setRel: (r: boolean) => void;
+  avg: CmpStat;
+  setAvg: (v: CmpStat) => void;
   setMetrics: (m: MetricKey[]) => void;
 }) {
   const [dens, setDens] = useState(false),
@@ -814,6 +830,7 @@ function Results({
     jvRef = useRef<SVGSVGElement>(null),
     jvOne = useRef<Record<string, SVGSVGElement | null>>({}),
     slide = useSlide(),
+    vt = useSlide(),
     [figErr, setFigErr] = useState('');
   const batches = useBatches(groups, sets);
   // which parameters are plotted (saved with the comparison, so everyone sees the same plots); METRICS order
@@ -901,12 +918,20 @@ function Results({
       best: Math.max(0, ...abs.filter((r) => r.gid === g.id).map((r) => r.m.pce)),
     };
   });
+  // 0.52.1: the tables show the median or the mean (chosen per comparison), each with ± SD; the PCE relative to the
+  // reference follows the same choice
   const delta = (t: (typeof table)[number]) =>
     !refGroup || t.g.id === refGroup.id || !t.s.pce || !refStat
       ? null
       : rel
-        ? (t.s.pce.median - 1) * 100
-        : ((t.s.pce.median - refStat.median) / refStat.median) * 100;
+        ? (t.s.pce[avg] - 1) * 100
+        : ((t.s.pce[avg] - refStat[avg]) / refStat[avg]) * 100;
+  /** one parameter of a group as the tables show it: the value, and ± SD when more than one pixel counts */
+  const cell = (t: (typeof table)[number], k: MetricKey) =>
+    t.s[k]
+      ? { v: fmt(t.s[k]![avg], digits(k)), sd: t.s[k]!.n > 1 ? `± ${fmt(t.s[k]!.sd, digits(k))}` : '' }
+      : { v: '—', sd: '' };
+  const statLine = `${STAT_NAME[avg]} ± SD of the counted pixels`;
   const pct = (dl: number) => `${dl >= 0 ? '+' : '−'}${Math.abs(dl).toFixed(1)} %`;
   // what changed
   const refF = refGroup ? groupFacts(refGroup, sets, batches) : null;
@@ -926,14 +951,26 @@ function Results({
       };
     });
 
-  const sub = `${new Set(rows.map((r) => r.gid)).size} groups · ${new Set(rows.map((r) => r.dev)).size} devices · ${DIR_NAME[d].toLowerCase()} scans${rel ? ` · relative to ${refGroup!.name}` : ''}`;
+  const nDev = new Set(rows.map((r) => r.dev)).size;
+  const sub = `${new Set(rows.map((r) => r.gid)).size} groups · ${nDev} device${nDev === 1 ? '' : 's'} · ${DIR_NAME[d].toLowerCase()} scans${rel ? ` · relative to ${refGroup!.name}` : ''} · ${avg} ± SD`;
   const fileBase = safe(c.name);
   // the logo in the same place on every box plot, when one place is free on all of them
   const boxSpot = commonLogoSpot(panels, hasLogo && logo ? fs : undefined, { showDensity: dens, outliers: outl });
   // slide: box plots and J–V side by side, the table of parameters across the bottom
   const tRows = table.filter((t) => t.s.pce).slice(0, 6),
-    rh = tRows.length <= 4 ? 46 : 34,
     tfs = tRows.length <= 4 ? 26 : 22,
+    // the last column, PCE relative to the reference, needs about 160 px
+    mEnd = refGroup ? 1660 : 1830,
+    mw = (mEnd - 700) / Math.max(show.length, 1),
+    // 0.52.1: ± SD after each value, smaller and grey as on the screen; when one does not fit its column, every SD
+    // goes on a second line under its value (the rows get taller and the figures a little smaller)
+    twoLine = tRows.some((t) =>
+      show.some((k) => {
+        const x = cell(t, k);
+        return textW(x.v, tfs, k === 'pce' ? 700 : 400) + (x.sd ? 6 + textW(x.sd, tfs - 6) : 0) > mw - 18;
+      }),
+    ),
+    rh = twoLine ? Math.round(tfs * 2.3) : tRows.length <= 4 ? 46 : 34,
     // the table sits at the bottom of the slide; the figures take the height above it, as large as the width allows
     tTop = 1040 - 36 - rh * tRows.length,
     hasJv = jvItems.length > 0,
@@ -948,9 +985,6 @@ function Results({
     bh = Math.min(fh, (bw * pRows) / (pCols * aspect)),
     jw = hasJv ? Math.min(1740 - 60 - bw, (760 / 520) * fh, 900) : 0,
     jh = hasJv ? (520 / 760) * jw : 0,
-    // the last column, PCE relative to the reference, needs about 160 px
-    mEnd = refGroup ? 1660 : 1830,
-    mw = (mEnd - 700) / Math.max(show.length, 1),
     // [label, unit, x of the right edge]; the first column (group) starts at the left margin
     cols: [string, string, number][] = [
       ['Devices', '', 600],
@@ -997,9 +1031,14 @@ function Results({
         )}
         <line x1={90} x2={1830} y1={tTop + 36} y2={tTop + 36} stroke="#c7cad1" strokeWidth={1.5} />
         {tRows.map((t, i) => {
-          const y = tTop + 36 + rh * (i + 0.8),
+          // with the SD on a second line the value sits higher in the row, the SD under it
+          const y = tTop + 36 + (twoLine ? rh * i + tfs * 1.1 : rh * (i + 0.8)),
             dl = delta(t);
-          const cells = [t.devices, t.pixels, ...show.map((k) => (t.s[k] ? fmt(t.s[k]!.median, digits(k)) : '—'))];
+          const cells = [
+            { v: String(t.devices), sd: '' },
+            { v: String(t.pixels), sd: '' },
+            ...show.map((k) => cell(t, k)),
+          ];
           return (
             <g key={t.g.id}>
               {i > 0 && (
@@ -1017,10 +1056,22 @@ function Results({
                 {(t.g.name || 'Unnamed group').slice(0, 26)}
                 {t.g.ref ? ' (ref.)' : ''}
               </text>
-              {cells.map((v, j) => (
-                <text key={j} x={cols[j][2]} y={y} textAnchor="end" fontWeight={show[j - 2] === 'pce' ? 700 : 400}>
-                  {v}
-                </text>
+              {cells.map((x, j) => (
+                <g key={j} textAnchor="end">
+                  <text x={cols[j][2]} y={y} fontWeight={show[j - 2] === 'pce' ? 700 : 400}>
+                    {x.v}
+                    {x.sd && !twoLine && (
+                      <tspan dx={6} fontSize={tfs - 6} fontWeight={400} fill="#8a8f98">
+                        {x.sd}
+                      </tspan>
+                    )}
+                  </text>
+                  {x.sd && twoLine && (
+                    <text x={cols[j][2]} y={y + tfs * 0.95} fontSize={tfs - 6} fill="#8a8f98">
+                      {x.sd}
+                    </text>
+                  )}
+                </g>
               ))}
               {refGroup && dl !== null && (
                 <text x={1830} y={y} textAnchor="end" fill={dl >= 0 ? '#1d7a34' : '#d70015'} fontWeight={600}>
@@ -1033,6 +1084,165 @@ function Results({
       </g>
     </SlideFrame>
   );
+  // 0.52.1: the table turned on its side (Richard's sketch): a column per group, the reference first, a row per
+  // parameter; as an image (PNG, SVG) and as an Excel sheet with the same text
+  const vGroups = [...table.filter((t) => t.g.ref), ...table.filter((t) => !t.g.ref)].filter(
+    (t) => t.s.pce && !t.noRef,
+  );
+  type VCell = { v: string; sd: string; bold?: boolean; color?: string };
+  const vRows: { label: string; unit: string; cells: VCell[]; rule?: boolean; sub?: string }[] = [
+    { label: 'Devices', unit: '', cells: vGroups.map((t) => ({ v: String(t.devices), sd: '' })), rule: true },
+    { label: 'Pixels', unit: '', cells: vGroups.map((t) => ({ v: String(t.pixels), sd: '' })), rule: true },
+    ...show.map((k) => ({
+      label: meta(k).label,
+      unit: unit(k),
+      cells: vGroups.map((t) => ({ ...cell(t, k), bold: k === 'pce' })),
+    })),
+    ...(refGroup
+      ? [
+          {
+            // on two lines, as on the slide: on one it made the label column far wider than the others need
+            label: 'PCE relative',
+            sub: 'to the reference',
+            unit: '',
+            cells: vGroups.map((t): VCell => {
+              const dl = delta(t);
+              return dl === null
+                ? { v: '', sd: '' }
+                : { v: pct(dl), sd: '', bold: true, color: dl >= 0 ? '#1d7a34' : '#d70015' };
+            }),
+          },
+        ]
+      : []),
+  ];
+  const vName = (t: (typeof table)[number]) => (t.g.name || 'Unnamed group').slice(0, 30) + (t.g.ref ? ' (ref.)' : '');
+  const vCaption = `${statLine} · ${DIR_NAME[d].toLowerCase()} scans${rel ? ` · each divided by the reference median of its own measurement` : ''}`;
+  const vtEl = (() => {
+    const fz = 22,
+      sz = 17,
+      pad = 36,
+      rh = 50,
+      hh = 64,
+      labelW =
+        Math.max(
+          ...vRows.map((r) =>
+            Math.max(textW(r.label, fz) + (r.unit ? 8 + textW(`(${r.unit})`, sz) : 0), r.sub ? textW(r.sub, sz) : 0),
+          ),
+        ) + 28,
+      colW = vGroups.map(
+        (t, i) =>
+          Math.max(
+            130,
+            textW(vName(t), fz, 600),
+            ...vRows.map((r) => {
+              const x = r.cells[i];
+              return textW(x.v, fz, x.bold ? 700 : 400) + (x.sd ? 6 + textW(x.sd, sz) : 0);
+            }),
+          ) + 36,
+      ),
+      x0 = pad + labelW,
+      right = colW.map((_, i) => x0 + colW.slice(0, i + 1).reduce((a, b) => a + b, 0) - 14),
+      W = Math.max(x0 + colW.reduce((a, b) => a + b, 0) + pad, pad * 2 + textW(vCaption, 15) + 4),
+      bodyTop = pad + hh,
+      // each row's top; a row with a second line under its label is taller
+      tops = vRows.map((_, i) => bodyTop + vRows.slice(0, i).reduce((a, r) => a + rh + (r.sub ? 20 : 0), 0)),
+      bottom = tops[vRows.length - 1] + rh + (vRows[vRows.length - 1].sub ? 20 : 0),
+      H = bottom + 22 + 15 + pad;
+    return (
+      <svg
+        ref={vt.ref}
+        viewBox={`0 0 ${Math.ceil(W)} ${Math.ceil(H)}`}
+        width={Math.ceil(W)}
+        height={Math.ceil(H)}
+        xmlns="http://www.w3.org/2000/svg"
+        fontFamily={SF}
+      >
+        <rect width={Math.ceil(W)} height={Math.ceil(H)} fill="#fff" />
+        <line x1={pad} x2={W - pad} y1={pad} y2={pad} stroke="#15171a" strokeWidth={2} />
+        <text x={pad} y={pad + 38} fontSize={fz - 3} fill="#5f6570">
+          Group
+        </text>
+        {/* each group's name over its column, its colour as a bar under the name */}
+        {vGroups.map((t, i) => {
+          const w = textW(vName(t), fz, 600);
+          return (
+            <g key={t.g.id}>
+              <text x={right[i]} y={pad + 38} fontSize={fz} fontWeight={600} fill="#15171a" textAnchor="end">
+                {vName(t)}
+              </text>
+              <rect x={right[i] - w} y={pad + 47} width={w} height={4} fill={gColor(t.gi)} />
+            </g>
+          );
+        })}
+        <line x1={pad} x2={W - pad} y1={bodyTop} y2={bodyTop} stroke="#15171a" strokeWidth={1.5} />
+        <line x1={x0 - 4} x2={x0 - 4} y1={pad} y2={bottom} stroke="#c7cad1" strokeWidth={1} />
+        {vRows.map((r, ri) => {
+          const y = tops[ri] + rh * 0.64;
+          return (
+            <g key={r.label}>
+              <text x={pad} y={y} fontSize={fz} fill="#15171a">
+                {r.label}
+                {r.unit && (
+                  <tspan dx={8} fontSize={sz} fill="#8a8f98">
+                    ({r.unit})
+                  </tspan>
+                )}
+              </text>
+              {r.sub && (
+                <text x={pad} y={y + 24} fontSize={sz} fill="#8a8f98">
+                  {r.sub}
+                </text>
+              )}
+              {r.cells.map((x, i) => (
+                <text
+                  key={i}
+                  x={right[i]}
+                  y={y}
+                  fontSize={fz}
+                  textAnchor="end"
+                  fontWeight={x.bold ? 700 : 400}
+                  fill={x.color ?? '#15171a'}
+                >
+                  {x.v}
+                  {x.sd && (
+                    <tspan dx={6} fontSize={sz} fontWeight={400} fill="#8a8f98">
+                      {x.sd}
+                    </tspan>
+                  )}
+                </text>
+              ))}
+              {r.rule && <line x1={pad} x2={W - pad} y1={tops[ri] + rh} y2={tops[ri] + rh} stroke="#c7cad1" />}
+            </g>
+          );
+        })}
+        <line x1={pad} x2={W - pad} y1={bottom} y2={bottom} stroke="#15171a" strokeWidth={2} />
+        <text x={pad} y={bottom + 30} fontSize={15} fill="#5f6570">
+          {vCaption}
+        </text>
+      </svg>
+    );
+  })();
+  const vExcel = () =>
+    downloadBytes(
+      `${fileBase}-table.xlsx`,
+      xlsx([
+        {
+          name: 'Table',
+          rows: [
+            ['', ...vGroups.map(vName)],
+            ...vRows.map((r) => [
+              r.unit ? `${r.label} (${r.unit})` : r.sub ? `${r.label} ${r.sub}` : r.label,
+              ...r.cells.map((x) =>
+                r.label === 'Devices' || r.label === 'Pixels' ? Number(x.v) : x.sd ? `${x.v} ${x.sd}` : x.v,
+              ),
+            ]),
+            [],
+            [vCaption],
+          ],
+          widths: [30, ...vGroups.map(() => 22)],
+        },
+      ]),
+    );
   const excel = () => {
     const sheets: Sheet[] = [
       {
@@ -1173,6 +1383,10 @@ function Results({
                 ],
               ],
             ],
+            [
+              'Table',
+              [['Groups as columns', [...pngSvg((as) => vt.make(vtEl, `${fileBase}-table`, as)), ['Excel', vExcel]]]],
+            ],
             ['Spreadsheet', [['Groups, every pixel, what changed', [['Excel', excel]]]]],
             [
               'Data package',
@@ -1302,9 +1516,19 @@ function Results({
             <header className="cx-card-head">
               <h3 id="cx-tab">Parameters</h3>
               <span className="mut small">
-                Medians of the counted pixels
+                {statLine}
                 {rel ? ', each divided by the reference median of its own measurement' : ''}
               </span>
+              <div className="grow" />
+              <Seg
+                small
+                value={avg}
+                on={setAvg}
+                opts={[
+                  ['median', 'Median'],
+                  ['mean', 'Mean'],
+                ]}
+              />
             </header>
             <div className="scroll">
               <table className="stat-table">
@@ -1346,11 +1570,7 @@ function Results({
                               <td key={k} className="num">
                                 {t.s[k] ? (
                                   <>
-                                    {k === 'pce' ? (
-                                      <b>{fmt(t.s[k]!.median, digits(k))}</b>
-                                    ) : (
-                                      fmt(t.s[k]!.median, digits(k))
-                                    )}
+                                    {k === 'pce' ? <b>{fmt(t.s[k]![avg], digits(k))}</b> : fmt(t.s[k]![avg], digits(k))}
                                     {t.s[k]!.n > 1 && (
                                       <span className="mut small"> ± {fmt(t.s[k]!.sd, digits(k))}</span>
                                     )}
@@ -1457,6 +1677,7 @@ function Results({
         </>
       )}
       {slide.holder}
+      {vt.holder}
     </section>
   );
 }

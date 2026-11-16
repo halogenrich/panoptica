@@ -615,6 +615,7 @@ try {
       await page.getByText(/PCE/).first().waitFor();
     });
 
+  let cmpId = 0;
   if (!CORE)
     await step('a comparison’s slide: box plots wider than tall, no table header over another (0.51.2)', async () => {
       const devs = (await api('GET', '/comparisons/devices')).j;
@@ -632,6 +633,7 @@ try {
         },
       });
       expect(r.s === 200, 'comparison not saved: ' + JSON.stringify(r.j));
+      cmpId = r.j.id;
       await page.goto(`${base}/#/cmp/${r.j.id}`);
       await later();
       const slide = async (as) => {
@@ -670,6 +672,116 @@ try {
       // six panels in three columns and two rows: the box plots' area at least 1.5 times as wide as tall
       expect(got.w / got.h >= 1.5, `the box plots are squashed: ${Math.round(got.w)} × ${Math.round(got.h)}`);
     });
+
+  if (!CORE)
+    await step(
+      'a comparison’s tables: median or mean with ± SD, on the slide too; the table with groups as columns (0.52.1)',
+      async () => {
+        const { readFileSync } = await import('node:fs');
+        const { unzipSync, strFromU8 } = await import('fflate');
+        await page.goto(`${base}/#/cmp/${cmpId}`);
+        await later();
+        const card = page.locator('.cx-table');
+        await card.getByText('Median ± SD of the counted pixels').waitFor();
+        const exp = async (rowText, fmt) => {
+          await page.getByRole('button', { name: 'Export', exact: true }).first().click();
+          const row = page.locator('.ov-exp-row').filter({ hasText: rowText });
+          const [dl] = await Promise.all([
+            page.waitForEvent('download'),
+            row.getByRole('menuitem', { name: fmt }).click(),
+          ]);
+          return readFileSync(await dl.path());
+        };
+        // the slide: ± SD after the values, and which statistic it is
+        const slideSvg = (await exp('Box plots, J–V and table', 'SVG')).toString('utf8');
+        expect(slideSvg.includes('± '), 'no ± SD on the slide');
+        expect(slideSvg.includes('median ± SD'), 'the slide does not say which statistic');
+        // the table turned on its side: a column per group (the reference first), a row per parameter
+        const tSvg = (await exp('Groups as columns', 'SVG')).toString('utf8');
+        const p2 = await ctx.newPage();
+        await p2.setContent(`<!doctype html><body style="margin:0">${tSvg}</body>`);
+        const got = await p2.evaluate(() => {
+          const root = document.querySelector('body > svg');
+          const texts = [...root.querySelectorAll(':scope > g > text, :scope > text')].map((t) => ({
+            s: t.textContent,
+            b: t.getBBox(),
+          }));
+          const clash = [];
+          for (let i = 0; i < texts.length; i++)
+            for (let j = i + 1; j < texts.length; j++) {
+              const a = texts[i].b,
+                b = texts[j].b;
+              if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height)
+                clash.push(`${texts[i].s} / ${texts[j].s}`);
+            }
+          const W = +root.getAttribute('width');
+          const out = texts.filter((t) => t.b.x < 0 || t.b.x + t.b.width > W).map((t) => t.s);
+          return { all: texts.map((t) => t.s), clash, out };
+        });
+        await p2.close();
+        for (const s of ['Devices', 'Pixels', 'PCE', 'Voc', 'Rsh', 'PCE relative', 'to the reference'])
+          expect(
+            got.all.some((t) => t.startsWith(s)),
+            `row ${s} missing in the table`,
+          );
+        const heads = got.all.filter((t) => /Reference|annealing/.test(t));
+        expect(heads[0] === 'Reference (ref.)', 'the reference is not the first column: ' + heads.join(', '));
+        expect(
+          got.all.some((t) => t.includes('± ')),
+          'no ± SD in the table',
+        );
+        expect(!got.clash.length, 'texts overlap in the table: ' + got.clash.join(', '));
+        expect(!got.out.length, 'texts run out of the table: ' + got.out.join(', '));
+        if (process.env.SHOTS)
+          writeFileSync(join(root, 'out', 'comparison-table.png'), await exp('Groups as columns', 'PNG'));
+        // the same table in Excel
+        const x = unzipSync(new Uint8Array(await exp('Groups as columns', 'Excel')));
+        const sheet = Object.entries(x)
+          .filter(([n]) => n.startsWith('xl/'))
+          .map(([, b]) => strFromU8(b))
+          .join('');
+        for (const s of ['Reference (ref.)', 'Without annealing', 'Devices', 'PCE relative to the reference', '± '])
+          expect(sheet.includes(s), `${s} missing in the Excel table`);
+        // Mean: the tables follow, and the choice is saved with the comparison
+        await card.getByRole('tab', { name: 'Mean' }).click();
+        await card.getByText('Mean ± SD of the counted pixels').waitFor();
+        expect(
+          (await exp('Box plots, J–V and table', 'SVG')).toString('utf8').includes('mean ± SD'),
+          'the slide still says median',
+        );
+        expect(
+          (await exp('Groups as columns', 'SVG')).toString('utf8').includes('Mean ± SD'),
+          'the table still says median',
+        );
+        for (let i = 0; i < 20 && (await api('GET', '/comparisons/' + cmpId)).j?.data?.stat !== 'mean'; i++)
+          await new Promise((r) => setTimeout(r, 150));
+        expect(
+          (await api('GET', '/comparisons/' + cmpId)).j?.data?.stat === 'mean',
+          'Mean is not saved with the comparison',
+        );
+        if (process.env.SHOTS)
+          await page.screenshot({ path: join(root, 'out', 'comparison-mean.png'), fullPage: true });
+        // with values that fit their columns, the SD follows each value on the same line
+        await page.locator('.cx-card').getByRole('button', { name: 'Rsh', exact: true }).click();
+        const one = (await exp('Box plots, J–V and table', 'SVG')).toString('utf8');
+        expect(/<tspan[^>]*>± /.test(one), 'the SD is not on the line of its value');
+        if (process.env.SHOTS) {
+          writeFileSync(
+            join(root, 'out', 'comparison-slide-one-line.png'),
+            await exp('Box plots, J–V and table', 'PNG'),
+          );
+          await page.emulateMedia({ colorScheme: 'dark' });
+          await card.screenshot({ path: join(root, 'out', 'comparison-table-dark.png') });
+          await page.emulateMedia({ colorScheme: 'light' });
+          await page.setViewportSize({ width: 390, height: 844 });
+          await card.scrollIntoViewIfNeeded();
+          await card.screenshot({ path: join(root, 'out', 'comparison-table-390.png') });
+          await page.setViewportSize({ width: 1400, height: 900 });
+        }
+        await page.locator('.cx-card').getByRole('button', { name: 'Rsh', exact: true }).click();
+        await card.getByRole('tab', { name: 'Median' }).click();
+      },
+    );
 
   await step(
     CORE

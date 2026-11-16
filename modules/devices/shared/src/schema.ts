@@ -236,6 +236,8 @@ export const CmpData = z.object({
   groups: z.array(CmpGroup).max(24),
   dir: z.enum(['rev', 'fwd', 'both']).optional(),
   relative: z.boolean().optional(),
+  // 0.52.1: the statistic the tables show (with ± SD); median when absent
+  stat: z.enum(['median', 'mean']).optional(),
   metrics: z
     .array(z.enum(['pce', 'voc', 'jsc', 'ff', 'rs', 'rsh']))
     .max(6)

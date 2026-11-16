@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.52.1 (2026-11-16)
+
+- **Comparisons, median or mean**: the Parameters table has a Median / Mean switch. The table, the slide and the exported table show the chosen value with ± SD (the standard deviation of the counted pixels), and the PCE relative to the reference follows the choice. Each comparison keeps its choice; median as before.
+- **Comparison slide**: each value has its ± SD, smaller and in grey as on the screen (under the value when the column is too narrow). The line under the title says which statistic it is.
+- **Export › Table › Groups as columns**: the parameters table turned on its side, one column per group with the reference first, one row per parameter (devices, pixels, PCE, Voc, Jsc, FF, Rs, Rsh, PCE relative to the reference). As PNG or SVG for slides and documents, or as an Excel sheet with the same text. It follows the parameters picked for the box plots, Absolute / Relative and the scan direction.
+
 ## 0.52.0 (2026-11-16)
 
 - **Updates bring Node.js too**, on a computer installed with PANOPTICA Setup. When a release runs on a newer Node.js (security fixes included), the update downloads it with PANOPTICA (about 40 MB more), checks it like the rest (its checksum and PANOPTICA's signature), and puts it in place while PANOPTICA is stopped. Until now Node.js changed only when PANOPTICA Setup was run again.
