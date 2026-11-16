@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.51.1 (2026-11-16)
+
+- **Export PNG of the 3D view makes an image for slides**: about 2000 pixels on its shorter side whatever the size of the window (it was the size of the view on screen, and looked blurred on a slide), cropped to the device.
+- **No shadow around the device** in the exported image: the shadow it casts on the floor stays on screen only.
+- **The legend is in the image** when it is on, as tags or as lines, in dark text that reads on a white slide. With the legend off, the image is the device alone.
+- The fine stripes on the layers and the stepped shadow edges are gone, on screen and in the image.
+
 ## 0.51.0 (2026-11-15)
 
 - **Network settings in PANOPTICA**: Admin settings has a **Network** tab, and the first setup a **Network** step: who can open PANOPTICA (this computer, or the network), the lab's address (the name IT gave the computer), the port, and HTTPS with a certificate from IT (a certificate and key file, or one PFX file with its password). Saving applies them at once, without stopping PANOPTICA. If the address, port or certificate is wrong (a key that does not belong to the certificate, a certificate that expired or is for another name, a port another program uses), nothing changes and the reason is shown. These settings are changed on the computer that runs PANOPTICA; from other computers the tab shows them.

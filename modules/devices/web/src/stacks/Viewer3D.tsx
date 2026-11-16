@@ -101,17 +101,60 @@ function dispose(g: THREE.Group) {
 const sig = (s: ViewSlab, look: Look) =>
   `${look}|${JSON.stringify(s.ap ?? {})}|${s.kind}|${s.mat}|${s.name}|${s.y0.toFixed(4)}|${s.h.toFixed(4)}|${JSON.stringify(s.parts)}`;
 
+/** The light and the floor that catches the stack's shadow (the floor is returned: exported images leave it out, 0.51.1). */
 function lights(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
   const sun = new THREE.DirectionalLight(0xffffff, 1.5);
   sun.position.set(6, 12, 8);
   sun.castShadow = true;
+  // 0.51.1: the default 512 px shadow map drew fine stripes on the layers (shadow acne) and stepped shadow edges, which showed
+  // in exported images; a larger map and a small bias remove them
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.01;
   floor.receiveShadow = true;
   scene.add(floor);
+  return { floor };
+}
+
+/** The shorter side of an exported image before it is cropped to the stack (and its legend), in pixels (0.51.1). */
+const EXPORT_SHORT = 2000;
+/** Colours of the legend drawn into an exported image: dark text on white tags, for slides whatever the app's theme. */
+const INK = '#1f2328',
+  TAG = '#ffffff';
+
+/** The image cropped to what is drawn in it (pixels not fully transparent), with a margin. */
+function cropToContent(c: HTMLCanvasElement) {
+  const ctx = c.getContext('2d')!,
+    { width: W, height: H } = c,
+    a = ctx.getImageData(0, 0, W, H).data;
+  let x0 = W,
+    y0 = H,
+    x1 = -1,
+    y1 = -1;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (a[(y * W + x) * 4 + 3] > 6) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  if (x1 < 0) return c;
+  const m = Math.round(0.04 * Math.max(x1 - x0, y1 - y0));
+  x0 = Math.max(0, x0 - m);
+  y0 = Math.max(0, y0 - m);
+  x1 = Math.min(W - 1, x1 + m);
+  y1 = Math.min(H - 1, y1 + m);
+  const out = document.createElement('canvas');
+  out.width = x1 - x0 + 1;
+  out.height = y1 - y0 + 1;
+  out.getContext('2d')!.drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
 }
 /** Camera distance that fits a box of footprint radius r and height h for a vertical field of view. */
 const fitDistance = (r: number, h: number, fov: number, aspect: number) => {
@@ -230,7 +273,7 @@ export default function Viewer3D({
     renderer.shadowMap.enabled = true;
     el.prepend(renderer.domElement);
     const scene = new THREE.Scene();
-    lights(scene, renderer);
+    const { floor } = lights(scene, renderer);
     const leaders = document.createElementNS(SVGNS, 'svg');
     leaders.classList.add('leaders');
     el.appendChild(leaders);
@@ -328,14 +371,84 @@ export default function Viewer3D({
         if (!keep.has(k) && !it.removing) Object.assign(it, { removing: true, offT: DROP, opT: 0 });
       first = false;
     };
+    /**
+     * The image for Export PNG (0.51.1): rendered again at about EXPORT_SHORT px on its shorter side whatever the view's size, without
+     * the shadow the stack casts on the floor, with the legend drawn in when it is on (it is HTML over the canvas on screen), and
+     * cropped to what is drawn. Without the legend the stack is centred (the view's label column is left out).
+     */
     const png = () => {
-      // without the label column offset, so the stack is centred in the image
-      const o = cam.view ? { ...cam.view } : null;
-      cam.clearViewOffset();
+      const withLegend = mode.current !== 'off',
+        o = cam.view ? { ...cam.view } : null,
+        pr = renderer.getPixelRatio(),
+        gl = renderer.getContext(),
+        lim = Math.min(
+          4096,
+          renderer.capabilities.maxTextureSize,
+          gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number,
+          ...(gl.getParameter(gl.MAX_VIEWPORT_DIMS) as number[]),
+        ),
+        k = Math.max(pr, Math.min(EXPORT_SHORT / Math.min(size.w, size.h), lim / Math.max(size.w, size.h)));
+      if (!withLegend) cam.clearViewOffset();
+      floor.visible = false;
+      renderer.setPixelRatio(k);
       renderer.render(scene, cam);
-      const url = renderer.domElement.toDataURL('image/png');
+      const out = document.createElement('canvas');
+      out.width = renderer.domElement.width;
+      out.height = renderer.domElement.height;
+      const ctx = out.getContext('2d')!;
+      ctx.drawImage(renderer.domElement, 0, 0);
+      renderer.setPixelRatio(pr);
+      floor.visible = true;
       if (o) cam.setViewOffset(o.fullWidth, o.fullHeight, o.offsetX, o.offsetY, o.width, o.height);
-      return url;
+      if (withLegend) drawLegend(ctx, out.width / Math.max(size.w, 1));
+      return cropToContent(out).toDataURL('image/png');
+    };
+    /** The legend as it is on screen (tags, or leader lines with underlined names), drawn at scale k into the image. */
+    const drawLegend = (ctx: CanvasRenderingContext2D, k: number) => {
+      const box = el.getBoundingClientRect(),
+        lines = mode.current === 'lines';
+      ctx.save();
+      ctx.scale(k, k);
+      if (lines) {
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.85;
+        for (const it of items.values()) {
+          const d = it.ln.getAttribute('d');
+          if (d && it.op >= 0.05 && !it.hidden) ctx.stroke(new Path2D(d));
+        }
+        ctx.globalAlpha = 1;
+      }
+      for (const it of items.values()) {
+        if (it.hidden || it.op < 0.05 || !it.el.textContent) continue;
+        const r = it.el.getBoundingClientRect(),
+          cs = getComputedStyle(it.el),
+          x = r.left - box.left,
+          y = r.top - box.top,
+          pl = parseFloat(cs.paddingLeft) || 0,
+          pt = parseFloat(cs.paddingTop) || 0,
+          pb = (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0),
+          ghost = it.el.classList.contains('ghost');
+        if (!lines) {
+          ctx.save();
+          ctx.shadowColor = 'rgba(0,0,0,0.14)';
+          ctx.shadowBlur = 6 * k;
+          ctx.shadowOffsetY = k;
+          ctx.fillStyle = TAG;
+          ctx.beginPath();
+          ctx.roundRect(x, y, r.width, r.height, parseFloat(cs.borderTopLeftRadius) || 9);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.font = `${ghost ? 'italic ' : ''}${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        ctx.fillStyle = INK;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(it.el.textContent, x + pl, y + pt + (r.height - pt - pb) / 2);
+        if (lines) {
+          ctx.fillRect(x, y + r.height - 1, r.width, 1);
+        }
+      }
+      ctx.restore();
     };
     let inset = 0; // px at the bottom of the view covered by the settings bar: the stack is fitted above it
     api.current = {

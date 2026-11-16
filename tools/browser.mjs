@@ -363,6 +363,61 @@ try {
     });
 
   if (!CORE)
+    await step(
+      'Export PNG of the 3D view is at least 1000 × 1000, with the legend and without it (0.51.1)',
+      async () => {
+        const layers = [
+          ['Hole transport', 40],
+          ['Perovskite', 500],
+          ['Electron transport', 30],
+          ['Top contact', 100],
+        ].map(([n, th], i) => ({ id: 'x' + i, n, m: 'Manual', a: '', b: '', t: '', th }));
+        const r = await api('POST', '/presets', {
+          segment: 'stk',
+          name: 'Browser stack in 3D',
+          visibility: 'private',
+          data: { arch: 'n-i-p', sl: layers },
+        });
+        expect(r.s === 200, 'stack not created: ' + JSON.stringify(r.j));
+        await page.goto(`${base}/#/stk/${r.j.id}`);
+        await later();
+        await page.locator('.viewer canvas').waitFor();
+        await page.locator('.lbl').first().waitFor();
+        await page.waitForTimeout(1500); // the layers drop in and the camera settles
+        const size = (b) => ({ w: b.readUInt32BE(16), h: b.readUInt32BE(20) });
+        const exportPng = async (name) => {
+          const [dl] = await Promise.all([
+            page.waitForEvent('download'),
+            page.getByRole('button', { name: 'Export PNG' }).click(),
+          ]);
+          const file = await dl.path(),
+            png = (await import('node:fs')).readFileSync(file);
+          expect(png.subarray(1, 4).toString() === 'PNG', 'the export is not a PNG');
+          if (process.env.SHOTS) writeFileSync(join(root, 'out', name), png);
+          return size(png);
+        };
+        // the stack page keeps the view's controls behind its cog
+        const cog = page.getByRole('button', { name: 'View settings' });
+        if (await cog.isVisible().catch(() => false)) await cog.click();
+        const legend = page.locator('.viewer-bar input[type=checkbox]');
+        for (const [name, on, lines] of [
+          ['3d-tags.png', true, false],
+          ['3d-lines.png', true, true],
+          ['3d-no-legend.png', false, false],
+        ]) {
+          if ((await legend.isChecked()) !== on) await legend.click();
+          if (on) await page.getByRole('button', { name: lines ? 'Lines' : 'Tags', exact: true }).click();
+          await page.waitForTimeout(500);
+          const s = await exportPng(name);
+          expect(s.w >= 1000 && s.h >= 1000, `${name}: the export is ${s.w} × ${s.h} px`);
+        }
+        // the legend switch is remembered in this browser: back as it was for the other flows
+        if (!(await legend.isChecked())) await legend.click();
+        await page.getByRole('button', { name: 'Tags', exact: true }).click();
+      },
+    );
+
+  if (!CORE)
     await step('starting a batch asks only for its name and opens it', async () => {
       await page.getByRole('button', { name: 'Start batch' }).click();
       await page.getByLabel('Batch name').fill('Browser batch');
