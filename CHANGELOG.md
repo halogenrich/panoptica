@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.51.2 (2026-11-16)
+
+- **Comparison slide**: the box plots get the room they need (each panel a little wider than tall, wider with more groups), and the J–V figure takes the rest. They were squashed beside a large J–V figure.
+- **Comparison slide**: "PCE relative to the reference" is on two lines, like the other headers, and no longer runs over the last columns' headers.
+- **3D view**: the ITO no longer disappears at some angles.
+- **3D view, flipped**: the layers are drawn in order from the side you look at, and the glass covers what is behind it, so layers below no longer show on top.
+
 ## 0.51.1 (2026-11-16)
 
 - **Export PNG of the 3D view makes an image for slides**: about 2000 pixels on its shorter side whatever the size of the window (it was the size of the view on screen, and looked blurred on a slide), cropped to the device.

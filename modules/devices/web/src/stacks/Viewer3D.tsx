@@ -43,7 +43,9 @@ function material(s: ViewSlab, look: Look): THREE.MeshStandardMaterial {
     case 'glass':
       return new P({ ...base, transmission: 0.9, ior: 1.5, thickness: 0.8 });
     case 'ito':
-      return new P({ ...base, clearcoat: 0.6 });
+      // 0.51.2: the ITO is a hair above the glass (0.002 scene units): drawn in front of the glass's top, or at some angles the glass
+      // hid it
+      return new P({ ...base, clearcoat: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
     case 'perov':
       return new P({ ...base, iridescence: 0.7, iridescenceIOR: 1.8, clearcoat: 0.5 });
     case 'htl':
@@ -117,6 +119,7 @@ function lights(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.01;
   floor.receiveShadow = true;
+  floor.renderOrder = -1; // before the layers, which are ordered from the camera's side (0.51.2)
   scene.add(floor);
   return { floor };
 }
@@ -539,6 +542,10 @@ export default function Viewer3D({
           ? 0
           : Math.max(0, ...[...items.values()].filter((i) => i.op > 0.05).map((i) => i.el.offsetWidth || 120));
       const lab = md === 'off' ? 0 : Math.min(0.9, (2 * (lw + gapPx + 10)) / Math.max(size.w, 1));
+      // 0.51.2: the near plane follows the camera's distance. At 0.1 with the camera 40–60 away, depth was only good to about
+      // 0.002 scene units, the ITO's drawn thickness, so the glass hid the ITO at some angles
+      cam.near = Math.max(0.1, dist * 0.4);
+      cam.far = dist * 4;
       cam.clearViewOffset();
       cam.updateMatrixWorld();
       let x0 = Infinity,
@@ -582,6 +589,10 @@ export default function Viewer3D({
           rx = Math.max(rx, v.x);
         }
       const lx = (rx * 0.5 + 0.5) * size.w + gapPx;
+      // 0.51.2: see-through layers are drawn from the far side to the camera's side: bottom first seen from above, top first seen
+      // from below (Flip). Drawn in one fixed order, the layers below showed on top of the others when the stack was turned over
+      const above = dir.y * Math.cos(th) + dir.z * Math.sin(th) >= 0,
+        n = items.size;
       const tags: { it: Item; x: number; y: number; ax: number; ay: number }[] = [];
       for (const [k, it] of items) {
         it.off += (it.offT - it.off) * 0.12;
@@ -589,6 +600,14 @@ export default function Viewer3D({
         it.base += (it.slab.y0 - it.base) * 0.15;
         const m = matOf(it.mesh);
         const clear = it.slab.kind === 'glass' ? 1 - 0.7 * flip : 1; // from below, look through the glass at the ITO and the device
+        for (const c of it.mesh.children) c.renderOrder = above ? it.idx : n - it.idx;
+        // the glass refracts only what is drawn before the see-through layers: turned over, it is an ordinary see-through layer,
+        // drawn in its turn over the ITO and the device behind it (0.51.2)
+        if (it.slab.kind === 'glass' && m instanceof THREE.MeshPhysicalMaterial) {
+          m.userData.tr ??= m.transmission;
+          const tr = flip > 0.5 ? 0 : (m.userData.tr as number);
+          if (m.transmission !== tr) m.transmission = tr;
+        }
         m.opacity = baseOpacity(m) * clear * Math.max(0, Math.min(1, it.op));
         m.depthWrite = it.op > 0.95 && clear > 0.95 && baseOpacity(m) > 0.98;
         it.mesh.position.y = it.base * U + it.off + explode * GAP * it.ex;
@@ -838,6 +857,9 @@ export function renderThumb(slabs: ViewSlab[], W: number, H: number, size: [numb
     cam = new THREE.PerspectiveCamera(24, size[0] / size[1], 0.1, 400);
   const d = fitDistance((Math.hypot(W, H) * U) / 2, top, 24, size[0] / size[1]) * 0.92,
     target = new THREE.Vector3(0, top / 2, 0);
+  cam.near = d * 0.4; // the same depth precision as the view (0.51.2)
+  cam.far = d * 4;
+  cam.updateProjectionMatrix();
   cam.position
     .copy(target)
     .add(
