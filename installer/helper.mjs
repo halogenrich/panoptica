@@ -13,7 +13,7 @@
 //      as a task run by the system. The install folder is the administrators' and the system's only. No script to run by hand
 //      is left in it (0.49): the app keeps its update script in internal/, and reset-password stays, for administrators, to
 //      recover a lost admin password. Progress goes to D/panoptica/updates/install.log; result.ini gets the address to open.
-//   0.51: the runtime is also copied as node/PANOPTICA.exe with PANOPTICA's name and icon (runtime.mjs), and the task runs that,
+//   0.51: the runtime is also copied as node/PANOPTICA.exe with PANOPTICA's name and icon (apps/server/src/brand.ts since 0.52), and the task runs that,
 //      so Task Manager shows PANOPTICA. The tray icon (D/tray) may be read and run by everyone who signs in to this computer.
 //      Who can open PANOPTICA, its port and HTTPS are PANOPTICA's own settings (config/network.json, Admin settings › Network),
 //      and PANOPTICA keeps the firewall rule in step with them. A new install starts open to the network on port 80, so the
@@ -35,7 +35,7 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
-import { brandRuntime } from './runtime.mjs';
+import { brandRuntime } from '../apps/server/src/brand.ts';
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 
@@ -352,7 +352,7 @@ async function install() {
 function testEnv() {
   if (process.env.PANOPTICA_TEST !== '1') return {};
   const e = { PANOPTICA_TEST: '1', UPDATE_PUBLIC_KEY_FILE: process.env.UPDATE_PUBLIC_KEY_FILE ?? '' };
-  for (const k of ['UPDATE_API', 'UPDATE_REPO']) if (process.env[k]) e[k] = process.env[k];
+  for (const k of ['UPDATE_API', 'UPDATE_REPO', 'RUNTIME_WAIT']) if (process.env[k]) e[k] = process.env[k];
   return e;
 }
 

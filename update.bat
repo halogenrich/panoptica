@@ -84,8 +84,84 @@ if exist config\install.json (
 for /f %%v in ('node -p "require('./package.json').version"') do set NEW=%%v
 call :log Updated: %OLD% to %NEW%
 if exist updates\restarting del updates\restarting
+rem 0.52: the update also brings another Node, made ready by the app in updates\runtime; swapped while nothing runs on it
+set SWAPPED=
+if defined PANOPTICA_TASK if defined RUNTIME if exist "%RUNTIME%\version" call :swap
 call :log Starting the app...
 call :again
+if defined SWAPPED call :settle
+goto :eof
+
+rem ---- the runtime (0.52): Setup's Node is in ..\node, next to the app's folder; the old one waits in ..\node.old until
+rem PANOPTICA answers on the new one, and goes back in place when it does not
+:swap
+for %%i in ("%CD%\..\node") do set "NODEDIR=%%~fi"
+if not exist "%NODEDIR%\node.exe" (
+  call :log No Node folder next to the app: Node not changed.
+  goto :eof
+)
+rem the version file has one line (LF only: read with for /f, which ends lines at LF too)
+for /f "usebackq delims=" %%v in ("%RUNTIME%\version") do set TONODE=%%v
+for /f %%v in ('node -p "process.versions.node"') do set FROMNODE=%%v
+rem the file the app downloaded is checked again before anything changes
+node tools\verify-package.cjs "%RUNTIME%\..\runtime.zip" >nul 2>&1
+if errorlevel 1 (
+  call :log The Node %TONODE% file was refused: Node %FROMNODE% kept.
+  call :runtimefailed refused
+  goto :eof
+)
+call :log Changing Node %FROMNODE% to %TONODE%...
+powershell -NoProfile -Command "$d='%NODEDIR%\'; for($i=0;$i -lt 30;$i++){ if(-not (Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) })){exit 0}; Start-Sleep 1 }; exit 1"
+if errorlevel 1 (
+  call :log Node %FROMNODE% is still running: Node not changed.
+  call :runtimefailed locked
+  goto :eof
+)
+if exist "%NODEDIR%.old" rmdir /s /q "%NODEDIR%.old"
+powershell -NoProfile -Command "for($i=0;$i -lt 10;$i++){ try { Rename-Item -LiteralPath '%NODEDIR%' -NewName 'node.old' -ErrorAction Stop; exit 0 } catch { Start-Sleep 1 } }; exit 1"
+if errorlevel 1 (
+  call :log The Node folder is in use: Node not changed.
+  call :runtimefailed locked
+  goto :eof
+)
+powershell -NoProfile -Command "try { Move-Item -LiteralPath '%RUNTIME%' -Destination '%NODEDIR%' -ErrorAction Stop; exit 0 } catch { exit 1 }"
+if errorlevel 1 (
+  if exist "%NODEDIR%" rmdir /s /q "%NODEDIR%"
+  powershell -NoProfile -Command "Rename-Item -LiteralPath '%NODEDIR%.old' -NewName 'node'"
+  call :log Node %TONODE% could not be put in place: Node %FROMNODE% kept.
+  call :runtimefailed locked
+  goto :eof
+)
+del /q "%NODEDIR%\version" 2>nul
+del /q "%RUNTIME%\..\runtime.zip" "%RUNTIME%\..\runtime.zip.sig" 2>nul
+set SWAPPED=1
+goto :eof
+
+:settle
+if not defined RUNTIME_WAIT set RUNTIME_WAIT=120
+call :log Waiting for PANOPTICA on Node %TONODE%, up to %RUNTIME_WAIT% s...
+powershell -NoProfile -Command "for($i=0;$i -lt %RUNTIME_WAIT%;$i++){ if(Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue){exit 0}; Start-Sleep 1 }; exit 1"
+if not errorlevel 1 (
+  rmdir /s /q "%NODEDIR%.old" 2>nul
+  call :log PANOPTICA runs on Node %TONODE%.
+  goto :eof
+)
+call :log PANOPTICA did not start on Node %TONODE%: putting Node %FROMNODE% back.
+schtasks /end /tn "%PANOPTICA_TASK%" >nul 2>&1
+powershell -NoProfile -Command "$d='%NODEDIR%\'; for($i=0;$i -lt 30;$i++){ $p = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) }); if(-not $p){exit 0}; $p | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep 1 }; exit 1"
+powershell -NoProfile -Command "for($i=0;$i -lt 15;$i++){ try { if(Test-Path -LiteralPath '%NODEDIR%'){ Remove-Item -LiteralPath '%NODEDIR%' -Recurse -Force -ErrorAction Stop }; Rename-Item -LiteralPath '%NODEDIR%.old' -NewName 'node' -ErrorAction Stop; exit 0 } catch { Start-Sleep 1 } }; exit 1"
+if errorlevel 1 call :log Could not put Node %FROMNODE% back: run PANOPTICA Setup again.
+call :runtimefailed start
+call :log Starting the app on Node %FROMNODE%...
+call :again
+goto :eof
+
+rem told to the admins by the app when it starts (updates\runtime-failed.txt)
+:runtimefailed
+>updates\runtime-failed.txt echo to=%TONODE%
+>>updates\runtime-failed.txt echo from=%FROMNODE%
+>>updates\runtime-failed.txt echo reason=%~1
+if exist "%RUNTIME%" rmdir /s /q "%RUNTIME%"
 goto :eof
 
 :unsigned

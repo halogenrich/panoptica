@@ -12,6 +12,11 @@
 //      running, reading the status and making a backup; network settings changed while it runs (another port and this computer
 //      alone; HTTPS on 443 with a certificate made here, a wrong key refused, port 80 sending people on), the firewall rule
 //      following them, and the lab's address on the sign-in screen.
+//      0.52: the update carries Node. Setup's own Node comes from a runtime file (Node 26) put with the packages; the first
+//      update (99.0.0) brings Node 24, swapped by the update script; the next (99.0.1) brings Node 20, on which PANOPTICA cannot
+//      start (no node:sqlite), so the update script puts Node 24 back and the admins are told; the last (99.0.2) brings a Node
+//      file signed with another key, refused by the app before anything changes, and the update installs PANOPTICA alone.
+//      Setup run again then puts its own Node back.
 import http from 'node:http';
 import https from 'node:https';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
@@ -21,11 +26,12 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zipSync } from 'fflate';
+import { nodeForWindows, writeRuntimeFile } from './runtime-file.mjs';
 
 const [mode, ...rest] = process.argv.slice(2);
 const root = fileURLToPath(new URL('..', import.meta.url));
-/** A package folder zipped as a release asset, signed with the throwaway key. */
-const pack = (from, to, key) => {
+/** A package folder zipped as a release asset, signed with the throwaway key (as another version when asked). */
+const pack = (from, to, key, version) => {
   const files = {},
     walk = (d) => {
       for (const f of readdirSync(d)) {
@@ -35,6 +41,9 @@ const pack = (from, to, key) => {
       }
     };
   walk(from);
+  if (version)
+    for (const f of ['panoptica/package.json', 'panoptica/built.json'])
+      if (files[f]) files[f] = Buffer.from(JSON.stringify({ ...JSON.parse(files[f].toString('utf8')), version }));
   mkdirSync(to, { recursive: true });
   const zip = Buffer.from(zipSync(files, { level: 1 }));
   writeFileSync(join(to, 'panoptica-devices.zip'), zip);
@@ -53,7 +62,26 @@ if (mode === 'prepare') {
   pack(pkgDir, join(work, 'packages'), k.privateKey);
   writeFileSync(join(work, 'version'), JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).version);
   pack(newDir, join(work, 'new'), k.privateKey);
-  console.log(`prepared ${work}: packages/ and new/, signed with a throwaway key`);
+  // the runtime files (0.52), signed with the same key: Setup's Node (26, with the packages) and the Nodes the updates bring
+  process.env.SIGNING_KEY = k.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  process.env.UPDATE_PUBLIC_KEY = k.publicKey.export({ type: 'spki', format: 'pem' });
+  const n26 = await nodeForWindows('26'),
+    n24 = await nodeForWindows('24'),
+    n20 = await nodeForWindows('20');
+  writeRuntimeFile(join(work, 'packages'), n26);
+  writeRuntimeFile(join(work, 'new'), n24);
+  pack(newDir, join(work, 'new2'), k.privateKey, '99.0.1');
+  writeRuntimeFile(join(work, 'new2'), n20);
+  pack(newDir, join(work, 'new3'), k.privateKey, '99.0.2');
+  const forged = writeRuntimeFile(join(work, 'new3'), n26);
+  writeFileSync(
+    forged + '.sig',
+    sign(null, readFileSync(forged), generateKeyPairSync('ed25519').privateKey).toString('base64') + '\n',
+  );
+  writeFileSync(join(work, 'nodes.json'), JSON.stringify({ setup: n26.version, a: n24.version, b: n20.version }));
+  console.log(
+    `prepared ${work}: packages/ (Node ${n26.version}), new/ (Node ${n24.version}), new2/ (Node ${n20.version}), new3/ (a forged Node file), signed with a throwaway key`,
+  );
   process.exit(0);
 }
 if (mode !== 'run') {
@@ -128,25 +156,30 @@ const test = {
   // releases from a fake GitHub (below), passed on to the app by the helper in test mode
   UPDATE_API: 'http://127.0.0.1:4799',
   UPDATE_REPO: 'lab/app',
+  // 0.52: how long the update script waits for PANOPTICA on a new Node before putting the old one back
+  RUNTIME_WAIT: '45',
 };
-// ---- a fake GitHub with one release: the newer package (work/new), its checksum and signature
-const rel = join(work, 'new'),
-  asset = ['panoptica-devices.zip', 'panoptica-devices.zip.sha256', 'panoptica-devices.zip.sig'];
+// ---- a fake GitHub with one release at a time: a newer package (work/new, new2, new3), its checksum and signature, and the
+// Node it carries (0.52)
+let rel = join(work, 'new'),
+  relVersion = '99.0.0';
+const asset = () => readdirSync(rel).sort();
+const nodes = JSON.parse(readFileSync(join(work, 'nodes.json'), 'utf8'));
 const gh = http
   .createServer((q, r) => {
     if (q.url === '/repos/lab/app/releases/latest')
       return r.writeHead(200, { 'content-type': 'application/json' }).end(
         JSON.stringify({
-          tag_name: 'v99.0.0',
-          name: 'PANOPTICA 99.0.0',
+          tag_name: 'v' + relVersion,
+          name: 'PANOPTICA ' + relVersion,
           body: 'e2e',
           published_at: new Date().toISOString(),
           html_url: 'x',
-          assets: asset.map((name, i) => ({ id: i + 1, name, size: statSync(join(rel, name)).size })),
+          assets: asset().map((name, i) => ({ id: i + 1, name, size: statSync(join(rel, name)).size })),
         }),
       );
-    const a = q.url.match(/\/releases\/assets\/(\d)$/);
-    if (a && asset[+a[1] - 1]) return r.writeHead(200).end(readFileSync(join(rel, asset[+a[1] - 1])));
+    const a = q.url.match(/\/releases\/assets\/(\d+)$/);
+    if (a && asset()[+a[1] - 1]) return r.writeHead(200).end(readFileSync(join(rel, asset()[+a[1] - 1])));
     r.writeHead(404).end('{}');
   })
   .listen(4799, '127.0.0.1');
@@ -235,6 +268,12 @@ try {
   for (let i = 0; i < 60 && !(v = await version()); i++) await sleep(1000);
   ok(v === v0, `PANOPTICA ${v0} is running`);
   ok(running(), 'as the PANOPTICA task, which starts with the computer');
+  const exeNode = () =>
+    pwsh(`(Get-Item '${join(DIR, 'node', 'PANOPTICA.exe')}').VersionInfo.Comments`).replace(
+      /^Node\.js (\S+) runtime$/,
+      '$1',
+    );
+  ok(exeNode() === nodes.setup, `on the Node of the release's runtime file (${exeNode()})`);
   const files = inRoot();
   ok(
     files.length > 0 && !files.some((f) => HAND.test(f)) && files.some((f) => /^reset-password\./.test(f)),
@@ -422,7 +461,12 @@ try {
     (await call('POST', '/api/updates/check')).j?.latest?.version === '99.0.0',
     'the app finds the newer release on GitHub',
   );
-  ok((await call('POST', '/api/updates/download')).s === 200, 'downloads and checks it');
+  let dl = await call('POST', '/api/updates/download');
+  ok(dl.s === 200, 'downloads and checks it');
+  ok(
+    dl.j?.runtime?.node === nodes.setup && dl.j.runtime.ready === nodes.a,
+    `with the Node it carries, checked and ready (${dl.j?.runtime?.ready})`,
+  );
   ok((await call('POST', '/api/updates/install')).s === 200, 'and installs it');
   v = null;
   for (let i = 0; i < 240 && (v = await version()) !== '99.0.0'; i++) await sleep(1000);
@@ -431,6 +475,55 @@ try {
     !inRoot().some((f) => HAND.test(f)) && inRoot('internal').includes('update.bat'),
     'after the update, still no script to run by hand',
   );
+  // 0.52: the update script swapped Node
+  let rt = (await call('GET', '/api/updates')).j?.runtime;
+  ok(rt?.node === nodes.a, `PANOPTICA now runs on Node ${nodes.a} (${rt?.node})`);
+  ok(
+    exeNode() === nodes.a &&
+      pwsh(`(Get-Item '${join(DIR, 'node', 'PANOPTICA.exe')}').VersionInfo.FileDescription`) === 'PANOPTICA',
+    'PANOPTICA.exe was made again from the new node.exe',
+  );
+  ok(!existsSync(join(DIR, 'node.old')) && !existsSync(join(DIR, 'panoptica/updates/runtime')), 'nothing left behind');
+  // a Node PANOPTICA cannot start on: the old one goes back
+  rel = join(work, 'new2');
+  relVersion = '99.0.1';
+  ok(
+    (await call('POST', '/api/updates/check')).j?.runtime?.carries?.version === nodes.b,
+    `99.0.1 brings Node ${nodes.b}`,
+  );
+  dl = await call('POST', '/api/updates/download');
+  ok(dl.s === 200 && dl.j?.runtime?.ready === nodes.b, 'downloaded with it');
+  ok((await call('POST', '/api/updates/install')).s === 200, 'and installed');
+  v = null;
+  for (let i = 0; i < 360 && (v = await version()) !== '99.0.1'; i++) await sleep(1000);
+  rt = (await call('GET', '/api/updates')).j?.runtime;
+  ok(
+    v === '99.0.1' && rt?.node === nodes.a && rt.failed?.reason === 'start' && rt.failed.to === nodes.b,
+    `PANOPTICA did not start on Node ${nodes.b}: 99.0.1 runs on Node ${rt?.node} again (${JSON.stringify(rt?.failed)})`,
+  );
+  const told = (await call('GET', '/api/notifications')).j;
+  ok(
+    JSON.stringify(told ?? '').includes(`did not start on Node ${nodes.b}`),
+    'the admins are told the update put the old Node back',
+  );
+  ok(
+    exeNode() === nodes.a && !existsSync(join(DIR, 'node.old')),
+    'the old Node is back in place, PANOPTICA.exe with it',
+  );
+  // a Node file signed with another key: refused before anything changes; the update installs PANOPTICA alone
+  rel = join(work, 'new3');
+  relVersion = '99.0.2';
+  await call('POST', '/api/updates/check');
+  dl = await call('POST', '/api/updates/download');
+  ok(
+    dl.s === 200 && /not signed by PANOPTICA/.test(dl.j?.runtime?.refused?.reason ?? '') && !dl.j.runtime.ready,
+    `a forged Node file is refused (${dl.j?.runtime?.refused?.reason}); the update is still downloaded`,
+  );
+  ok((await call('POST', '/api/updates/install')).s === 200, 'and installed');
+  v = null;
+  for (let i = 0; i < 240 && (v = await version()) !== '99.0.2'; i++) await sleep(1000);
+  rt = (await call('GET', '/api/updates')).j?.runtime;
+  ok(v === '99.0.2' && rt?.node === nodes.a, `99.0.2 runs, on Node ${rt?.node} as before`);
   // Setup again over it, while PANOPTICA is running: the program is replaced, the lab stays (0.50.2: Setup could not replace
   // node.exe while the running PANOPTICA held it)
   const again = winSetup('setup-again.log');
@@ -442,6 +535,8 @@ try {
   v = null;
   for (let i = 0; i < 90 && !(v = await version()); i++) await sleep(1000);
   ok(!!v && (await call('GET', '/api/me')).s === 200, 'PANOPTICA runs again, with the lab and its admin');
+  rt = (await call('GET', '/api/updates')).j?.runtime;
+  ok(rt?.node === nodes.setup && exeNode() === nodes.setup, `on Setup's own Node again (${rt?.node})`);
   // the uninstaller: the task goes, the data stays
   const un = spawnSync(join(DIR, 'unins000.exe'), ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], {
     stdio: 'inherit',

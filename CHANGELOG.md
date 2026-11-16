@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.52.0 (2026-11-16)
+
+- **Updates bring Node.js too**, on a computer installed with PANOPTICA Setup. When a release runs on a newer Node.js (security fixes included), the update downloads it with PANOPTICA (about 40 MB more), checks it like the rest (its checksum and PANOPTICA's signature), and puts it in place while PANOPTICA is stopped. Until now Node.js changed only when PANOPTICA Setup was run again.
+- **If PANOPTICA does not start on the new Node.js**, the update puts the old one back and starts PANOPTICA again; the admins are told. If the Node.js file is refused before anything changes, the update installs PANOPTICA and keeps the Node.js it has; the admins are told why.
+- **Admin settings › Updates** shows the Node.js version under each PANOPTICA version, says when an update also brings Node.js, and the download size counts both.
+- **PANOPTICA Setup** carries the same Node.js file as the updates.
+- This starts with the update after 0.52: an install updated to 0.52 from the app keeps its Node.js until then (the update that brings 0.52 is still run by the version before). Running PANOPTICA Setup 0.52 over it gives it Setup's Node.js at once.
+
 ## 0.51.2 (2026-11-16)
 
 - **Comparison slide**: the box plots get the room they need (each panel a little wider than tall, wider with more groups), and the J–V figure takes the rest. They were squashed beside a large J–V figure.

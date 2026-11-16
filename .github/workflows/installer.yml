@@ -2,7 +2,8 @@ name: Installer
 # PANOPTICA Setup on Windows (0.47): builds it with test packages inside (signed with a throwaway key, 0.49) and runs it end to
 # end (tools/installer-e2e.mjs): a licence file from the builder, PANOPTICA in the background (the startup task) with no script
 # to run by hand, an update from a fake GitHub installed by the app and restarted by the task, Setup over the running install,
-# the uninstaller. (Setup for macOS, 0.48 to 0.50, is gone since 0.51.)
+# the uninstaller. Since 0.52 Setup's Node comes from a runtime file, and the updates bring other Nodes (swapped, put back
+# when PANOPTICA does not start on one, refused when forged). (Setup for macOS, 0.48 to 0.50, is gone since 0.51.)
 # For pull requests that touch the installer, the licence or the update path, and on demand.
 on:
   workflow_dispatch:
@@ -16,6 +17,9 @@ on:
       - 'apps/server/src/updates.ts'
       - 'apps/server/src/licence.ts'
       - 'apps/server/src/signature.ts'
+      - 'apps/server/src/runtime.ts'
+      - 'apps/server/src/brand.ts'
+      - 'tools/runtime-file.mjs'
       - '.github/workflows/installer.yml'
 permissions:
   contents: read
@@ -30,7 +34,7 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - name: The app packaged, and a newer one, signed with a throwaway key
+      - name: The app packaged, newer ones, and the runtime files, signed with a throwaway key
         shell: bash
         run: |
           npm run build

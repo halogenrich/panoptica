@@ -8,6 +8,7 @@ import { connect, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { zipSync } from 'fflate';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = mkdtempSync(join(tmpdir(), 'psc-smoke-')),
@@ -2085,6 +2086,139 @@ console.log('Network settings and HTTPS, the tray icon (0.51)');
     );
   }
   s5.kill();
+}
+
+// 0.52: a release carries Node as a file of its own; an install made by Setup on Windows takes it with the update when it is
+// not the Node it runs. Here on any system with PANOPTICA_TEST_RUNTIME: what the app shows, the checks before anything changes
+// (each refusal keeps the update going without Node), and what the update script left when it gave a swap up. The swap itself
+// is proven on Windows by the Installer workflow (tools/installer-e2e.mjs).
+console.log('The update carries Node (0.52)');
+{
+  const port6 = await freePort(),
+    gh6port = await freePort(),
+    cfg = join(tmp, 'config6'),
+    upd = join(tmp, 'updates6'),
+    other = process.versions.node.replace(/^(\d+)\..*/, (_, m) => `${m}.99.0`);
+  mkdirSync(cfg, { recursive: true });
+  mkdirSync(upd, { recursive: true });
+  writeFileSync(join(cfg, 'install.json'), JSON.stringify({ by: 'setup' }));
+  // what update.bat leaves when PANOPTICA did not start on the new Node and the old one went back
+  writeFileSync(join(upd, 'runtime-failed.txt'), `to=${other}\r\nfrom=${process.versions.node}\r\nreason=start\r\n`);
+  // the release: the package and Node; the runtime file's content changes per check
+  let runtime = Buffer.from(
+    zipSync({ 'node/node.exe': Buffer.from('MZ not really Node'), 'node/LICENSE': Buffer.from('x') }),
+  );
+  const runtimeSum = () => createHash('sha256').update(runtime).digest('hex'),
+    runtimeSig = () => sign(null, runtime, testKey.privateKey).toString('base64');
+  let sumOf = runtimeSum,
+    sigOf = runtimeSig,
+    nodeVersion = other;
+  const files6 = () => ({
+    'panoptica.zip': zip,
+    'panoptica.zip.sha256': `${good}  panoptica.zip\n`,
+    'panoptica.zip.sig': goodSig + '\n',
+    [`panoptica-node-${nodeVersion}-win-x64.zip`]: runtime,
+    [`panoptica-node-${nodeVersion}-win-x64.zip.sha256`]: `${sumOf()}  x\n`,
+    [`panoptica-node-${nodeVersion}-win-x64.zip.sig`]: sigOf() + '\n',
+  });
+  const gh6 = createServer((q, r) => {
+    const names = Object.keys(files6());
+    if (q.url === '/repos/lab/app/releases/latest')
+      return r.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          tag_name: 'v99.1.0',
+          name: 'v99.1.0',
+          body: 'notes',
+          published_at: published,
+          html_url: 'x',
+          assets: names.map((name, i) => ({ id: 100 + i, name, size: Buffer.byteLength(files6()[name]) })),
+        }),
+      );
+    const a = q.url.match(/\/releases\/assets\/(\d+)$/);
+    if (a && names[+a[1] - 100]) return r.writeHead(200).end(files6()[names[+a[1] - 100]]);
+    r.writeHead(404).end('{}');
+  }).listen(gh6port, '127.0.0.1');
+  const s6 = spawn(process.execPath, serverArgs, {
+    cwd: serverCwd,
+    env: {
+      ...env,
+      PORT: String(port6),
+      DB_PATH: join(tmp, 'fresh6.db'),
+      CONFIG_DIR: cfg,
+      UPDATES_DIR: upd,
+      UPDATE_API: `http://127.0.0.1:${gh6port}`,
+      PANOPTICA_TEST_RUNTIME: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log6 = '';
+  s6.stdout.on('data', (x) => (log6 += x));
+  s6.stderr.on('data', (x) => (log6 += x));
+  for (let i = 0; i < 300 && !log6.includes('Server listening'); i++) await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
+  let c6 = '';
+  const j6 = async (m, path, body) => {
+    const r = await fetch(`http://127.0.0.1:${port6}${path}`, {
+      method: m,
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(c6 ? { cookie: c6 } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (r.headers.get('set-cookie')) c6 = r.headers.get('set-cookie').split(';')[0];
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  await j6('POST', '/api/login', { username: 'admin', password: PW });
+  const db6 = new DatabaseSync(join(tmp, 'fresh6.db'));
+  const notes6 = () => db6.prepare("SELECT text FROM notifications WHERE kind='update' ORDER BY id").all();
+  let v6 = (await j6('GET', '/api/updates')).j;
+  ok(
+    v6.runtime?.node === process.versions.node && v6.runtime.swaps && v6.runtime.failed?.reason === 'start',
+    'Updates shows the Node it runs, and that the last update put the old Node back',
+  );
+  ok(
+    notes6().some((n) => new RegExp(`did not start on Node ${other.replace(/\./g, '\\.')}`).test(n.text)) &&
+      !existsSync(join(upd, 'runtime-failed.txt')),
+    'the admins are told once, at the start after the update',
+  );
+  v6 = (await j6('POST', '/api/updates/check')).j;
+  ok(
+    v6.available && v6.runtime.carries?.version === other && v6.runtime.carries.size === runtime.length,
+    'a release that carries another Node: its version and size are shown',
+  );
+  // each refusal: the update is downloaded all the same, Node is kept, the admins are told why
+  const refused = async (what, re) => {
+    const n0 = notes6().length,
+      d = await j6('POST', '/api/updates/download');
+    ok(
+      d.s === 200 &&
+        d.j.downloaded?.version === '99.1.0' &&
+        re.test(d.j.runtime.refused?.reason ?? '') &&
+        !d.j.runtime.ready &&
+        !existsSync(join(upd, 'runtime')) &&
+        notes6().length === n0 + 1 &&
+        /keeps Node/.test(notes6().at(-1).text),
+      `${what}: refused (${d.j.runtime?.refused?.reason}); the update keeps this Node, and the admins are told`,
+    );
+    return d.j;
+  };
+  sumOf = () => 'f'.repeat(64);
+  await refused('a Node file that does not match its checksum', /checksum/);
+  sumOf = runtimeSum;
+  sigOf = () => sign(null, runtime, generateKeyPairSync('ed25519').privateKey).toString('base64');
+  await refused('a Node file signed with another key', /not signed by PANOPTICA/);
+  sigOf = runtimeSig;
+  const notNode = await refused('a Node file whose node.exe is not Node for Windows', /not Node for Windows/);
+  ok(!notNode.runtime.failed, 'a new download forgets the failure of the last update');
+  runtime = Buffer.from(zipSync({ 'node/LICENSE': Buffer.from('x') }));
+  await refused('a Node file without node.exe', /holds no node\.exe/);
+  // the same Node as this one: nothing to download
+  nodeVersion = process.versions.node;
+  v6 = (await j6('POST', '/api/updates/check')).j;
+  ok(v6.available && v6.runtime.carries === null, 'a release with the Node this install runs: Node is not downloaded');
+  const d6 = await j6('POST', '/api/updates/download');
+  ok(d6.s === 200 && !d6.j.runtime.refused && !d6.j.runtime.ready, 'and the update is downloaded without it');
+  db6.close();
+  s6.kill();
+  gh6.close();
 }
 
 db.close();

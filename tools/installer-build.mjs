@@ -1,8 +1,8 @@
-// Prepares PANOPTICA Setup (0.47): installer/build/ with node/node.exe (Node 26 since 0.50.1, for Windows x64, checked against nodejs.org's
-// SHA-256 list), helper.cjs (installer/helper.mjs bundled with fflate) and, since 0.49, packages/: the release's signed
+// Prepares PANOPTICA Setup (0.47): installer/build/ with node/node.exe (Node 26 since 0.50.1, for Windows x64; since 0.52 from the
+// release's runtime file, panoptica-node-<version>-win-x64.zip, made by tools/runtime-file.mjs), helper.cjs (installer/helper.mjs bundled with fflate) and, since 0.49, packages/: the release's signed
 // packages (panoptica-<modules>.zip and .sig, one per combination of modules) with index.json (their version, sizes and
 // SHA-256). Setup carries them, so it needs no internet; the lab's licence file decides which one is installed.
-//   node tools/installer-build.mjs --packages <folder with the release's packages> [--node <version>] [--helper-only]
+//   node tools/installer-build.mjs --packages <folder with the release's packages and runtime file> [--runtime <file>] [--helper-only]
 // Then, on Windows with Inno Setup:
 //   ISCC.exe /DAppVersion=<version> installer\panoptica.iss   → out\installer\
 // (Setup for macOS, 0.48 to 0.50, is gone since 0.51: the lab's server is a Windows mini PC.)
@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { unzipSync } from 'fflate';
+import { RUNTIME_FILE } from './runtime-file.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url)),
   out = join(root, 'installer/build'),
@@ -76,7 +77,8 @@ if (!args.includes('--helper-only')) {
     files = {};
   let version = '';
   mkdirSync(to, { recursive: true });
-  for (const f of readdirSync(from).filter((f) => /^panoptica-.+\.zip$/.test(f))) {
+  // the runtime file (0.52) sits with them, and is not a package
+  for (const f of readdirSync(from).filter((f) => /^panoptica-.+\.zip$/.test(f) && !RUNTIME_FILE.test(f))) {
     if (!existsSync(join(from, f + '.sig'))) throw new Error(`${f} has no signature (${f}.sig)`);
     const data = readFileSync(join(from, f));
     // the version inside the package
@@ -95,27 +97,28 @@ if (!args.includes('--helper-only')) {
   writeFileSync(join(to, 'index.json'), JSON.stringify({ version, files }, null, 2));
   console.log(`packages ${version}: ${Object.keys(files).join(', ')}`);
 }
-// The Node line Setup installs (0.50.1: 26, supported until April 2029; 22 before). One place to change at the yearly move.
-const NODE = 26;
-// the newest of that line, or the one asked for
-const want = arg('--node', `latest-v${NODE}.x`),
-  base = `https://nodejs.org/dist/${want.startsWith('latest') ? want : 'v' + want.replace(/^v/, '')}`;
-/** A file from nodejs.org, checked against its SHA-256 list. */
-async function nodeFile(pattern, what) {
-  const sums = await (await fetch(`${base}/SHASUMS256.txt`)).text();
-  const line = sums.split('\n').find((l) => pattern.test(l));
-  if (!line) throw new Error(`no Node ${NODE} for ${what} in ${base}`);
-  const [sum, name] = line.trim().split(/\s+/);
-  const data = Buffer.from(await (await fetch(`${base}/${name}`)).arrayBuffer());
-  if (createHash('sha256').update(data).digest('hex') !== sum) throw new Error(`${name} does not match its SHA-256`);
-  return { name, data };
-}
-
+// Setup's Node (0.52): from the release's runtime file (tools/runtime-file.mjs), the same file updates bring, so Setup and the
+// in-app update carry the same Node. It sits with the packages (the release's files), or is given with --runtime.
 if (!args.includes('--helper-only')) {
-  const { name, data } = await nodeFile(new RegExp(`node-v${NODE}\\.[\\d.]+-win-x64\\.zip$`), 'Windows x64');
-  const files = unzipSync(new Uint8Array(data), {
-    filter: (f) => /\/(node\.exe|LICENSE)$/.test(f.name) && f.name.split('/').length === 2,
-  });
-  for (const [n, d] of Object.entries(files)) writeFileSync(join(out, 'node', n.split('/')[1]), d);
-  console.log(`${name.replace('.zip', '')}: node.exe and its LICENSE`);
+  const from = arg('--packages'),
+    file =
+      arg('--runtime') ??
+      readdirSync(from)
+        .filter((f) => RUNTIME_FILE.test(f))
+        .map((f) => join(from, f))[0];
+  if (!file) throw new Error('no runtime file (panoptica-node-<version>-win-x64.zip): give it with --runtime');
+  const data = readFileSync(file),
+    name = file.split(/[\\/]/).pop();
+  // the checksum next to it, when there is one (the release's files have it)
+  if (existsSync(file + '.sha256')) {
+    const sum = readFileSync(file + '.sha256', 'utf8')
+      .trim()
+      .split(/\s+/)[0];
+    if (createHash('sha256').update(data).digest('hex') !== sum) throw new Error(`${name} does not match its SHA-256`);
+  }
+  const files = unzipSync(new Uint8Array(data));
+  if (!files['node/node.exe']) throw new Error(`${name} is not a PANOPTICA runtime file`);
+  for (const n of ['node.exe', 'LICENSE'])
+    if (files['node/' + n]) writeFileSync(join(out, 'node', n), files['node/' + n]);
+  console.log(`Node ${name.match(RUNTIME_FILE)[1]} from ${name}: node.exe and its LICENSE`);
 }
