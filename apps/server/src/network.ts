@@ -202,7 +202,10 @@ const portWords = (e: unknown, port: number) =>
   (e as NodeJS.ErrnoException).code === 'EADDRINUSE'
     ? `port ${port} is used by another program on this computer`
     : (e as NodeJS.ErrnoException).code === 'EACCES'
-      ? `this computer does not let PANOPTICA use port ${port} (ports below 1024 need an administrator)`
+      ? process.platform === 'win32'
+        ? // Windows keeps no port for administrators: another service holds or reserves it (often IIS, through http.sys)
+          `port ${port} is held or reserved by another service on this computer (often IIS, Windows' web server)`
+        : `this computer does not let PANOPTICA use port ${port} (ports below 1024 need an administrator)`
       : `port ${port} cannot be used (${(e as Error).message})`;
 
 /** Starts listening as `net` says. At the first start a port that cannot be used falls back to 3000, so PANOPTICA still opens. */

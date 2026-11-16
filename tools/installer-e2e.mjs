@@ -193,6 +193,35 @@ try {
       ],
       { env: { ...process.env, ...test }, stdio: 'inherit' },
     );
+  // 0.51: a new install listens on port 80 (HTTPS later on 443). On GitHub's Windows machines a service of Windows may hold
+  // them (http.sys): shown, then stopped, so the test checks PANOPTICA on the real ports. A lab's computer has nothing there
+  // unless IIS or another web server runs; if one does, PANOPTICA starts on 3000 and says why (Admin settings › Network).
+  const holders = () =>
+    spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' })
+      .stdout.split('\n')
+      .filter((l) => /LISTENING/.test(l) && /:(80|443)\s/.test(l))
+      .map((l) => l.trim().replace(/\s+/g, ' '));
+  const busy = holders();
+  if (busy.length) {
+    console.log('  ports 80/443 before Setup:\n    ' + busy.join('\n    '));
+    console.log(
+      spawnSync('netsh', ['http', 'show', 'servicestate', 'view=requestq'], { encoding: 'utf8' })
+        .stdout.split('\n')
+        .filter((l) => /Process IDs|Registered URLs|HTTP:\/\/|HTTPS:\/\//i.test(l))
+        .slice(0, 20)
+        .join('\n'),
+    );
+    spawnSync('net', ['stop', 'http', '/y'], { stdio: 'inherit' });
+    console.log('  after stopping http.sys: ' + (holders().join('; ') || 'free'));
+  }
+  console.log(
+    '  excluded port ranges: ' +
+      spawnSync('netsh', ['int', 'ipv4', 'show', 'excludedportrange', 'protocol=tcp'], { encoding: 'utf8' })
+        .stdout.split('\n')
+        .filter((l) => /^\s*\d+\s+\d+/.test(l))
+        .map((l) => l.trim().replace(/\s+/g, '-'))
+        .join(', '),
+  );
   const r = winSetup('setup.log');
   ok(r.status === 0, 'Setup ran silently with the licence file, without the internet');
   let v = null;
