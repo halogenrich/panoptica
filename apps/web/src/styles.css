@@ -6420,6 +6420,10 @@ body.dragging-block * {
 .upd-v.new {
   color: var(--ac);
 }
+/* 0.52: the Node under each version */
+.upd-node {
+  font-variant-numeric: tabular-nums;
+}
 .upd-arrow {
   font-size: 22px;
   color: var(--mut);

@@ -2,12 +2,15 @@
 //   node --import tsx tools/browser.mjs            the server from source (apps/server/src) with the built web app (apps/web/dist)
 //   node --import tsx tools/browser.mjs --built    the packaged server (out/panoptica, from tools/package.mjs)
 // Flows: first setup (installed as PANOPTICA Setup does, with a licence), the licence in Admin settings, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
-// sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption, the builder's page. On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
+// sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption, the builder's page; 0.52: the Node
+// shown in Admin settings › Updates, and the Node a newer release brings (from a fake GitHub). On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { zipSync } from 'fflate';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +45,9 @@ const testKey = generateKeyPairSync('ed25519'),
     issued: '2026-11-14',
   });
 mkdirSync(join(tmp, 'config'), { recursive: true });
+// what the update script leaves when PANOPTICA did not start on a new Node and the old one went back (0.52)
+mkdirSync(join(tmp, 'updates'), { recursive: true });
+writeFileSync(join(tmp, 'updates/runtime-failed.txt'), 'to=99.0.0\r\nfrom=26.13.1\r\nreason=start\r\n');
 writeFileSync(join(tmp, 'config/install.json'), JSON.stringify({ by: 'setup' }));
 writeFileSync(
   join(tmp, 'config/licence.json'),
@@ -50,6 +56,39 @@ writeFileSync(
     sig: sign(null, Buffer.from(licenceBody), testKey.privateKey).toString('base64'),
   }),
 );
+
+// a fake GitHub with one newer release that carries another Node (0.52); nothing is downloaded from it here
+const GH = await freePort(),
+  otherNode = process.versions.node.replace(/^(\d+)\..*/, (_, m) => `${m}.99.0`);
+// the package is a few bytes signed with the test key; the Node file is signed too, but its node.exe is not Node for Windows,
+// so the app refuses it and the update goes on without it
+const pkg = Buffer.from('a package for the browser test'),
+  nodeZip = Buffer.from(zipSync({ 'node/node.exe': Buffer.from('MZ not Node') })),
+  sha = (b) => createHash('sha256').update(b).digest('hex'),
+  sig = (b) => sign(null, b, testKey.privateKey).toString('base64'),
+  assetBody = [pkg, sha(pkg), sig(pkg), nodeZip, sha(nodeZip), sig(nodeZip)];
+const gh = createHttpServer((q, r) => {
+  const a = q.url.match(/\/releases\/assets\/(\d+)$/);
+  if (a && assetBody[+a[1] - 1]) return r.writeHead(200).end(assetBody[+a[1] - 1]);
+  if (q.url !== '/repos/lab/app/releases/latest') return r.writeHead(404).end('{}');
+  r.writeHead(200, { 'content-type': 'application/json' }).end(
+    JSON.stringify({
+      tag_name: 'v99.0.0',
+      name: 'PANOPTICA 99.0.0',
+      body: 'What changed for the lab.',
+      published_at: new Date().toISOString(),
+      html_url: 'x',
+      assets: [
+        ['panoptica.zip', 2_400_000],
+        ['panoptica.zip.sha256', 80],
+        ['panoptica.zip.sig', 89],
+        [`panoptica-node-${otherNode}-win-x64.zip`, 39_400_000],
+        [`panoptica-node-${otherNode}-win-x64.zip.sha256`, 100],
+        [`panoptica-node-${otherNode}-win-x64.zip.sig`, 89],
+      ].map(([name, size], i) => ({ id: i + 1, name, size })),
+    }),
+  );
+}).listen(GH, '127.0.0.1');
 
 const srv = spawn(
   process.execPath,
@@ -67,6 +106,10 @@ const srv = spawn(
       ADMIN_PASSWORD: '', // a new install: the first setup makes the admin
       PANOPTICA_TEST: '1',
       UPDATE_PUBLIC_KEY: testKey.publicKey.export({ type: 'spki', format: 'pem' }),
+      UPDATE_API: `http://127.0.0.1:${GH}`,
+      UPDATE_REPO: 'lab/app',
+      // the Node part of updates, which applies to Setup installs on Windows (0.52)
+      PANOPTICA_TEST_RUNTIME: '1',
       ...(CORE && !BUILT ? { PANOPTICA_MODULES: 'none' } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -243,6 +286,39 @@ try {
     for (let i = 0; i < 40 && foot !== 'both'; i++, await page.waitForTimeout(250))
       foot = (await api('GET', '/lab/public')).j.foot;
     expect(foot === 'both', `the footer was saved as ${foot}, not Both`);
+  });
+
+  await step('Admin settings › Updates shows the Node it runs and the Node a newer release brings (0.52)', async () => {
+    await page.getByRole('tab', { name: 'Updates', exact: true }).click();
+    const upd = page.locator('.upd');
+    await upd.getByText(`Node ${process.versions.node}`, { exact: true }).waitFor();
+    await upd.getByRole('button', { name: 'Check now' }).click();
+    await upd.getByText(`Node ${otherNode}`, { exact: true }).waitFor();
+    await upd.getByText(`This update also brings Node ${otherNode}.`).waitFor();
+    // the download counts the package and Node: 2.4 MB + 39.4 MB
+    await upd.getByRole('button', { name: 'Download (39.9 MB)' }).waitFor();
+    await upd
+      .getByText('PANOPTICA did not start on Node 99.0.0, so the old Node was put back.', { exact: false })
+      .waitFor();
+    await upd.getByRole('button', { name: 'Download (39.9 MB)' }).click();
+    await upd.getByText('Downloaded and checked').waitFor();
+    await upd
+      .getByText(`Node ${otherNode} was not accepted: its node.exe is not Node for Windows.`, { exact: false })
+      .waitFor();
+    if (process.env.SHOTS) {
+      mkdirSync(join(root, 'out'), { recursive: true });
+      const shot = async (name) => writeFileSync(join(root, 'out', name), await page.screenshot({ fullPage: false }));
+      await shot('updates-1400.png');
+      // after the theme's and the layout's transitions
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForTimeout(600);
+      await shot('updates-1400-dark.png');
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(600);
+      await shot('updates-390.png');
+      await page.setViewportSize({ width: 1400, height: 900 });
+    }
   });
 
   await step('sign out and sign in again', async () => {
@@ -782,6 +858,7 @@ try {
   console.log(`All ${passed} browser flows passed`);
   await browser.close();
   srv.kill();
+  gh.close();
   rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
 } catch (e) {
   console.log('FAILED');
@@ -799,5 +876,6 @@ try {
   console.error('----- server log (last lines)\n' + log.split('\n').slice(-30).join('\n'));
   await browser.close();
   srv.kill();
+  gh.close();
   process.exit(1);
 }

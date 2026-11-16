@@ -483,7 +483,18 @@ type Upd = {
   latest?: { version: string; name: string; notes: string; published: string; url: string; zip?: { size: number } };
   downloaded?: { version: string; file: string };
   log?: string;
+  /** 0.52: the Node this install runs; on an install made by Setup an update may bring another (`carries`) */
+  runtime?: {
+    node: string;
+    swaps: boolean;
+    carries: { version: string; size: number } | null;
+    ready: string | null;
+    refused: { version: string; reason: string } | null;
+    failed: { to: string; from: string; reason: string } | null;
+  };
 };
+/** Megabytes, for downloads of more than a few hundred kilobytes. */
+const size = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`);
 export function Updates() {
   const [u, setU] = useState<Upd | null>(null),
     [busy, setBusy] = useState(''),
@@ -507,7 +518,7 @@ export function Updates() {
     if (
       !u?.latest ||
       !window.confirm(
-        `Install version ${u.latest.version} now?\n\nThe app backs up the database, stops for about a minute while the program files are replaced (the data is not touched), and starts again. Everyone using it will see it reconnect.`,
+        `Install version ${u.latest.version} now?\n\nThe app backs up the database, stops for about a minute while the program files are replaced (the data is not touched), and starts again. Everyone using it will see it reconnect.${u.runtime?.ready ? `\n\nNode ${u.runtime.ready} replaces Node ${u.runtime.node}.` : ''}`,
       )
     )
       return;
@@ -546,11 +557,15 @@ export function Updates() {
         <b>Installing {u.latest?.version}…</b>
         <p className="mut">
           The app is backing up, updating and restarting. This page reloads by itself when it is back (usually within a
-          minute or two; longer if new libraries are installed).
+          minute or two; longer when Node changes).
         </p>
       </section>
     );
-  const L = u.latest;
+  const L = u.latest,
+    R = u.runtime,
+    // the Node the latest release brings (0.52), downloaded with it
+    brings = u.available && R?.carries ? R.carries : null,
+    total = (L?.zip?.size ?? 0) + (brings?.size ?? 0);
   return (
     <div className="upd">
       <section className="group">
@@ -558,6 +573,7 @@ export function Updates() {
           <div>
             <span className="mut small">Installed</span>
             <b className="upd-v">{u.current}</b>
+            {R && <span className="mut small upd-node">Node {R.node}</span>}
           </div>
           <span className="upd-arrow" aria-hidden>
             {u.available ? '→' : ''}
@@ -566,6 +582,7 @@ export function Updates() {
             <div>
               <span className="mut small">Available</span>
               <b className="upd-v new">{L.version}</b>
+              {brings && <span className="mut small upd-node">Node {brings.version}</span>}
             </div>
           )}
           <div className="grow" />
@@ -591,6 +608,17 @@ export function Updates() {
           )}{' '}
           The app checks GitHub once a day and notifies admins when there is a new version.
         </p>
+        {R?.failed && (
+          <p className="warn-text small">
+            The last update kept Node {R.node}:{' '}
+            {R.failed.reason === 'start'
+              ? `PANOPTICA did not start on Node ${R.failed.to}, so the old Node was put back.`
+              : R.failed.reason === 'locked'
+                ? `Node ${R.failed.to} could not replace it because its files were in use.`
+                : `the Node ${R.failed.to} file was refused.`}{' '}
+            PANOPTICA works as before. Contact PANOPTICA.
+          </p>
+        )}
         {u.available && L && (
           <>
             <h4 className="upd-h">
@@ -613,12 +641,25 @@ export function Updates() {
                   disabled={!!busy || !L.zip}
                   onClick={() => run('download', api<Upd>('/updates/download', 'POST'))}
                 >
-                  {busy === 'download'
-                    ? 'Downloading…'
-                    : `Download${L.zip ? ` (${Math.round(L.zip.size / 1024)} KB)` : ''}`}
+                  {busy === 'download' ? 'Downloading…' : `Download${L.zip ? ` (${size(total)})` : ''}`}
                 </button>
               )}
             </div>
+            {brings && u.downloaded?.version !== L.version && (
+              <p className="mut small">This update also brings Node {brings.version}.</p>
+            )}
+            {u.downloaded?.version === L.version && R?.ready && (
+              <p className="mut small">
+                Node {R.ready} is ready. It replaces Node {R.node} when you install; if PANOPTICA does not start on it,
+                the update puts Node {R.node} back.
+              </p>
+            )}
+            {u.downloaded?.version === L.version && R?.refused && (
+              <p className="warn-text small">
+                Node {R.refused.version} was not accepted: {R.refused.reason}. Installing updates PANOPTICA and keeps
+                Node {R.node}. Contact PANOPTICA.
+              </p>
+            )}
             {u.downloaded?.version === L.version && u.byHand && (
               <p className="mut small">
                 Or by hand: close the app window and run <b>update.bat</b> (Windows), <b>update.command</b> (Mac) or{' '}

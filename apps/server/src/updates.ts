@@ -21,6 +21,18 @@ import { signedByPanoptica } from './signature.js';
 import { licence, setupInstall } from './licence.js';
 import { modules, skippedModules } from './modules.js';
 import { listening } from './network.js';
+import {
+  RUNTIME_FILE,
+  clearRuntime,
+  failureText,
+  preparedRuntime,
+  prepareRuntime,
+  runningNode,
+  runtimeDir,
+  swapsRuntime,
+  takeRuntimeFailure,
+  type RuntimeFailure,
+} from './runtime.js';
 
 /**
  * Updates from the GitHub repository. A release is made on GitHub by the release workflow; it carries panoptica.zip (the app
@@ -37,6 +49,8 @@ import { listening } from './network.js';
  * 0.51: releases are published to a public repository that holds only them (no source), so lab servers need no token. A token
  * saved before (for the private repository) is not sent there. If the public repository has no release and a token is kept,
  * the private one is asked as before (LEGACY_REPO), so an install keeps its updates whatever happens to the public one.
+ * 0.52: a release also carries Node (panoptica-node-<version>-win-x64.zip, signed). An install made by Setup on Windows downloads
+ * it with the update when the release's Node is not the one it runs, and the update script swaps it (runtime.ts, update.bat).
  */
 /** Where releases come from, unless config/update.json or UPDATE_REPO (tests) says otherwise. */
 export const DEFAULT_REPO = 'PANOPTICA-Labs/panopticalm';
@@ -55,6 +69,8 @@ type Release = {
   zip?: { id: number; size: number; name: string };
   sha?: { id: number };
   sig?: { id: number };
+  /** 0.52: the Node this release carries, as a file of its own */
+  runtime?: { version: string; id: number; size: number; sha?: { id: number }; sig?: { id: number } };
 };
 type State = {
   checkedAt?: string;
@@ -62,6 +78,10 @@ type State = {
   error?: string;
   downloaded?: { version: string; file: string };
   notified?: string;
+  /** 0.52: the release's Node, refused when the update was downloaded (the update then keeps this install's Node) */
+  runtimeRefused?: { version: string; reason: string; at: string };
+  /** 0.52: what the update script said when it did not change Node (read from updates/runtime-failed.txt at start) */
+  runtimeFailed?: RuntimeFailure;
 };
 
 const API = process.env.UPDATE_API || 'https://api.github.com';
@@ -149,6 +169,16 @@ export async function checkNow(current: string, notify = true): Promise<State> {
       sha: zipName && asset(zipName + '.sha256') ? { id: asset(zipName + '.sha256').id } : undefined,
       sig: zipName && asset(zipName + '.sig') ? { id: asset(zipName + '.sig').id } : undefined,
     };
+    // the Node it carries (0.52); releases before 0.52 carry none
+    const node = names.find((n) => RUNTIME_FILE.test(n));
+    if (node)
+      latest.runtime = {
+        version: node.match(RUNTIME_FILE)![1],
+        id: asset(node).id,
+        size: asset(node).size,
+        sha: asset(node + '.sha256') ? { id: asset(node + '.sha256').id } : undefined,
+        sig: asset(node + '.sig') ? { id: asset(node + '.sig').id } : undefined,
+      };
     remember(st, latest, current, notify);
   } catch (e) {
     putState({ ...st, checkedAt: new Date().toISOString(), error: (e as Error).message });
@@ -167,18 +197,54 @@ function remember(st: State, latest: Release | undefined, current: string, notif
       error: undefined,
       ...(fresh ? { notified: latest!.version } : {}),
     });
-    if (fresh) {
-      // tell the admins once per version
-      const ins = db.prepare("INSERT INTO notifications(user_id,kind,text,link,actor) VALUES(?,'update',?,?,'')");
-      for (const a of db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0").all() as {
-        id: number;
-      }[])
-        ins.run(
-          a.id,
-          `Version ${latest!.version} of the app is available. Install it from Admin settings › Updates.`,
-          JSON.stringify({ view: 'users', id: 0 }),
-        );
-    }
+    // tell the admins once per version
+    if (fresh)
+      tellAdmins(`Version ${latest!.version} of the app is available. Install it from Admin settings › Updates.`);
+  }
+}
+
+/** A notification to every admin, opening Admin settings › Updates. */
+function tellAdmins(text: string) {
+  const ins = db.prepare("INSERT INTO notifications(user_id,kind,text,link,actor) VALUES(?,'update',?,?,'')");
+  for (const a of db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND deleted=0").all() as {
+    id: number;
+  }[])
+    ins.run(a.id, text, JSON.stringify({ view: 'users', id: 0 }));
+}
+
+/** Whether this install takes the release's Node with the update (0.52): made by Setup, and another Node than its own. */
+const takesRuntime = (rel?: Release) => !!rel?.runtime && swapsRuntime() && rel.runtime.version !== runningNode();
+
+/**
+ * Downloads the release's Node and prepares it for the update script (0.52). When it cannot (no checksum or signature, a
+ * damaged file, not Node for Windows), the update goes on without it: the reason is kept for Admin settings › Updates, in the
+ * update log, and told to the admins.
+ */
+async function downloadRuntime(
+  rel: Release,
+  repo: string,
+  note: (m: string) => void,
+): Promise<State['runtimeRefused']> {
+  const r = rel.runtime!,
+    bin = 'application/octet-stream';
+  try {
+    if (!r.sha || !r.sig) throw new Error('the Node file has no checksum or signature');
+    const sum = (await (await gh(`/releases/assets/${r.sha.id}`, bin, repo)).text())
+      .trim()
+      .split(/\s+/)[0]
+      .toLowerCase();
+    const sig = await (await gh(`/releases/assets/${r.sig.id}`, bin, repo)).text();
+    const zip = Buffer.from(await (await gh(`/releases/assets/${r.id}`, bin, repo)).arrayBuffer());
+    prepareRuntime(zip, sum, sig, r.version, rel.version);
+    note(`Node ${r.version} downloaded and checked; the update changes Node ${runningNode()} to it`);
+    return undefined;
+  } catch (e) {
+    const reason = (e as Error).message;
+    note(`Node ${r.version} refused: ${reason}. The update keeps Node ${runningNode()}`);
+    tellAdmins(
+      `Version ${rel.version} carries Node ${r.version}, but ${reason}. The update installs PANOPTICA and keeps Node ${runningNode()}. Contact PANOPTICA.`,
+    );
+    return { version: r.version, reason, at: new Date().toISOString() };
   }
 }
 
@@ -212,9 +278,22 @@ async function download(): Promise<State> {
   const file = join(DIR, `panoptica-${rel.version}.zip`);
   writeFileSync(file, zip);
   writeFileSync(file + '.sig', sig.trim() + '\n'); // the update script checks it again before replacing anything
-  putState({ ...st, downloaded: { version: rel.version, file } });
+  // the Node it carries (0.52), when this install takes it; otherwise none is kept
+  clearRuntime();
+  const runtimeRefused = takesRuntime(rel) ? await downloadRuntime(rel, repo, logNote) : undefined;
+  putState({ ...st, downloaded: { version: rel.version, file }, runtimeRefused, runtimeFailed: undefined });
   return getState();
 }
+
+/** A line in updates/update.log, the record Admin settings › Updates shows. */
+const logNote = (m: string) => {
+  try {
+    mkdirSync(DIR, { recursive: true });
+    appendFileSync(join(DIR, 'update.log'), `[${new Date().toISOString()}] app: ${m}\n`);
+  } catch {
+    /* the log is a help, not a requirement */
+  }
+};
 
 /** Starts the update script in its own window/process and stops this server, so the script can replace the files and restart it. */
 function install(lan: boolean) {
@@ -233,13 +312,10 @@ function install(lan: boolean) {
     from = [join(ROOT, 'internal', script), join(ROOT, script)].find((f) => existsSync(f));
   if (!from) throw new Error('the update script is missing: run PANOPTICA Setup again');
   copyFileSync(from, run);
-  const note = (m: string) => {
-    try {
-      appendFileSync(join(DIR, 'update.log'), `[${new Date().toISOString()}] app: ${m}\n`);
-    } catch {
-      /* the log is a help, not a requirement */
-    }
-  };
+  const note = logNote;
+  // the Node to swap (0.52), prepared when the update was downloaded; the update script checks the file again
+  const runtime = process.env.PANOPTICA_TASK && preparedRuntime() ? runtimeDir() : undefined;
+  if (runtime) note(`the update also changes Node ${runningNode()} to ${preparedRuntime()}`);
   if (process.platform === 'win32' && process.env.PANOPTICA_TASK) {
     // installed by PANOPTICA Setup (0.47): the app runs as a startup task with no window. The update runs as a task of its own,
     // so it outlives this one; a small script gives it what this process knows (Node's folder, the task to start again)
@@ -252,6 +328,8 @@ function install(lan: boolean) {
         'UPDATE_API',
         'UPDATE_REPO',
         'HOST',
+        // 0.52: how long the update script waits for PANOPTICA on its new Node (tests make it short)
+        'RUNTIME_WAIT',
       ];
     writeFileSync(
       wrap,
@@ -261,6 +339,8 @@ function install(lan: boolean) {
         `set "PSC_ROOT=${ROOT}"`,
         `set "PORT=${listening().port}"`,
         'set OPEN_BROWSER=0',
+        // 0.52: the new Node, ready in updates\runtime; the script swaps it after the app's files
+        ...(runtime ? [`set "RUNTIME=${runtime}"`] : []),
         `call "${run}" ${args.map((a) => `"${a}"`).join(' ')} >> "${join(DIR, 'update.log')}" 2>&1`,
         '',
       ].join('\r\n'),
@@ -357,8 +437,28 @@ export function registerUpdates(app: FastifyInstance, auth: (need?: any) => any,
       byHand: !setupInstall(),
       canInstall: ['win32', 'linux', 'darwin'].includes(process.platform),
       log: lastLog(),
+      /** 0.52: the Node this install runs, whether updates change it, and what the latest release does with it */
+      runtime: {
+        node: runningNode(),
+        swaps: swapsRuntime(),
+        carries: takesRuntime(st.latest)
+          ? { version: st.latest!.runtime!.version, size: st.latest!.runtime!.size }
+          : null,
+        ready: preparedRuntime() ?? null,
+        refused: st.runtimeRefused ?? null,
+        failed: st.runtimeFailed ?? null,
+      },
     };
   };
+  // 0.52: what the last update script said when it did not change Node; told to the admins once
+  const failed = takeRuntimeFailure();
+  if (failed) {
+    putState({ ...getState(), runtimeFailed: failed });
+    tellAdmins(`${failureText(failed)}. PANOPTICA is running on Node ${runningNode()}. Contact PANOPTICA.`);
+  } else if (getState().runtimeFailed && getState().runtimeFailed!.to === runningNode()) {
+    // a later update changed Node after all
+    putState({ ...getState(), runtimeFailed: undefined });
+  }
   app.get('/api/updates', { preHandler: auth(true) }, async () => view());
   app.post('/api/updates/check', { preHandler: auth(true) }, async () => {
     await checkNow(current);

@@ -2,7 +2,8 @@ name: Release
 # On main: when package.json has a version without a release yet, check everything, then publish
 # its packages (the built app, no source: panoptica-<modules>.zip per combination of modules, and panoptica.zip with every
 # module), each with its SHA-256 and PANOPTICA's signature, as release v<version>, with that version's
-# CHANGELOG section as notes. The signing key is the repository secret SIGNING_KEY; its public half is release.pub.
+# CHANGELOG section as notes; since 0.52 also panoptica-node-<version>-win-x64.zip, the Node installs made by Setup run on.
+# The signing key is the repository secret SIGNING_KEY; its public half is release.pub.
 # The lab computers download it from Admin settings › Updates.
 # 0.51: the same release is also published to the public repository PANOPTICA-Labs/panopticalm, which holds releases only
 # (no source), so lab servers need no token: secret RELEASES_TOKEN, a fine-grained token with Contents read and write on that
@@ -44,6 +45,9 @@ jobs:
           # the built app, with no source code, signed by PANOPTICA: one package per combination of modules (0.46), and
           # panoptica.zip with every module for labs on older versions; lab servers install nothing else
           node tools/release-packages.mjs release
+          # Node for Windows as a release file of its own (0.52), signed: Setup carries it, and installs made by Setup take it
+          # with an update when it is not the Node they run
+          node tools/runtime-file.mjs release
           node tools/notes.mjs "$v" > notes.md
           gh release create "v$v" release/* --title "PANOPTICA $v" --notes-file notes.md --target "$GITHUB_SHA"
         env:
@@ -88,7 +92,8 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ needs.release.outputs.version }}"
-          # the release's signed packages go inside Setup (0.49): it installs the one the lab's licence file names
+          # the release's signed packages go inside Setup (0.49): it installs the one the lab's licence file names; its Node
+          # comes from the release's runtime file (0.52), downloaded with them
           gh release download "v$v" --pattern "panoptica-*.zip*" --dir "$env:RUNNER_TEMP\packages"
           node tools/installer-build.mjs --packages "$env:RUNNER_TEMP\packages"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
