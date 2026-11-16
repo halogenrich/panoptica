@@ -469,6 +469,16 @@ if (DEV) {
     },
   });
   ok(cmp.s === 200, 'comparison saved');
+  // 0.52.1: the tables' statistic (median or mean) is kept with the comparison; nothing else is accepted
+  {
+    const data = { ...(await call('GET', '/api/comparisons/' + cmp.j.id)).j.data, stat: 'mean' };
+    await call('PATCH', '/api/comparisons/' + cmp.j.id, { data });
+    ok((await call('GET', '/api/comparisons/' + cmp.j.id)).j.data.stat === 'mean', 'the tables’ statistic is saved');
+    ok(
+      (await call('PATCH', '/api/comparisons/' + cmp.j.id, { data: { ...data, stat: 'mode' } })).s === 400,
+      'and only median or mean is accepted',
+    );
+  }
   const asAna = (path, method = 'GET', body) =>
     fetch(base + path, {
       method,
