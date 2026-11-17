@@ -474,6 +474,21 @@ try {
     },
   );
 
+  await step('the Calendar shows before the lab has equipment; nothing can be booked yet (0.55.1)', async () => {
+    await nav('Calendar');
+    await page.getByText(/No equipment yet, so nothing can be booked/).waitFor();
+    expect(await page.getByRole('button', { name: 'New booking' }).isDisabled(), 'New booking with no equipment');
+    for (const v of ['Day', 'Week', 'Month']) {
+      await page.getByRole('tab', { name: v, exact: true }).click();
+      await page
+        .locator(v === 'Month' ? '.cal .month' : '.cal .tg-col')
+        .first()
+        .waitFor();
+      if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', `calendar-no-equipment-${v}.png`) });
+    }
+    await page.getByRole('tab', { name: 'Week', exact: true }).click();
+  });
+
   await step('equipment is added under Lab › Equipment', async () => {
     await nav('Equipment');
     await page.getByRole('button', { name: 'New equipment' }).click();

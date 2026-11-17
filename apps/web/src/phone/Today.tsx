@@ -37,9 +37,11 @@ export default function Today({
         ) : (
           <>
             <p>Nothing booked for the next 14 days.</p>
-            <button className="btn ph-wide" onClick={() => go('book')}>
-              Book equipment
-            </button>
+            {d.equipment.some((e) => e.active && e.booked !== false) && (
+              <button className="btn ph-wide" onClick={() => go('book')}>
+                Book equipment
+              </button>
+            )}
           </>
         )}
       </section>
