@@ -29,6 +29,9 @@ const cols = [
   'barcode',
 ] as const;
 
+/** The tables an import adds rows to (0.54.2: each row it made keeps the import's id). */
+const MADE = ['chemicals', 'containers', 'storage_areas', 'shelves'] as const;
+
 /** Find or make an area / shelf by name (import). */
 function areaByName(name: string, uid: number) {
   const r = db.prepare('SELECT id FROM storage_areas WHERE lower(name)=lower(?)').get(name) as
@@ -267,7 +270,16 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
   app.post('/api/inventory/import', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = InventoryImport.safeParse(req.body);
     if (!p.success) return bad(reply, p);
+    // what the import makes is marked with its id (0.54.2), so it can be undone: the rows made inside this transaction are
+    // the ones past the highest id before it
+    const top = (t: string) => (db.prepare(`SELECT COALESCE(MAX(id),0) n FROM ${t}`).get() as { n: number }).n;
     const done = tx(() => {
+      const before = Object.fromEntries(MADE.map((t) => [t, top(t)]));
+      const imp = Number(
+        db
+          .prepare('INSERT INTO inventory_imports(user_id, username, file) VALUES(?,?,?)')
+          .run(req.user.id, req.user.username ?? '', p.data.file ?? '').lastInsertRowid,
+      );
       const ids = new Map<string, number>();
       for (const { key, name, cas, ...rest } of p.data.substances) ids.set(key, substanceFor(name, cas ?? '', rest));
       let n = 0;
@@ -282,7 +294,11 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
         );
         n++;
       }
-      return { imported: n, substances: ids.size };
+      for (const t of MADE) db.prepare(`UPDATE ${t} SET import_id=? WHERE id>?`).run(imp, before[t]);
+      const fresh = (db.prepare('SELECT COUNT(*) n FROM chemicals WHERE import_id=?').get(imp) as { n: number }).n;
+      db.prepare('UPDATE inventory_imports SET containers=?, substances=? WHERE id=?').run(n, fresh, imp);
+      req.auditTarget = `${p.data.file ? p.data.file + ': ' : ''}${n} containers, ${fresh} new substances`;
+      return { imported: n, substances: ids.size, id: imp };
     });
     checkDuplicates();
     return done;

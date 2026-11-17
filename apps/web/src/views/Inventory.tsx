@@ -1383,7 +1383,8 @@ function Import({
     [subs, setSubs] = useState<Record<string, { name: string; roles: string[] }>>({}),
     [places, setPlaces] = useState<Record<string, { area: string; shelf: string }>>({}),
     [err, setErr] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [file, setFile] = useState('');
   // an Excel file (the template, 0.54) or a CSV export
   const read = async (f?: File) => {
     if (!f) return;
@@ -1399,6 +1400,7 @@ function Import({
       return setErr('No containers found. Fill in the template, or export a CSV with a header line and a name column.');
     setErr('');
     setRes(r);
+    setFile(f.name);
     setSubs(Object.fromEntries(r.substances.map((x) => [x.key, { name: x.name, roles: [] as string[] }])));
     setPlaces(
       Object.fromEntries(
@@ -1419,6 +1421,7 @@ function Import({
     if (!res) return;
     setBusy(true);
     api<{ imported: number }>('/inventory/import', 'POST', {
+      file,
       substances: res.substances.map((x) => ({
         key: x.key,
         name: subs[x.key].name.trim() || x.name,

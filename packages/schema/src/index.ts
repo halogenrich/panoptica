@@ -356,7 +356,11 @@ export const InventoryImport = z.object({
       }),
     )
     .max(5000),
+  /** the file's name, shown in Admin settings › Inventory's list of imports (0.54.2) */
+  file: z.string().max(200).optional(),
 });
+/** What a purge removes (0.54.2): everything, or what was added in the last 7 days. */
+export const InventoryPurge = z.object({ scope: z.enum(['all', 'week']) });
 
 // ---- equipment calendar ----
 /** Any date-time with an offset, stored as UTC ISO (…Z) so the server can compare times as text. */

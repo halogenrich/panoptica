@@ -195,7 +195,7 @@ export function substanceFor(
   );
   return Number(
     db
-      .prepare('INSERT INTO chemicals(name, cas, data) VALUES(?,?,?)')
+      .prepare('INSERT INTO chemicals(name, cas, data, created_at) VALUES(?,?,?,CURRENT_TIMESTAMP)')
       .run(taken ? `${nm} (${c || 'another'})` : nm, c, JSON.stringify(data)).lastInsertRowid,
   );
 }
