@@ -9260,3 +9260,18 @@ input[type='color']:focus-visible {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Lifetime (0.55.2): the pixels to plot, each with its colour as a bar under its name */
+.life-chip {
+  display: inline-block;
+  padding-bottom: 1px;
+  border-bottom: 3px solid var(--c);
+  line-height: 1.2;
+}
+/* picked: the accent fill can match the pixel's colour, so a white edge keeps the bar visible */
+.chip.on .life-chip {
+  box-shadow: 0 2px 0 #fff;
+}
+.life-none {
+  padding: 40px 0;
+}

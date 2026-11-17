@@ -743,6 +743,110 @@ try {
       await page.getByText(/PCE/).first().waitFor();
     });
 
+  if (!CORE)
+    await step(
+      'Lifetime: figures in the J–V figure’s style; the pixels to plot are picked and remembered (0.55.2)',
+      async () => {
+        // three pixels read four times, both directions; pixel 2 starts best and fades fastest
+        const curveOf = (jsc, px, dir, k) => {
+          const V = [];
+          for (let v = 0; v <= 1.15 + 1e-9; v += 0.02) V.push(+v.toFixed(3));
+          const J = V.map((v) => jsc - 1e-10 * (Math.exp(v / 0.04) - 1));
+          return {
+            file: `Life_1_${px}_${dir}_${k}`,
+            sample: 'Life_cell',
+            substrate: '1',
+            scan: String(k + 1).padStart(4, '0'),
+            pixel: String(px),
+            dir,
+            area: 0.1,
+            pin: 100,
+            V: dir === 'rev' ? [...V].reverse() : V,
+            J: dir === 'rev' ? [...J].reverse() : J,
+            t: k * 3600,
+          };
+        };
+        const start = { 1: 21, 2: 23, 3: 20 },
+          fade = { 1: 0.03, 2: 0.08, 3: 0.02 };
+        const curves = [1, 2, 3].flatMap((px) =>
+          [0, 1, 2, 3].flatMap((k) =>
+            ['rev', 'fwd'].map((d) => curveOf(start[px] * (1 - fade[px] * k) - (d === 'fwd' ? 0.4 : 0), px, d, k)),
+          ),
+        );
+        const r = await api('POST', '/iv', {
+          name: 'Browser lifetime',
+          date: '2026-11-10',
+          system: 'csv',
+          visibility: 'shared',
+          kind: 'lifetime',
+          life: {
+            run: 'Browser_ageing',
+            start: '2026-11-10T09:00:00',
+            settings: {},
+            times: [0, 3600, 7200, 10800],
+            light: [],
+            sensors: false,
+          },
+          curves,
+        });
+        expect(r.s === 200, 'the lifetime run was not imported');
+        await page.evaluate((id) => (window.location.hash = '#/iv/' + id), r.j.id);
+        const chips = page.getByRole('group', { name: 'Pixels to plot' }).getByRole('button');
+        await chips.first().waitFor();
+        expect((await chips.count()) === 3, 'one toggle per pixel');
+        const on = async () =>
+          (
+            await chips.evaluateAll((bs) =>
+              bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+            )
+          ).join();
+        expect((await on()) === 'P2', `it opens with the best pixel: ${await on()}`);
+        const fig = page.locator('svg.jv-figure').first();
+        expect((await fig.getAttribute('viewBox')) === '0 0 700 500', 'the time plot is 7 × 5 like the J–V figure');
+        // the J–V figure's frame: ticks inward on top and right too
+        const ticks = await fig.evaluate((s) => {
+          const ls = [...s.querySelectorAll('line')].map((l) => [
+            +l.getAttribute('x1'),
+            +l.getAttribute('y1'),
+            +l.getAttribute('y2'),
+          ]);
+          return {
+            top: ls.filter(([, y1, y2]) => y1 === 48 && y2 === 55).length,
+            right: ls.filter(([x]) => x === 678).length,
+          };
+        });
+        expect(ticks.top > 2 && ticks.right > 2, `ticks on all four sides (${JSON.stringify(ticks)})`);
+        expect((await fig.locator('path[stroke-dasharray]').count()) === 0, 'one direction: no dashed line');
+        if (process.env.SHOTS) await fig.screenshot({ path: join(root, 'out', 'lifetime-one.png') });
+        if (process.env.SHOTS) {
+          await page.screenshot({ path: join(root, 'out', 'lifetime-page.png') });
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(400);
+          await page.screenshot({ path: join(root, 'out', 'lifetime-page-390.png'), fullPage: true });
+          await page.setViewportSize({ width: 1400, height: 900 });
+        }
+        await page.getByRole('button', { name: 'All', exact: true }).click();
+        expect((await on()) === 'P1,P2,P3', 'All picks every pixel');
+        await page.getByRole('tab', { name: 'Both', exact: true }).click();
+        expect((await fig.locator('path[stroke-dasharray="8 5"]').count()) >= 3, 'backward dashed when both are shown');
+        if (process.env.SHOTS) await fig.screenshot({ path: join(root, 'out', 'lifetime-all-both.png') });
+        await page.getByRole('button', { name: 'None', exact: true }).click();
+        await page.getByText('Pick a pixel above to plot it.').waitFor();
+        await chips.nth(2).click();
+        await page.reload();
+        await chips.first().waitFor();
+        expect((await on()) === 'P3', 'the choice is remembered for this run');
+        const jv = page.locator('svg.jv-figure').nth(1);
+        expect(
+          (await jv.getByText('J (mA/cm²)').count()) === 1 &&
+            (await jv.getByText('1.2', { exact: true }).count()) === 1,
+          'the J–V curves over the run on the J–V figure’s axes',
+        );
+        if (process.env.SHOTS) await jv.screenshot({ path: join(root, 'out', 'lifetime-jv.png') });
+        await api('DELETE', '/iv/' + r.j.id);
+      },
+    );
+
   let cmpId = 0;
   if (!CORE)
     await step('a comparison’s slide: box plots wider than tall, no table header over another (0.51.2)', async () => {

@@ -11,18 +11,17 @@ type Metric = 'pce' | 'voc' | 'jsc' | 'ff' | 'rs' | 'rsh';
 const NAME: Record<Metric, string> = { pce: 'PCE', voc: 'Voc', jsc: 'Jsc', ff: 'FF', rs: 'Rs', rsh: 'Rsh' },
   UNIT: Record<Metric, string> = { pce: '%', voc: 'V', jsc: 'mA/cm²', ff: '%', rs: 'Ω·cm²', rsh: 'Ω·cm²' },
   DIG: Record<Metric, number> = { pce: 2, voc: 3, jsc: 2, ff: 1, rs: 1, rsh: 0 };
-const FW = 760,
-  FH = 470,
-  L = 86,
-  R = 24,
-  T = 26,
-  B = 64,
+// the J–V figure's size, margins, ink and grid (0.55.2: both lifetime figures in the same journal style, 7 × 5)
+const FW = 700,
+  FH = 500,
+  L = 82,
+  R = 22,
+  T = 48,
+  B = 66,
   PW = FW - L - R,
-  STRIP = 132, // the time plot's legend (and logo) sit right of the plot
-  PWT = PW - STRIP,
   PH = FH - T - B,
   INK = '#111',
-  GRID = '#c8c8c8',
+  GRID = '#b8b8b8',
   FONT = 'Inter, "Segoe UI", Helvetica, Arial, sans-serif';
 const pid = (p: string) => (/^\d/.test(p) ? 'P' + p : p);
 const niceStep = (span: number, n = 6) => {
@@ -44,6 +43,17 @@ const shade = (f: number) => {
   return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * f)).join(',')})`;
 };
 
+/** The pixels picked for the time plot, kept per run in this browser (0.55.2). */
+const pickKey = (id: number) => `psc-life-px-${id}`;
+function readPick(id: number): string[] | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(pickKey(id)) ?? 'null');
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A lifetime run (Ossila lifetime test): the same pixels scanned again and again, held at maximum power in between. Every pixel's
  * parameter against time, normalised to its first reading, with T90 and T80; and one pixel's J–V curves from first to last.
@@ -60,6 +70,29 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
     hasLogo = !!fs.watermark,
     [logo, setLogo] = useLogoChoice();
   const devs = useMemo(() => [...new Set(s.curves.map((c) => `${c.sample}|${c.substrate}|${c.pixel}`))].sort(), [s]);
+  // the pixels on the time plot (0.55.2): remembered per run; at first the one with the best first reading
+  const best = useMemo(() => {
+    let k = devs[0] ?? '',
+      top = -Infinity;
+    for (const c of s.curves) {
+      if (c.kind === 'life' || c.m.status !== 'ok' || !(c.m.pce > top)) continue;
+      top = c.m.pce;
+      k = `${c.sample}|${c.substrate}|${c.pixel}`;
+    }
+    return k;
+  }, [s]);
+  const [pick, setPick0] = useState<string[]>(() => {
+    const v = readPick(s.id)?.filter((k) => devs.includes(k));
+    return v ?? (best ? [best] : []);
+  });
+  const setPick = (v: string[]) => {
+    setPick0(v);
+    try {
+      localStorage.setItem(pickKey(s.id), JSON.stringify(v));
+    } catch {
+      /* private window: for this visit only */
+    }
+  };
   const several = new Set(devs.map((d) => d.split('|').slice(0, 2).join('|'))).size > 1;
   const label = (k: string) => {
     const [smp, sub, px] = k.split('|');
@@ -71,6 +104,7 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
     const dirs: Dir[] = dir === 'both' ? ['rev', 'fwd'] : [dir];
     return devs.flatMap((k, i) =>
       dirs.map((d) => {
+        // a pixel keeps its colour whichever others are picked
         const cs = s.curves
           .filter((c) => `${c.sample}|${c.substrate}|${c.pixel}` === k && c.dir === d)
           .sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
@@ -99,11 +133,12 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
       }),
     );
   }, [s, metric, dir, norm, devs.join()]);
-  const [px, setPx] = useState(devs[0] ?? ''),
+  const picked = model.filter((l) => pick.includes(l.dev));
+  const [px, setPx] = useState(best || devs[0] || ''),
     [pxDir, setPxDir] = useState<Dir>('rev');
 
   if (!life) return <p className="mut">This measurement has no lifetime data.</p>;
-  const lines = model.filter((l) => l.ok);
+  const lines = picked.filter((l) => l.ok);
   const nBad = lines.reduce((n, l) => n + l.pts.filter((p) => p.bad).length, 0),
     nBulge = lines.reduce((n, l) => n + l.pts.filter((p) => !p.bad && p.c.m.ff > 100).length, 0);
   const log = !norm && metric === 'rsh';
@@ -127,7 +162,7 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
   const sp = span / tu.k || 1,
     xStep = niceStep(sp, 6),
     X1 = Math.max(xStep, Math.ceil(sp / xStep - 1e-9) * xStep),
-    X = (t: number) => L + (t / X1) * PWT,
+    X = (t: number) => L + (t / X1) * PW,
     xt = Array.from({ length: Math.round(X1 / xStep) + 1 }, (_, i) => +(i * xStep).toFixed(6));
   const ylab = norm ? `Normalised ${NAME[metric]}` : `${NAME[metric]} (${UNIT[metric]})`;
   const wm = logo && hasLogo ? fs.watermark : '';
@@ -174,21 +209,45 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
   const jv = s.curves
     .filter((c) => `${c.sample}|${c.substrate}|${c.pixel}` === px && c.dir === pxDir)
     .sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-  const jmax = Math.max(5, ...jv.map((c) => c.m.jsc).filter(Number.isFinite)) * 1.15,
-    vmax = Math.max(0.4, ...jv.map((c) => c.m.voc).filter(Number.isFinite)) * 1.12;
-  const jStep = niceStep(jmax, 6),
-    J1 = Math.ceil(jmax / jStep) * jStep,
-    vStep = niceStep(vmax, 6),
-    V1 = Math.ceil(vmax / vStep) * vStep;
+  // the J–V figure's axes (0.55.2): V 0–1.2 V by 0.2 and J 0–30 mA/cm² by 5, longer only when the data go beyond
+  const jmax = Math.max(0, ...jv.flatMap((c) => c.J.filter((j, i) => c.V[i] >= -0.05 && Number.isFinite(j)))),
+    vmax = Math.max(0, ...jv.map((c) => (Number.isFinite(c.m.voc) ? c.m.voc : 0)));
+  const V1 = Math.max(1.2, Math.ceil((vmax + 0.05) / 0.2) * 0.2),
+    J1 = Math.max(30, Math.ceil((jmax + 2) / 5) * 5);
   const JX = (v: number) => L + (v / V1) * PW,
     JY = (j: number) => T + PH - (j / J1) * PH;
-  const path = (c: Curve) => {
-    const p = c.V.map((v, i) => [v, c.J[i]] as const)
-      .filter(([v, j]) => v >= 0 && v <= V1 && j >= -J1 * 0.02)
-      .sort((a, b) => a[0] - b[0]);
-    return p.map(([v, j], i) => `${i ? 'L' : 'M'}${JX(v).toFixed(1)},${JY(Math.min(j, J1)).toFixed(1)}`).join('');
+  const path = (c: Curve) =>
+    c.V.map((v, i) => [v, c.J[i]] as const)
+      .filter(([v, j]) => Number.isFinite(v) && Number.isFinite(j))
+      .map(([v, j], i) => `${i ? 'L' : 'M'}${JX(v).toFixed(1)},${JY(Math.max(-J1, Math.min(J1 * 2, j))).toFixed(1)}`)
+      .join('');
+  /** Axes of a figure: ticks with their labels, the titles, and minor ticks halfway between (linear axes). */
+  type Ax = {
+    xs: number[];
+    X: (x: number) => number;
+    ys: number[];
+    Y: (y: number) => number;
+    xf: (x: number) => string;
+    yf: (y: number) => string;
+    xTitle: string;
+    yTitle: string;
+    minorY: boolean;
   };
-  const frame = (svgRef: React.RefObject<SVGSVGElement | null>, aria: string, body: React.ReactNode, pw = PW) => (
+  const half = (ts: number[]) => ts.slice(0, -1).map((t, i) => (t + ts[i + 1]) / 2);
+  /**
+   * A figure in the J–V figure's journal style (0.55.2): white, title above, dashed grid, the logo low in the plot, the curves
+   * clipped to the frame, a closed frame with inward ticks on all four sides, then the legend on top.
+   */
+  const frame = (
+    svgRef: React.RefObject<SVGSVGElement | null>,
+    id: string,
+    aria: string,
+    title: string,
+    ax: Ax,
+    plot: React.ReactNode,
+    over: React.ReactNode,
+    logoX = L + PW * 0.5 - 80,
+  ) => (
     <svg
       ref={svgRef}
       viewBox={`0 0 ${FW} ${FH}`}
@@ -201,58 +260,90 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
       aria-label={aria}
     >
       <rect width={FW} height={FH} fill="#fff" />
-      {body}
-      {/* the logo: in the legend strip when there is one, else bottom centre of the plot */}
+      <defs>
+        <clipPath id={id}>
+          <rect x={L} y={T} width={PW} height={PH} />
+        </clipPath>
+      </defs>
+      <text x={L + PW / 2} y={30} fontSize={21} textAnchor="middle" fill={INK}>
+        {title}
+      </text>
+      {ax.xs.map((t) => (
+        <line
+          key={'gx' + t}
+          x1={ax.X(t)}
+          x2={ax.X(t)}
+          y1={T}
+          y2={T + PH}
+          stroke={GRID}
+          strokeDasharray="4 4"
+          strokeWidth={0.8}
+        />
+      ))}
+      {ax.ys.map((t) => (
+        <line
+          key={'gy' + t}
+          x1={L}
+          x2={L + PW}
+          y1={ax.Y(t)}
+          y2={ax.Y(t)}
+          stroke={GRID}
+          strokeDasharray="4 4"
+          strokeWidth={0.8}
+        />
+      ))}
       {wm && (
         <image
           href={wm}
-          x={pw < PW ? L + pw + STRIP / 2 - 56 : L + pw * 0.5 - 80}
+          x={logoX}
           y={T + PH - 78}
-          width={pw < PW ? 112 : 160}
+          width={160}
           height={62}
           opacity={0.3}
           preserveAspectRatio="xMidYMax meet"
         />
       )}
-      <rect x={L} y={T} width={pw} height={PH} fill="none" stroke={INK} strokeWidth={1.6} />
-    </svg>
-  );
-  const axes = (
-    xs: number[],
-    xl: (x: number) => number,
-    ys: number[],
-    yl: (y: number) => number,
-    yfmt: (y: number) => string,
-    xTitle: string,
-    yTitle: string,
-    pw = PW,
-  ) => (
-    <>
-      {xs.map((t) => (
-        <g key={'x' + t}>
-          <line x1={xl(t)} x2={xl(t)} y1={T} y2={T + PH} stroke={GRID} strokeDasharray="4 4" strokeWidth={0.8} />
-          <line x1={xl(t)} x2={xl(t)} y1={T + PH} y2={T + PH - 7} stroke={INK} strokeWidth={1.4} />
-          <text x={xl(t)} y={T + PH + 22} fontSize={16} textAnchor="middle" fill={INK}>
-            {+t.toFixed(2)}
+      <g clipPath={`url(#${id})`}>{plot}</g>
+      <rect x={L} y={T} width={PW} height={PH} fill="none" stroke={INK} strokeWidth={1.6} />
+      {ax.xs.map((t) => (
+        <g key={'tx' + t}>
+          <line x1={ax.X(t)} x2={ax.X(t)} y1={T + PH} y2={T + PH - 7} stroke={INK} strokeWidth={1.4} />
+          <line x1={ax.X(t)} x2={ax.X(t)} y1={T} y2={T + 7} stroke={INK} strokeWidth={1.4} />
+          <text x={ax.X(t)} y={T + PH + 22} fontSize={16} textAnchor="middle" fill={INK}>
+            {ax.xf(t)}
           </text>
         </g>
       ))}
-      {ys.map((t) => (
-        <g key={'y' + t}>
-          <line x1={L} x2={L + pw} y1={yl(t)} y2={yl(t)} stroke={GRID} strokeDasharray="4 4" strokeWidth={0.8} />
-          <line x1={L} x2={L + 7} y1={yl(t)} y2={yl(t)} stroke={INK} strokeWidth={1.4} />
-          <text x={L - 10} y={yl(t)} fontSize={16} textAnchor="end" dominantBaseline="central" fill={INK}>
-            {yfmt(t)}
+      {half(ax.xs).map((t) => (
+        <g key={'mx' + t}>
+          <line x1={ax.X(t)} x2={ax.X(t)} y1={T + PH} y2={T + PH - 4} stroke={INK} />
+          <line x1={ax.X(t)} x2={ax.X(t)} y1={T} y2={T + 4} stroke={INK} />
+        </g>
+      ))}
+      {ax.ys.map((t) => (
+        <g key={'ty' + t}>
+          <line x1={L} x2={L + 7} y1={ax.Y(t)} y2={ax.Y(t)} stroke={INK} strokeWidth={1.4} />
+          <line x1={L + PW} x2={L + PW - 7} y1={ax.Y(t)} y2={ax.Y(t)} stroke={INK} strokeWidth={1.4} />
+          <text x={L - 10} y={ax.Y(t)} fontSize={16} textAnchor="end" dominantBaseline="central" fill={INK}>
+            {ax.yf(t)}
           </text>
         </g>
       ))}
-      <text x={L + pw / 2} y={FH - 14} fontSize={19} textAnchor="middle" fill={INK}>
-        {xTitle}
+      {ax.minorY &&
+        half(ax.ys).map((t) => (
+          <g key={'my' + t}>
+            <line x1={L} x2={L + 4} y1={ax.Y(t)} y2={ax.Y(t)} stroke={INK} />
+            <line x1={L + PW} x2={L + PW - 4} y1={ax.Y(t)} y2={ax.Y(t)} stroke={INK} />
+          </g>
+        ))}
+      <text x={L + PW / 2} y={FH - 16} fontSize={19} textAnchor="middle" fill={INK}>
+        {ax.xTitle}
       </text>
       <text transform={`translate(26 ${T + PH / 2}) rotate(-90)`} fontSize={19} textAnchor="middle" fill={INK}>
-        {yTitle}
+        {ax.yTitle}
       </text>
-    </>
+      {over}
+    </svg>
   );
   const hasRev = s.curves.some((c) => c.dir === 'rev'),
     hasFwd = s.curves.some((c) => c.dir === 'fwd');
@@ -306,99 +397,153 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
           <Check v={norm} on={setNorm} /> Normalised to the first reading
         </label>
       </div>
-      <div className="fig-wrap">
-        {frame(
-          fig,
-          `${ylab} against time for ${lines.length} pixels`,
+      <div className="inline stab-bar">
+        <div className="chips" role="group" aria-label="Pixels to plot">
+          {devs.map((k, i) => (
+            <button
+              key={k}
+              className={'chip' + (pick.includes(k) ? ' on' : '')}
+              aria-pressed={pick.includes(k)}
+              onClick={() =>
+                setPick(
+                  pick.includes(k) ? pick.filter((x) => x !== k) : devs.filter((x) => x === k || pick.includes(x)),
+                )
+              }
+            >
+              {/* the pixel's colour on the plot, as a bar under its name */}
+              <span className="life-chip" style={{ '--c': CMP[i % CMP.length] } as React.CSSProperties}>
+                {label(k)}
+              </span>
+            </button>
+          ))}
+        </div>
+        {devs.length > 1 && (
           <>
-            {axes(
-              xt,
+            <button className="link" disabled={pick.length === devs.length} onClick={() => setPick(devs)}>
+              All
+            </button>
+            <button className="link" disabled={!pick.length} onClick={() => setPick([])}>
+              None
+            </button>
+          </>
+        )}
+      </div>
+      <div className="fig-wrap">
+        {!pick.length ? (
+          <p className="mut life-none">Pick a pixel above to plot it.</p>
+        ) : (
+          frame(
+            fig,
+            `life-t-${s.id}`,
+            `${ylab} against time for ${lines.length === 1 ? lines[0].label : `${new Set(lines.map((l) => l.dev)).size} pixels`}`,
+            life.run.replace(/_/g, ' '),
+            {
+              xs: xt,
               X,
-              yt,
+              ys: yt,
               Y,
-              (t) => (log ? `1e${Math.round(Math.log10(t))}` : t.toFixed(yd)),
-              `Time (${tu.long})`,
-              ylab,
-              PWT,
-            )}
-            {norm &&
-              [0.9, 0.8].map((f) => (
-                <g key={f}>
-                  <line
-                    x1={L}
-                    x2={L + PWT}
-                    y1={Y(f)}
-                    y2={Y(f)}
-                    stroke="#777"
-                    strokeWidth={1.2}
-                    strokeDasharray="10 5"
-                  />
-                  <text x={L + PWT - 6} y={Y(f) - 6} fontSize={13} textAnchor="end" fill="#555">
-                    T{Math.round(f * 100)}
-                  </text>
-                </g>
-              ))}
-            {lines.map((l) => (
-              <g key={l.key}>
-                <path
-                  d={l.pts
-                    .filter((p) => !p.bad) // the line joins the readings that can be trusted; distorted ones stand apart
-                    .map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`)
-                    .join('')}
-                  fill="none"
-                  stroke={l.color}
-                  strokeWidth={2}
-                  strokeDasharray={l.dir === 'fwd' && dir === 'both' ? '6 4' : undefined}
-                  strokeLinejoin="round"
-                />
-                {l.pts.map((p, i) => (
-                  <circle
-                    key={i}
-                    cx={X(p.t)}
-                    cy={Y(p.v)}
-                    r={p.bad ? 3 : 3.2}
-                    fill={p.bad ? '#fff' : l.color}
-                    stroke={p.bad ? l.color : '#fff'}
-                    strokeWidth={p.bad ? 1.5 : 1}
-                  >
-                    <title>{`${l.label}: ${fmt(p.t, 1)} ${tu.u}, ${fmt(p.raw, DIG[metric])} ${UNIT[metric]}${l.ok ? ` (${fmt((p.raw / l.v0) * 100, 1)} %)` : ''}${p.bad ? ', distorted curve' : ''}`}</title>
-                  </circle>
-                ))}
-              </g>
-            ))}
-            {/* legend right of the plot: one colour per pixel, and with Both the line style of each direction */}
-            <g transform={`translate(${L + PWT + 16} ${T + 10})`} fontSize={13} fill={INK}>
-              {[...new Map(lines.map((l) => [l.dev, l])).values()].slice(0, 14).map((l, i) => (
-                <g key={l.dev} transform={`translate(0 ${i * 19})`}>
-                  <line x1={0} x2={22} y1={0} y2={0} stroke={l.color} strokeWidth={3} />
-                  <text x={30} y={0} dominantBaseline="central">
-                    {label(l.dev)}
-                  </text>
-                </g>
-              ))}
-              {dir === 'both' &&
-                (['rev', 'fwd'] as Dir[]).map((d, i) => (
-                  <g
-                    key={d}
-                    transform={`translate(0 ${(Math.min(14, new Set(lines.map((l) => l.dev)).size) + 0.6 + i) * 19})`}
-                  >
+              xf: (t) => String(+t.toFixed(2)),
+              yf: (t) => (log ? `1e${Math.round(Math.log10(t))}` : t.toFixed(yd)),
+              xTitle: `Time (${tu.long})`,
+              yTitle: ylab,
+              minorY: !log,
+            },
+            <>
+              {norm &&
+                [0.9, 0.8].map((f) => (
+                  <g key={f}>
                     <line
-                      x1={0}
-                      x2={22}
-                      y1={0}
-                      y2={0}
-                      stroke={INK}
-                      strokeWidth={2}
-                      strokeDasharray={d === 'fwd' ? '6 4' : undefined}
+                      x1={L}
+                      x2={L + PW}
+                      y1={Y(f)}
+                      y2={Y(f)}
+                      stroke="#777"
+                      strokeWidth={1.2}
+                      strokeDasharray="10 5"
                     />
-                    <text x={30} y={0} dominantBaseline="central">
-                      {d === 'rev' ? 'backward' : 'forward'}
+                    <text x={L + PW - 12} y={Y(f) - 6} fontSize={13} textAnchor="end" fill="#555">
+                      T{Math.round(f * 100)}
                     </text>
                   </g>
                 ))}
-            </g>
-          </>,
-          PWT,
+              {lines.map((l) => (
+                <g key={l.key}>
+                  <path
+                    d={l.pts
+                      .filter((p) => !p.bad) // the line joins the readings that can be trusted; distorted ones stand apart
+                      .map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`)
+                      .join('')}
+                    fill="none"
+                    stroke={l.color}
+                    strokeWidth={2.2}
+                    // forward solid, backward dashed in the same colour, as in the J–V figure
+                    strokeDasharray={l.dir === 'rev' && dir === 'both' ? '8 5' : undefined}
+                    strokeLinejoin="round"
+                  />
+                </g>
+              ))}
+            </>,
+            // the readings over the frame (a reading at time 0 sits on the axis), then the legend inside the frame, low on
+            // the left (the curves start at the top and fall to the right)
+            (() => {
+              const shown = [...new Map(lines.map((l) => [l.dev, l])).values()].slice(0, 8),
+                rows = [
+                  ...shown.map((l) => ({
+                    k: l.dev,
+                    c: l.color,
+                    dash: undefined as string | undefined,
+                    t: label(l.dev),
+                  })),
+                  ...(dir === 'both'
+                    ? [
+                        { k: 'fwd', c: INK, dash: undefined, t: 'Forward' },
+                        { k: 'rev', c: INK, dash: '8 5', t: 'Backward' },
+                      ]
+                    : []),
+                ];
+              return (
+                <>
+                  {lines.map((l) => (
+                    <g key={l.key}>
+                      {l.pts.map((p, i) => (
+                        <circle
+                          key={i}
+                          cx={X(p.t)}
+                          cy={Y(p.v)}
+                          r={p.bad ? 3.2 : 3.6}
+                          fill={p.bad ? '#fff' : l.color}
+                          stroke={p.bad ? l.color : '#fff'}
+                          strokeWidth={p.bad ? 1.5 : 1}
+                        >
+                          <title>{`${l.label}: ${fmt(p.t, 1)} ${tu.u}, ${fmt(p.raw, DIG[metric])} ${UNIT[metric]}${l.ok ? ` (${fmt((p.raw / l.v0) * 100, 1)} %)` : ''}${p.bad ? ', distorted curve' : ''}`}</title>
+                        </circle>
+                      ))}
+                    </g>
+                  ))}
+                  <g
+                    transform={`translate(${L + 18} ${T + PH - 18 - (rows.length - 1) * 20})`}
+                    fontSize={13}
+                    fill={INK}
+                  >
+                    {rows.map((r, i) => (
+                      <g key={r.k} transform={`translate(0 ${i * 20})`}>
+                        <line x1={0} x2={30} y1={0} y2={0} stroke={r.c} strokeWidth={2.2} strokeDasharray={r.dash} />
+                        <text x={38} y={0} dominantBaseline="central">
+                          {r.t}
+                        </text>
+                      </g>
+                    ))}
+                    {lines.length && new Set(lines.map((l) => l.dev)).size > 8 ? (
+                      <text x={0} y={-20} fill="#555">
+                        {new Set(lines.map((l) => l.dev)).size - 8} more not in the legend
+                      </text>
+                    ) : null}
+                  </g>
+                </>
+              );
+            })(),
+            L + PW - 176,
+          )
         )}
       </div>
       <div className="inline">
@@ -516,41 +661,61 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
       <div className="fig-wrap">
         {frame(
           jvFig,
+          `life-jv-${s.id}`,
           `J–V curves of ${label(px)} over the run`,
+          label(px),
+          {
+            xs: Array.from({ length: Math.round(V1 / 0.2) + 1 }, (_, i) => +(i * 0.2).toFixed(1)),
+            X: JX,
+            ys: Array.from({ length: Math.round(J1 / 5) + 1 }, (_, i) => i * 5),
+            Y: JY,
+            xf: (t) => t.toFixed(1),
+            yf: (t) => String(t),
+            xTitle: 'Voltage (V)',
+            yTitle: 'J (mA/cm²)',
+            minorY: false,
+          },
           <>
-            {axes(
-              Array.from({ length: Math.round(V1 / vStep) + 1 }, (_, i) => +(i * vStep).toFixed(6)),
-              JX,
-              Array.from({ length: Math.round(J1 / jStep) + 1 }, (_, i) => +(i * jStep).toFixed(6)),
-              JY,
-              (t) => String(+t.toFixed(2)),
-              'Voltage (V)',
-              'J (mA cm⁻²)',
-            )}
             {jv.map((c, i) => (
               <path
                 key={c.id}
                 d={path(c)}
                 fill="none"
                 stroke={shade(jv.length > 1 ? i / (jv.length - 1) : 1)}
-                strokeWidth={1.8}
+                strokeWidth={2.2}
+                // backward dashed, as in the J–V figure
+                strokeDasharray={c.dir === 'rev' ? '8 5' : undefined}
+                strokeLinejoin="round"
               >
                 <title>{`${fmt((c.t ?? 0) / tu.k, 1)} ${tu.u}: PCE ${fmt(c.m.pce, 2)} %`}</title>
               </path>
             ))}
-            {jv.length > 1 && (
-              <g transform={`translate(${L + 18} ${T + PH - 54})`} fontSize={13} fill={INK}>
-                {[0, 1].map((f) => (
-                  <g key={f} transform={`translate(0 ${f * 20})`}>
-                    <line x1={0} x2={24} y1={0} y2={0} stroke={shade(f)} strokeWidth={3} />
-                    <text x={32} y={0} dominantBaseline="central">
-                      {f ? 'last' : 'first'} reading, {fmt((jv[f ? jv.length - 1 : 0].t ?? 0) / tu.k, 1)} {tu.u}
-                    </text>
-                  </g>
-                ))}
-              </g>
-            )}
           </>,
+          // top right, as the J–V figure's legend (above the curves, where they fall at Voc)
+          jv.length > 0 && (
+            <g transform={`translate(${L + PW - 214} ${T + 22})`} fontSize={13} fill={INK}>
+              {(jv.length > 1 ? [0, 1] : [1]).map((f, n) => (
+                <g key={f} transform={`translate(0 ${n * 20})`}>
+                  <line
+                    x1={0}
+                    x2={30}
+                    y1={0}
+                    y2={0}
+                    stroke={shade(f)}
+                    strokeWidth={2.2}
+                    strokeDasharray={pxDir === 'rev' ? '8 5' : undefined}
+                  />
+                  <text x={38} y={0} dominantBaseline="central">
+                    {jv.length === 1 ? 'reading' : f ? 'last reading' : 'first reading'},{' '}
+                    {+((jv[f ? jv.length - 1 : 0].t ?? 0) / tu.k).toFixed(1)} {tu.u}
+                  </text>
+                </g>
+              ))}
+              <text x={0} y={(jv.length > 1 ? 2 : 1) * 20} dominantBaseline="central">
+                {pxDir === 'rev' ? 'Backward' : 'Forward'} scan
+              </text>
+            </g>
+          ),
         )}
       </div>
       <div className="inline">
