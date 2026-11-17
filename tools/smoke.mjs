@@ -1814,8 +1814,9 @@ console.log('Purging the inventory, undoing an import (0.54.2)');
   ok(/^Everything: 1 container, 1 substance$/.test(line), 'the purge is in the activity log');
 }
 
-console.log('Scan direction from the voltages (0.55.3)');
-{
+// Electronic Devices only: the core alone has no J–V curves
+if (!CORE) {
+  console.log('Scan direction from the voltages (0.55.3)');
   const up = Array.from({ length: 30 }, (_, i) => +(-0.1 + i * 0.045).toFixed(3)),
     jOf = (v) => 22 - 1e-9 * (Math.exp(v / 0.045) - 1);
   const one = (pixel, dir, V) => ({
