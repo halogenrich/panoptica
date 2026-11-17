@@ -349,6 +349,8 @@ function StepToggles({
 function NewEquipment({ data, onClose, onDone }: { data: Data; onClose: () => void; onDone: (id: number) => void }) {
   const [name, setName] = useState(''),
     [color, setColor] = useState('#2563eb'),
+    // the drawing (0.55.3): chosen from the name as it is typed, or picked, as on the equipment's page
+    [art, setArt] = useState(''),
     [where, setWhere] = useState<{ place_id: number | null; parent_id: number | null }>({
       place_id: data.places[0]?.id ?? null,
       parent_id: null,
@@ -360,7 +362,7 @@ function NewEquipment({ data, onClose, onDone }: { data: Data; onClose: () => vo
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          api<{ id: number }>('/equipment', 'POST', { name: name.trim(), color, steps, ...where })
+          api<{ id: number }>('/equipment', 'POST', { name: name.trim(), color, art, steps, ...where })
             .then((r) => onDone(r.id))
             .catch((x) => setErr(x.message));
         }}
@@ -369,8 +371,8 @@ function NewEquipment({ data, onClose, onDone }: { data: Data; onClose: () => vo
           <b>New equipment</b>
         </div>
         <div className="eq-form">
-          <div className="inline">
-            <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
+          <div className="eq-new-head">
+            <ArtPick eq={{ name: name || 'equipment', role: '', color, art }} onPick={setArt} />
             <label className="fld grow">
               <span>Name</span>
               <input
@@ -379,6 +381,10 @@ function NewEquipment({ data, onClose, onDone }: { data: Data; onClose: () => vo
                 onChange={(e) => setName(e.target.value)}
                 placeholder="For example, Glovebox 1"
               />
+            </label>
+            <label className="fld eq-new-colour">
+              <span>Colour</span>
+              <input type="color" aria-label="Colour" value={color} onChange={(e) => setColor(e.target.value)} />
             </label>
           </div>
           <label className="fld">

@@ -1814,6 +1814,42 @@ console.log('Purging the inventory, undoing an import (0.54.2)');
   ok(/^Everything: 1 container, 1 substance$/.test(line), 'the purge is in the activity log');
 }
 
+console.log('Scan direction from the voltages (0.55.3)');
+{
+  const up = Array.from({ length: 30 }, (_, i) => +(-0.1 + i * 0.045).toFixed(3)),
+    jOf = (v) => 22 - 1e-9 * (Math.exp(v / 0.045) - 1);
+  const one = (pixel, dir, V) => ({
+    file: `Bwd_1_01_${pixel}_${dir}`,
+    sample: 'Bwd',
+    substrate: '1',
+    scan: '01',
+    pixel,
+    dir,
+    area: 0.1,
+    pin: 100,
+    V,
+    J: V.map(jOf),
+  });
+  // a client that still trusts the names: the first sweep (backward) sent as forward, the second as backward
+  const r = await call('POST', '/api/iv', {
+    name: 'Backward first',
+    date: '2026-11-17',
+    system: 'csv',
+    visibility: 'shared',
+    curves: [one('1', 'fwd', [...up].reverse()), one('1', 'rev', up)],
+  });
+  const rows = db.prepare('SELECT dir, data FROM iv_curves WHERE set_id=?').all(r.j.id);
+  ok(
+    r.s === 200 &&
+      rows.length === 2 &&
+      rows.every((x) => {
+        const V = JSON.parse(x.data).V;
+        return x.dir === (V[0] > V[V.length - 1] ? 'rev' : 'fwd');
+      }),
+    'the server keeps the direction the voltages give, whatever the client sent',
+  );
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

@@ -57,7 +57,7 @@ const FW = 760,
   GRID = '#b8b8b8',
   FONT = 'Inter, "Segoe UI", Helvetica, Arial, sans-serif';
 
-/** J–V curves of several pixels on one set of axes (journal style): one colour per pixel, forward solid, backward dashed. */
+/** J–V curves of several pixels on one set of axes (journal style): one colour per pixel, backward solid, forward dashed (0.55.3). */
 export function CompareFigure({
   items,
   dir,
@@ -153,7 +153,7 @@ export function CompareFigure({
               fill="none"
               stroke={x.color}
               strokeWidth={2.2}
-              strokeDasharray={c.dir === 'rev' ? '8 5' : undefined}
+              strokeDasharray={c.dir === 'fwd' ? '8 5' : undefined}
               strokeLinejoin="round"
             />
           )),
@@ -203,11 +203,11 @@ export function CompareFigure({
           <g transform={`translate(0 ${legendRows * LH + 6})`} opacity={0.8}>
             <line x1={0} x2={26} y1={0} y2={0} stroke={INK} strokeWidth={2} />
             <text x={34} y={0} dominantBaseline="central">
-              Forward
+              Backward
             </text>
             <line x1={0} x2={26} y1={LH} y2={LH} stroke={INK} strokeWidth={2} strokeDasharray="8 5" />
             <text x={34} y={LH} dominantBaseline="central">
-              Backward
+              Forward
             </text>
           </g>
         )}

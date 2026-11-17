@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.55.3 (2026-11-17)
+
+- **Backward-first measurements are read correctly**: the measurement software names its two sweeps by order ("Pixel 1" first, "Pixel 1 Reverse" second), so with the backward sweep measured first the names were the wrong way round. PANOPTICA now takes each sweep's direction from its voltages: a sweep that falls is backward, one that rises is forward. This applies to every import, lifetime runs included. When the names and the voltages disagree, the import says so once.
+- **Measurements imported before** are checked once when updating: any curve stored with its direction the wrong way round is corrected, and the activity log says how many. Forward-first measurements do not change.
+- **Backward is now the solid line and forward the dashed one**, in every figure that shows both (J–V figures, J–V comparisons, lifetime figures).
+- **Lifetime**: the J–V curves over the run are drawn in the pixel's own colour (light for the first reading, full for the last). The time plot uses plain lines like the J–V figures; small marks show each reading only when there are few, a distorted reading still shows as an open mark, and pointing at a reading still shows its value.
+- **New equipment**: the colour picker is a circle again (it was stretched into an oval), and the window shows the equipment's drawing, chosen from its name as you type; click it to pick another.
+
 ## 0.55.2 (2026-11-17)
 
 - **Lifetime figures look like the J–V figures**: both the parameter-over-time plot and the J–V curves over the run are 7 × 5, with a closed frame, ticks inside on all four sides, the same grid, fonts and line widths, a title, and the legend inside the frame. The J–V curves over the run use the J–V figure's axes (0–1.2 V by 0.2, 0–30 mA/cm² by 5, longer only when the data go beyond) and draw the backward scan dashed. With both directions, backward is dashed and forward solid in the same colour, as everywhere else.

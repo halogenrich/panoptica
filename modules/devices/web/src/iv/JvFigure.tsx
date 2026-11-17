@@ -4,7 +4,7 @@ import { deviceInfo, fmt, type Curve, type Link } from './model';
 
 /**
  * J–V figure in journal style, for viewing and export: 7 × 5, closed frame with inward ticks, V 0–1.2 V by 0.2,
- * J 0–30 mA/cm² by 5 (extended only if the data go beyond), forward solid and backward dashed in the same colour,
+ * J 0–30 mA/cm² by 5 (extended only if the data go beyond), backward solid and forward dashed in the same colour (0.55.3),
  * the device's layer order and architecture, the best scan of the pixel with PCE, FF, Voc, Jsc and Vmpp, and the group watermark.
  */
 const FW = 700,
@@ -159,7 +159,8 @@ export function JvFigure({
             fill="none"
             stroke={LINE}
             strokeWidth={2.2}
-            strokeDasharray={c.dir === 'rev' ? '8 5' : undefined}
+            // backward solid, forward dashed (Richard, 0.55.3; it was the other way round)
+            strokeDasharray={c.dir === 'fwd' ? '8 5' : undefined}
             strokeLinejoin="round"
           />
         ))}
@@ -207,11 +208,11 @@ export function JvFigure({
       <g transform={`translate(${L + PW - 150} ${T + (stack ? 44 : 22)})`} fontSize={13} fill={INK}>
         <line x1={0} x2={30} y1={0} y2={0} stroke={LINE} strokeWidth={2.2} />
         <text x={38} y={0} dominantBaseline="central">
-          Forward
+          Backward
         </text>
         <line x1={0} x2={30} y1={20} y2={20} stroke={LINE} strokeWidth={2.2} strokeDasharray="8 5" />
         <text x={38} y={20} dominantBaseline="central">
-          Backward
+          Forward
         </text>
       </g>
       <g fontSize={17} fill={INK}>

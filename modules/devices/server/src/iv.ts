@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ivMetrics } from '@psc/devices';
+import { ivMetrics, sweepDir } from '@psc/devices';
 import { classifySet, markShortsInSet } from './ivdata.js';
 import { IvCurvePatch, IvSetIn, IvSetPatch } from '@psc/devices/schema';
 import { checkRecord } from './notices.js';
@@ -192,7 +192,7 @@ export function registerIv(app: FastifyInstance, auth: (admin?: boolean) => any,
           c.substrate,
           c.scan,
           c.pixel,
-          c.dir,
+          sweepDir(c.V) ?? c.dir, // the voltages decide the direction, whatever the client sent (0.55.3)
           c.file,
           c.area,
           c.pin,
