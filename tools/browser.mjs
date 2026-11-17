@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { zipSync } from 'fflate';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -201,6 +201,78 @@ console.log(`Browser tests (${BUILT ? 'packaged server' : 'server from source'}$
 try {
   let username = '',
     bookDay = ''; // the day of the booking outside a batch
+  await step('first setup offers to restore the lab from a backup, and says what is wrong (0.53)', async () => {
+    await page.goto(base);
+    await page.getByRole('button', { name: 'Restore from a backup' }).click();
+    await page.getByRole('heading', { name: 'Restore from a backup' }).waitFor();
+    if (process.env.SHOTS) mkdirSync(join(root, 'out'), { recursive: true });
+    const shot = async (name) => {
+      if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', name), fullPage: true });
+    };
+    await shot('restore-file.png');
+    // a file that is not a backup is said at once
+    await page.locator('.setup-page input[type=file]').setInputFiles({
+      name: 'notes.db',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from('these are notes, not a PANOPTICA backup at all'),
+    });
+    await page.locator('.setup-page .err').getByText('This file is not a PANOPTICA backup.').waitFor();
+    expect(
+      await page.getByRole('button', { name: 'Restore the lab' }).isDisabled(),
+      'Restore the lab is offered without a backup',
+    );
+    // a folder: the backups are listed by date; a folder that does not exist is said so
+    await page.getByRole('tab', { name: 'A folder of backups' }).click();
+    await page.getByLabel('Folder').fill(join(tmp, 'nowhere'));
+    await page.getByRole('button', { name: 'List backups' }).click();
+    await page
+      .locator('.setup-page .err')
+      .getByText(/the folder does not exist/)
+      .waitFor();
+    // an encrypted copy, made with a key of the test's: it asks for the key, and a wrong one is refused
+    const share = join(tmp, 'share');
+    mkdirSync(share, { recursive: true });
+    const { createCipheriv, randomBytes } = await import('node:crypto');
+    const iv = randomBytes(12),
+      c = createCipheriv('aes-256-gcm', randomBytes(32), iv),
+      body = Buffer.concat([c.update(Buffer.from('SQLite format 3\0 and more')), c.final()]);
+    writeFileSync(
+      join(share, 'data-20261116-213000-auto.db.enc'),
+      Buffer.concat([Buffer.from('PLB1'), iv, body, c.getAuthTag()]),
+    );
+    await page.getByLabel('Folder').fill(share);
+    await page.getByRole('button', { name: 'List backups' }).click();
+    await page.locator('.restore-list').getByText('16/11/2026 21:30').waitFor();
+    await page.locator('.restore-list').getByText(', encrypted').waitFor();
+    await shot('restore-folder.png');
+    if (process.env.SHOTS) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForTimeout(600);
+      await shot('restore-folder-390-dark.png');
+      await page.setViewportSize({ width: 1400, height: 900 });
+      await page.emulateMedia({ colorScheme: 'light' });
+    }
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('heading', { name: 'Backup key' }).waitFor();
+    await page.getByRole('tab', { name: 'Type the key' }).click();
+    await page.getByLabel('Backup key').fill('ab'.repeat(32));
+    await shot('restore-key.png');
+    await page.getByRole('button', { name: 'Restore the lab' }).click();
+    await page
+      .locator('.setup-page .err')
+      .getByText(/The backup key does not open this backup/)
+      .waitFor();
+    expect(
+      (await api('GET', '/lab/public')).j.setup === 'here',
+      'the install is no longer new after a refused restore',
+    );
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('heading', { name: 'Restore from a backup' }).waitFor();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('heading', { name: 'Set up PANOPTICA' }).waitFor();
+  });
+
   await step('first setup makes the admin and the lab', async () => {
     await page.goto(base);
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -226,10 +298,43 @@ try {
     await page.getByRole('heading', { name: 'Sign-in screen' }).waitFor();
     for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Continue' }).click();
     await page.locator('.setup-foot .btn').click(); // finish
+    // 0.53: the recovery file, downloaded and said to be kept elsewhere, before going on
+    await page.getByRole('heading', { name: 'Save the recovery file' }).waitFor();
+    if (process.env.SHOTS) {
+      await page.screenshot({ path: join(root, 'out', 'recovery-file.png') });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForTimeout(600);
+      await page.screenshot({ path: join(root, 'out', 'recovery-file-390-dark.png') });
+      await page.setViewportSize({ width: 1400, height: 900 });
+      await page.emulateMedia({ colorScheme: 'light' });
+    }
+    expect(await page.getByRole('checkbox').isDisabled(), 'the recovery file can be confirmed before it is downloaded');
+    const [dl] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: 'Download the recovery file' }).click(),
+    ]);
+    const rf = JSON.parse(readFileSync(await dl.path(), 'utf8'));
+    expect(
+      rf.type === 'PANOPTICA recovery file' && /^[0-9a-f]{64}$/.test(rf.key) && rf.labId === 'browser-lab',
+      'the recovery file holds the key and the lab id',
+    );
+    expect(/^PANOPTICA-recovery-Test-Lab\.json$/.test(dl.suggestedFilename()), 'the recovery file’s name');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.locator('.top .brand').getByText('Test Lab').waitFor();
     await later();
     username = (await api('GET', '/me')).j.username;
     expect(!!username, 'no account after the setup');
+  });
+
+  await step('Admin settings › Backups: the recovery file, and when it was downloaded (0.53)', async () => {
+    await page.evaluate(() => (window.location.hash = '#/users'));
+    await page.getByRole('tab', { name: 'Backups', exact: true }).click();
+    await page.getByRole('heading', { name: 'Recovery file' }).waitFor();
+    await page.getByText(/^Last downloaded /).waitFor();
+    await page.getByText('Restore from a backup', { exact: true }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'backups-tab.png'), fullPage: true });
   });
 
   await step('Admin settings › Licence shows the licence’s lab, modules and people', async () => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PANOPTICA on Linux (made for Fedora; works on other distributions with bash and Node.js 22.13+).
+# PANOPTICA on Linux (made for Fedora; works on other distributions with bash and Node.js 26+).
 #   ./start.sh        this computer only (http://localhost:3000)
 #   ./start.sh lan    also other computers and phones on the network
 # Environment: PORT (3000), OPEN_BROWSER=0 to not open the browser.
@@ -7,9 +7,8 @@ cd "$(dirname "$(readlink -f "$0")")" || exit 1
 pause() { [ -t 0 ] && [ -t 1 ] && read -rp "Press Enter to close "; }
 fail() { echo; echo "$1"; pause; exit 1; }
 
-if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)"; then
-  fail "Node.js 22.13 or newer is required (found: $(node -v 2>/dev/null || echo none)). On Fedora 41 or newer:  sudo dnf install nodejs npm
-On Fedora 40:  sudo dnf install nodejs22 nodejs22-npm   (other systems: https://nodejs.org)"
+if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>=26?0:1)"; then
+  fail "Node.js 26 or newer is required (found: $(node -v 2>/dev/null || echo none)). Install it from https://nodejs.org (Fedora's own package may be older)"
 fi
 echo "PANOPTICA $(node -p "require('./package.json').version")"
 

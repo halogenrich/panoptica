@@ -2,6 +2,13 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.53.0 (2026-11-16)
+
+- **Restore the lab from a backup on a new computer**: the first setup has **Restore from a backup**, for moving the lab to another computer or replacing one that failed. Choose a backup file, or a folder of backups (such as the second copy on the network drive) and pick one by date. An encrypted copy needs the recovery file or the backup key. Accounts, data, settings and licence come back; everyone signs in as before. From another computer it needs the setup code on the install sheet, like the first setup.
+- A backup that is damaged, from a newer PANOPTICA, of another lab, or opened with the wrong key is refused, and the new install stays as it was.
+- **Recovery file**: a small file with the backup key and the lab's id, downloaded from Admin settings › Backups. After the first setup the admin downloads it and confirms it is kept somewhere else before going on. Each download is in the activity log.
+- **Node.js 26 is needed now.** Installs made with PANOPTICA Setup have it. An install still on an older Node.js refuses an update that needs a newer one and says what to do: run the newest PANOPTICA Setup over it (the data and settings stay). Installs made by hand need Node.js 26 or newer from nodejs.org.
+
 ## 0.52.1 (2026-11-16)
 
 - **Comparisons, median or mean**: the Parameters table has a Median / Mean switch. The table, the slide and the exported table show the chosen value with ± SD (the standard deviation of the counted pixels), and the PCE relative to the reference follows the choice. Each comparison keeps its choice; median as before.

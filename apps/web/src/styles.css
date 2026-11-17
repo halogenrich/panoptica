@@ -578,6 +578,31 @@ tr.click:hover td {
 .card .btn {
   height: 44px;
 }
+/* the recovery file after the first setup (0.53) */
+.recovery-card {
+  width: min(460px, 100%);
+}
+.recovery-card h1,
+.recovery-card p {
+  margin: 0;
+}
+/* a download link that looks like a button (the recovery file, 0.53) */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.recovery-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.recovery-card input[type='checkbox'] {
+  height: auto;
+  margin-top: 3px;
+  flex: none;
+}
 
 /* ============ shell ============ */
 .app {
@@ -7735,6 +7760,33 @@ label.btn {
   gap: 12px;
   padding: 16px 56px;
   border-top: 1px solid var(--sep);
+}
+.setup-alt {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--sep);
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+.restore-list {
+  max-height: 320px;
+}
+.restore-list tr {
+  cursor: pointer;
+}
+.restore-list td:first-child {
+  width: 28px;
+}
+.restore-list td.num {
+  font-variant-numeric: tabular-nums;
+}
+.key-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.restore-list tr.on td {
+  background: color-mix(in srgb, var(--ac) 8%, transparent);
 }
 .setup-sum {
   display: grid;

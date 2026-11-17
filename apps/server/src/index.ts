@@ -28,14 +28,15 @@ import { registerChemicals } from './chemicals.js';
 import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
 import { items, licenceStart, moduleNames, modules, skippedModules } from './modules.js';
-import { hasSetupCode, licenceState, noRoom, registerLicence } from './licence.js';
+import { hasSetupCode, licenceState, noRoom, registerLicence, setupInstall } from './licence.js';
 import { registerEquipment } from './equipment.js';
 import { registerDashboard } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
 import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
-import { registerUpdates } from './updates.js';
+import { oldNodeNotice, registerUpdates } from './updates.js';
 import { registerEvents } from './events.js';
-import { registerLab, setupNeeded } from './lab.js';
+import { lab, registerLab, setupNeeded, shownName } from './lab.js';
+import { recoveryFile } from './restore.js';
 import { listening, localUrl, registerNetwork, startNetwork } from './network.js';
 import { registerTray } from './tray.js';
 import {
@@ -47,6 +48,8 @@ import {
   getMirror,
   lastCheck,
   listBackups,
+  recoveryPending,
+  recoveryState,
   scheduleBackups,
   setMirror,
 } from './backup.js';
@@ -240,7 +243,14 @@ app.get('/api/me', { preHandler: auth() }, async (req: any) => {
        visitor_until AS visitorUntil,first_names AS firstNames,surnames FROM users WHERE id=?`,
     )
     .get(req.user.id) as any;
-  return { ...req.user, ...x, showBirthday: !!x.showBirthday, tags: tagsOf(req.user.id) };
+  return {
+    ...req.user,
+    ...x,
+    showBirthday: !!x.showBirthday,
+    tags: tagsOf(req.user.id),
+    // an admin downloads the recovery file before going on: after the first setup, and after a restore that changed the key (0.53)
+    ...(req.user.role === 'admin' && recoveryPending() ? { recovery: true } : {}),
+  };
 });
 /** Own profile: display name and photo. */
 app.patch('/api/me', { preHandler: auth() }, async (req: any, reply) => {
@@ -562,7 +572,29 @@ app.get('/api/backups', { preHandler: auth(true) }, async () => ({
   files: listBackups(),
   mirror: getMirror(),
   check: lastCheck(),
+  /** made by PANOPTICA Setup: no restore scripts in the folder (0.49) */
+  setup: setupInstall(),
+  recovery: recoveryState(),
 }));
+/**
+ * The recovery file (0.53): the backup key and the lab's id, for restoring the lab on a new computer in its first setup. Each
+ * download is in the activity log.
+ */
+app.get('/api/backups/recovery', { preHandler: auth(true) }, async (_req, reply) => {
+  const rf = recoveryFile(backupKey(), shownName(lab()));
+  db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('recovery_downloaded',?)").run(rf.made);
+  const slug = (shownName(lab()) || 'lab').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'lab';
+  return reply
+    .header('content-type', 'application/json')
+    .header('content-disposition', `attachment; filename="PANOPTICA-recovery-${slug}.json"`)
+    .send(JSON.stringify(rf, null, 2));
+});
+/** The admin confirms the recovery file is saved off this computer. */
+app.post('/api/backups/recovery/saved', { preHandler: auth(true) }, async (_req, reply) => {
+  if (!recoveryState().downloaded) return reply.code(409).send({ error: 'download the recovery file first' });
+  db.prepare("DELETE FROM meta WHERE key='recovery_pending'").run();
+  return { ok: true };
+});
 /** The key of the encrypted second copies: admins save it somewhere safe (a password manager, a printed sheet in the lab safe). */
 app.get('/api/backups/key', { preHandler: auth(true) }, async () => ({ key: backupKey(), file: 'config/backup.key' }));
 app.put('/api/backups/mirror', { preHandler: auth(true) }, async (req: any, reply) => {
@@ -614,6 +646,7 @@ app.get('/api/security', { preHandler: auth(true) }, async (req: any) => {
   };
 });
 scheduleBackups((m) => app.log.info(m));
+oldNodeNotice((m) => app.log.warn(m));
 await app.ready();
 const net = await startNetwork(routing, VERSION, (m) => app.log.info(m));
 app.log.info(`Server listening at ${localUrl()}`); // the line Fastify's own listen printed; scripts and tests wait for it

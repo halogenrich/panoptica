@@ -1,5 +1,5 @@
 // Makes the release package: the app built, with no source code.
-//   node tools/package.mjs [out folder] [--version X.Y.Z] [--modules a,b] [--no-web] [--boot]
+//   node tools/package.mjs [out folder] [--version X.Y.Z] [--modules a,b] [--no-web] [--boot] [--node N]
 // Writes <out>/panoptica/: the server as one JavaScript file with its libraries (apps/server/dist/server.mjs), the built web app
 // (apps/web/dist), the start/update/restore scripts and the documents. The lab's computer needs only Node.js: nothing is
 // downloaded or built there. --boot starts the packaged server once and asks its version, as a test of the bundle.
@@ -17,7 +17,8 @@ const args = process.argv.slice(2),
   flag = (n) => args.includes(n),
   opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
 const outDir = resolve(
-  args.find((a, i) => !a.startsWith('--') && !['--version', '--modules'].includes(args[i - 1])) ?? join(root, 'out'),
+  args.find((a, i) => !a.startsWith('--') && !['--version', '--modules', '--node'].includes(args[i - 1])) ??
+    join(root, 'out'),
 );
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')),
   version = opt('--version') ?? pkg.version;
@@ -69,8 +70,8 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  // stays node22 while installs made before 0.50.1 run the package on their Node 22 (Setup installs Node 26 since 0.50.1)
-  target: 'node22',
+  // 0.53: Node 26 only (Setup and updates bring it since 0.52; NODE_MIN in apps/server/src/updates.ts says the same)
+  target: 'node26',
   minify: true,
   legalComments: 'none',
   // libraries written for require(): give the bundle its own require, __filename and __dirname
@@ -95,7 +96,16 @@ rmSync(join(dest, 'docs/architecture.md'), { force: true }); // for developers
 writeFileSync(
   join(dest, 'package.json'),
   JSON.stringify(
-    { name: 'panoptica', version, private: true, description: 'PANOPTICA, built package', modules: mods },
+    // node (0.53): the oldest Node major the package runs on; an install refuses an update it could not start. --node: the
+    // Installer test's updates, which swap in Node 24 and 20 on purpose
+    {
+      name: 'panoptica',
+      version,
+      private: true,
+      description: 'PANOPTICA, built package',
+      modules: mods,
+      node: Number(opt('--node') ?? 26),
+    },
     null,
     2,
   ) + '\n',

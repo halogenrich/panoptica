@@ -91,6 +91,14 @@ export function decrypt(box: Buffer, keyHex = backupKey()) {
   d.setAuthTag(tag);
   return Buffer.concat([d.update(box.subarray(16, box.length - 16)), d.final()]); // throws if the key is wrong or the file was altered
 }
+/**
+ * The recovery file (0.53): whether an admin must download it before going on (after the first setup, and after a restore that
+ * left this computer with a new key), and when it was last downloaded.
+ */
+const metaVal = (k: string) =>
+  (db.prepare('SELECT value FROM meta WHERE key=?').get(k) as { value: string } | undefined)?.value;
+export const recoveryPending = () => metaVal('recovery_pending') === '1';
+export const recoveryState = () => ({ pending: recoveryPending(), downloaded: metaVal('recovery_downloaded') ?? null });
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 // ---- second copy: every backup is also copied to a folder off this computer (network drive, synced cloud folder) ----

@@ -56,7 +56,11 @@ jobs:
           node tools/test-sign.mjs "$T/out/panoptica.zip"
       - name: Update from the app
         shell: bash
-        run: node tools/update-e2e.mjs "$RUNNER_TEMP/inst/panoptica" "$RUNNER_TEMP/out/panoptica.zip" 99.0.0
+        run: |
+          # 0.53 needs Node 26: the update runs outside the app through systemd here, whose PATH finds the runner's own older
+          # Node first. A lab computer has one Node; give systemd the one this job set up (an app before 0.53 does not pass it)
+          if [ "$RUNNER_OS" = Linux ]; then systemctl --user set-environment PATH="$(dirname "$(command -v node)"):$PATH" || true; fi
+          node tools/update-e2e.mjs "$RUNNER_TEMP/inst/panoptica" "$RUNNER_TEMP/out/panoptica.zip" 99.0.0
       - name: No source code left on the lab computer
         shell: bash
         run: |

@@ -5,13 +5,13 @@ title PANOPTICA
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 22.13 or newer is required: https://nodejs.org
+  echo Node.js 26 or newer is required: https://nodejs.org
   pause
   exit /b 1
 )
-node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)"
+node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>=26?0:1)"
 if errorlevel 1 (
-  echo Node.js 22.13 or newer is required ^(this computer has an older one^): https://nodejs.org
+  echo Node.js 26 or newer is required ^(this computer has an older one^): https://nodejs.org
   pause
   exit /b 1
 )

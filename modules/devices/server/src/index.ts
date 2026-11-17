@@ -1,4 +1,4 @@
-import './schema.js'; // the module's database changes first: everything below may read its tables
+import { MIGRATIONS } from './schema.js'; // the module's database changes first: everything below may read its tables
 import type { FastifyInstance } from 'fastify';
 import { ScheduleIn } from '@psc/devices/schema';
 import { STEP_KINDS, roleFromSteps, stepsFromRole } from '@psc/devices';
@@ -374,6 +374,7 @@ const MEASURES = new Set(['jv', 'lifetime']);
 addModule({
   id: 'devices',
   name: 'Electronic Devices',
+  migrations: MIGRATIONS,
   subjects: [batchSubject],
   steps: STEP_KINDS.map((s) => ({ ...s, module: 'devices', ...(MEASURES.has(s.key) ? { measures: true } : {}) })),
   items: ITEMS,

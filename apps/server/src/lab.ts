@@ -8,6 +8,7 @@ import { isLocal, weakPassword, type Limiter } from './security.js';
 import { audit, ipOf } from './audit.js';
 import { hasSetupCode, noRoom, setupCodeOk } from './licence.js';
 import { applyNetwork, listening, localUrl, planNetwork, publicUrl, settings as netSettings } from './network.js';
+import { registerRestore } from './restore.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -198,6 +199,22 @@ export function registerLab(
     if (!ok) limits.byAddress.hit(ip);
     return ok;
   };
+  /** Who may restore a backup in the first setup (0.53): the same people who may do the setup. */
+  registerRestore(
+    app,
+    (req, code) =>
+      !setupNeeded()
+        ? { code: 409, error: 'PANOPTICA is already set up' }
+        : isLocal(req) || (hasSetupCode() && codeOk({ ...req, ip: req.ip, body: { code } }))
+          ? null
+          : {
+              code: 403,
+              error: hasSetupCode()
+                ? 'this is not the setup code on the install sheet'
+                : 'restore the lab on the computer that runs PANOPTICA',
+            },
+    () => shownName(lab()),
+  );
   app.post('/api/setup/code', async (req: any, reply) => {
     if (!setupNeeded()) return reply.code(409).send({ error: 'PANOPTICA is already set up' });
     if (!codeOk(req)) return reply.code(403).send({ error: 'this is not the setup code on the install sheet' });
@@ -256,6 +273,8 @@ export function registerLab(
       );
     });
     audit({ user_id: id, username, ip: ipOf(req), action: 'Set up PANOPTICA (first admin)' });
+    // the first admin downloads the recovery file before going on (0.53)
+    db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('recovery_pending','1')").run();
     startSession(req, reply, { id, username });
     if (plan)
       try {

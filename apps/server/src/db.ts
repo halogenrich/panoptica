@@ -6,7 +6,7 @@ import { migrate } from './schema.js';
 // loaded at run time (not as a static import) so the warning filter in quiet.ts is already in place on Node 22
 export const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: typeof DB };
 
-/** SQLite built into Node (22.13+): no native module to compile or download, on any OS or Node version. */
+/** SQLite built into Node (26 since 0.53): no native module to compile or download, on any OS or Node version. */
 export const db = new DatabaseSync(process.env.DB_PATH || 'data.db');
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');

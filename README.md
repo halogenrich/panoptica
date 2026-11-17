@@ -6,7 +6,7 @@ This file is for whoever runs the app on the lab PC.
 
 ## Requirements
 
-- Windows 10/11, macOS, or Linux (Fedora and others), with **Node.js 26** (https://nodejs.org; 22.13 or newer still works, but Node 22 stops receiving security fixes in April 2027). PANOPTICA Setup installs Node 26 by itself, and its updates bring newer Node releases (0.52). Nothing is compiled during install: the database is SQLite built into Node.
+- Windows 10/11, macOS, or Linux (Fedora and others), with **Node.js 26 or newer** (https://nodejs.org; since 0.53 older versions are refused). PANOPTICA Setup installs Node 26 by itself, and its updates bring newer Node releases (0.52). Nothing is compiled during install: the database is SQLite built into Node.
 - A current Chrome, Edge, Safari or Firefox. Phones work in their normal browser.
 
 ## Scripts
@@ -25,9 +25,7 @@ On macOS, if a `.command` file will not open: run `chmod +x *.command` once in T
 
 ## Linux (Fedora)
 
-1. Install Node.js once:
-   - Fedora 41 or newer: `sudo dnf install nodejs npm`
-   - Fedora 40: `sudo dnf install nodejs22 nodejs22-npm`
+1. Install Node.js 26 or newer once, from https://nodejs.org (check that Fedora's `nodejs` package is 26 or newer before using it).
 
 2. Unzip `panoptica.zip` somewhere in your home folder, e.g. `~/panoptica`.
 3. In a terminal in that folder: `./start.sh`. The first run installs and builds (a few minutes); the browser opens http://localhost:3000. Ctrl+C stops it.
@@ -84,9 +82,11 @@ Admin settings › Security shows whether the connection is encrypted. Details f
 - The app backs up the database **once a day** while it runs, and before every update, and opens each new backup to check it is a complete database. **Back up now** (Admin settings › Backups) makes one on demand; the same page lists the backups and downloads any of them.
 - Files: `backups/data-YYYYMMDD-HHMMSS-<type>.db` in the app folder. The app keeps the last 14 daily, 30 manual, 10 update and 10 before-restore backups and deletes older ones of each type.
 - Keep copies off this PC too: **Admin settings › Backups › Second copy off this computer**, choose a folder on a network drive or a cloud-synced folder; every backup is then copied there as well (also the update-script backups, within the hour). The copies are **encrypted** (AES-256-GCM) by default and read back once to check them. The key is in `config/backup.key` on this PC; **Show key** in the same place: save it in a password manager or on paper, because without it the copies cannot be read.
-- Restore from an encrypted copy: in `apps/server`, `node db-tools.cjs decrypt path/to/data-….db.enc` (asks for the key if this PC does not have it). It puts the backup into `backups/`; then restore it as below.
+- **Recovery file** (Admin settings › Backups, 0.53): holds the backup key and the lab's id. The first setup asks the first admin to download it; keep it off this PC (password manager, a USB stick in the lab safe).
+- **On a new computer** (moving the lab, or replacing a broken PC): install PANOPTICA, and in its first setup choose **Restore this lab from a backup**. Give a backup file, or the folder of the second copy (the backups are listed by date), and the recovery file or the backup key for an encrypted copy. Accounts, data and licence come back; everyone signs in as before. From another computer this needs the setup code on the install sheet, like the first setup.
+- Restore from an encrypted copy by hand: in `apps/server`, `node db-tools.cjs decrypt path/to/data-….db.enc` (asks for the key if this PC does not have it). It puts the backup into `backups/`; then restore it as below.
 
-### Restore
+### Restore on the same computer (manual installs)
 
 1. Close the app window (Linux service: `systemctl --user stop perovskite-lab`).
 2. Double-click `restore.bat` / `restore.command`, or run `./restore.sh` on Linux.
@@ -103,7 +103,7 @@ The script checks that the file is a valid database and backs up the current one
 
 ## Troubleshooting
 
-- **"Node.js 22.13 or newer is required"**: install the current Node.js LTS from nodejs.org, then start again.
+- **"Node.js 26 or newer is required"**: install the current Node.js LTS from nodejs.org, then start again.
 - **npm is blocked in PowerShell**: use the `.bat` scripts (they call `npm.cmd`), not PowerShell.
 - **Install asks to approve install scripts** (newer npm): run `npm.cmd install-scripts approve --all` in the app folder, then start again.
 - **Port 3000 already in use**: the app is already running in another window, or another program uses the port. Start with another port: `set PORT=3100` then `start.bat` (Windows), `PORT=3100 ./start.command` (Mac) or `PORT=3100 ./start.sh` (Linux).
@@ -113,7 +113,7 @@ The script checks that the file is a valid database and backs up the current one
 
 How the code is organised, how a request travels through it, the database and how to change things: [docs/architecture.md](docs/architecture.md).
 
-Monorepo (npm workspaces, Node 22+):
+Monorepo (npm workspaces, Node 26+):
 
 - The core: `apps/server` (Fastify API, SQLite built into Node, sessions, equipment, calendar, inventory, backups, activity log, updates), `apps/web` (React UI), `packages/core` (pure functions and their tests) and `packages/schema` (validation schemas, zod)
 - Electronic Devices, the first module: `modules/devices/server` (recipes and stacks with versioning, batches, J–V, comparisons), `modules/devices/web` (their screens, the Three.js stack viewer) and `modules/devices/shared` (stoichiometry, spin timeline, deposition, geometry, mask analysis, stack geometry, J–V analysis, and their tests)

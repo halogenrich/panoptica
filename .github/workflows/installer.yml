@@ -39,7 +39,7 @@ jobs:
         run: |
           npm run build
           node tools/package.mjs "$RUNNER_TEMP/a" --no-web
-          node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0
+          node tools/package.mjs "$RUNNER_TEMP/b" --no-web --version 99.0.0 --node 20
           node tools/installer-e2e.mjs prepare "$RUNNER_TEMP/a/panoptica" "$RUNNER_TEMP/b/panoptica" "$RUNNER_TEMP/work"
       - name: Build PANOPTICA Setup
         shell: pwsh
