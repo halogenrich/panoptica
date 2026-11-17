@@ -1,5 +1,5 @@
 import { fixName } from '@web/lib/names';
-import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
+import LinkPicker, { type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
 import { DeviceTable, type DeviceMap } from './Devices';
@@ -419,14 +419,12 @@ function DraftCard({
                 <td>{r.ok}</td>
                 <td>{r.best ? r.best.toFixed(2) + ' %' : '—'}</td>
                 <td>
-                  <select
-                    aria-label={`Link ${r.s}`}
-                    value={linkVal(d.links[r.s] ?? null)}
-                    onChange={(e) => up({ links: { ...d.links, [r.s]: parseLink(e.target.value) } })}
-                  >
-                    <option value="">Not linked</option>
-                    <LinkOptions t={targets} />
-                  </select>
+                  <LinkPicker
+                    t={targets}
+                    label={`Link ${r.s}`}
+                    value={d.links[r.s] ?? null}
+                    onChange={(l) => up({ links: { ...d.links, [r.s]: l } })}
+                  />
                 </td>
               </tr>
             ))}
@@ -521,13 +519,12 @@ function LifeCard({ d, targets, up }: { d: Draft; targets: Targets; up: (p: Part
         </label>
         <label className="fld">
           <span>Is in the app as</span>
-          <select
-            value={linkVal(d.links[run.run] ?? null)}
-            onChange={(e) => up({ links: { [run.run]: parseLink(e.target.value) } })}
-          >
-            <option value="">Not linked</option>
-            <LinkOptions t={targets} />
-          </select>
+          <LinkPicker
+            t={targets}
+            label="Is in the app as"
+            value={d.links[run.run] ?? null}
+            onChange={(l) => up({ links: { [run.run]: l } })}
+          />
         </label>
       </div>
       <p className="mut small">

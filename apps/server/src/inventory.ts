@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { AreaIn, ShelfIn, ContainerIn, InventoryImport, OrderIn, StorageTypeIn } from '@psc/schema';
 import { db, tx } from './db.js';
 import { modules } from './modules.js';
-import { substanceFor, useBottle } from './chemicals.js';
+import { checkDuplicates, substanceFor, useBottle } from './chemicals.js';
 
 /**
  * Inventory: storage areas (cabinets, desiccators, gloveboxes, fridges…) with shelves, and the containers on them.
@@ -89,7 +89,8 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
     containers: db
       .prepare(
         `SELECT c.*, a.name AS added_by_name, b.name AS updated_by_name FROM containers c
-      LEFT JOIN users a ON a.id=c.added_by LEFT JOIN users b ON b.id=c.updated_by ORDER BY c.name COLLATE NOCASE`,
+      LEFT JOIN users a ON a.id=c.added_by LEFT JOIN users b ON b.id=c.updated_by WHERE c.deleted_at IS NULL
+      ORDER BY c.name COLLATE NOCASE`,
       )
       .all(),
   }));
@@ -204,7 +205,7 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
     const text = new Set(['cas', 'supplier', 'lot', 'notes', 'barcode']);
     // the substance it is of (0.44): the one picked, else found or made by CAS and name; the container carries its name
     const chem =
-      d.chem_id && db.prepare('SELECT 1 FROM chemicals WHERE id=?').get(d.chem_id as number)
+      d.chem_id && db.prepare('SELECT 1 FROM chemicals WHERE id=? AND deleted_at IS NULL').get(d.chem_id as number)
         ? (d.chem_id as number)
         : substanceFor(String(d.name ?? ''), String(d.cas ?? ''), (d.substance as any) ?? {});
     const sub = db.prepare('SELECT name, cas FROM chemicals WHERE id=?').get(chem) as { name: string; cas: string };
@@ -241,14 +242,17 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
   app.post('/api/inventory/containers', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = ContainerIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
-    return { id: write(p.data, req.user.id) };
+    const id = write(p.data, req.user.id);
+    checkDuplicates();
+    return { id };
   });
   app.put('/api/inventory/containers/:id', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = ContainerIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
-    if (!db.prepare('SELECT 1 FROM containers WHERE id=?').get(+req.params.id))
+    if (!db.prepare('SELECT 1 FROM containers WHERE id=? AND deleted_at IS NULL').get(+req.params.id))
       return reply.code(404).send({ error: 'not found' });
     write(p.data, req.user.id, +req.params.id);
+    checkDuplicates();
     return { ok: true };
   });
   app.delete('/api/inventory/containers/:id', { preHandler: auth('inventory') }, async (req: any) => {
@@ -263,7 +267,7 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
   app.post('/api/inventory/import', { preHandler: auth('inventory') }, async (req: any, reply) => {
     const p = InventoryImport.safeParse(req.body);
     if (!p.success) return bad(reply, p);
-    return tx(() => {
+    const done = tx(() => {
       const ids = new Map<string, number>();
       for (const { key, name, cas, ...rest } of p.data.substances) ids.set(key, substanceFor(name, cas ?? '', rest));
       let n = 0;
@@ -280,6 +284,8 @@ export function registerInventory(app: FastifyInstance, auth: (need?: any) => an
       }
       return { imported: n, substances: ids.size };
     });
+    checkDuplicates();
+    return done;
   });
 
   /**

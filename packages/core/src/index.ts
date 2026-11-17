@@ -9,3 +9,5 @@ export * from './equipment';
 export * from './chem';
 export * from './inventoryCsv';
 export * from './network';
+export * from './substances';
+export * from './xlsxRead';

@@ -159,6 +159,10 @@ const opt = z.number().finite().nullable().optional();
 export const SubstanceIn = z.object({
   name: z.string().trim().min(1).max(120),
   cas: z.string().trim().max(20).optional(),
+  /** short name (0.54): DMF, MeO-2PACz */
+  s: z.string().trim().max(40).optional(),
+  /** other names search finds (0.54) */
+  aka: z.array(z.string().trim().max(160)).max(20).optional(),
   f: z.string().trim().max(60).optional(),
   M: z.number().nonnegative().optional(),
   d: opt,
@@ -174,6 +178,11 @@ export const SubstanceIn = z.object({
   army: z.boolean().optional(),
   notes: z.string().max(2000).optional(),
 });
+
+/** Merge a substance into another (0.54). */
+export const SubstanceMerge = z.object({ into: z.number().int().positive() });
+/** Two substances people said are not the same (0.54). */
+export const SubstancePair = z.object({ a: z.number().int().positive(), b: z.number().int().positive() });
 
 const Watermark = z
   .string()

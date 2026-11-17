@@ -5,6 +5,7 @@ import { Seg } from '@web/lib/ui';
 import { RemoveRow } from '@web/views/common';
 import { SEG, METHODS, type Method, methodName } from '../stacks/model';
 import type { Batch } from './Batches';
+import { Picker } from '@web/views/Picker';
 
 type P = { id: number; name: string; segment: string; parent_id: number | null };
 export const NO_VARIANTS: VariantsD = { control: '', list: [] };
@@ -222,25 +223,20 @@ function PresetSelect({
   familyLabel: string;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">Choose…</option>
-      {opts.family.length > 0 && (
-        <optgroup label={familyLabel}>
-          {opts.family.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      <optgroup label={opts.family.length ? 'Others' : 'All'}>
-        {opts.rest.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </optgroup>
-    </select>
+    <Picker
+      label="Recipe"
+      empty="Choose a recipe"
+      value={value}
+      onChange={onChange}
+      options={[
+        ...opts.family.map((p) => ({ value: String(p.id), label: p.name, group: familyLabel })),
+        ...opts.rest.map((p) => ({
+          value: String(p.id),
+          label: p.name,
+          group: opts.family.length ? 'Others' : undefined,
+        })),
+      ]}
+    />
   );
 }
 
@@ -404,11 +400,13 @@ function Editor({
                   {c.t === 'additive' && (
                     <>
                       {layerSel(c.slot, (n) => set(i, { ...c, slot: n ?? 0 }))}
-                      <input
-                        list="var-chems"
-                        placeholder="Additive"
+                      <Picker
+                        label="Additive"
+                        empty="Additive"
+                        free
                         value={c.name}
-                        onChange={(e) => set(i, { ...c, name: e.target.value })}
+                        onChange={(name) => set(i, { ...c, name })}
+                        options={chems.map((n) => ({ value: n, label: n }))}
                       />
                       <input
                         className="var-amount"
@@ -476,11 +474,6 @@ function Editor({
               </li>
             ))}
           </ol>
-          <datalist id="var-chems">
-            {chems.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
           <div className="var-add">
             {ADD.map(([t, l]) => (
               <button

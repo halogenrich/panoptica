@@ -24,7 +24,7 @@ import { db, tx, perms, tagHas, tagsOf } from './db.js';
 import { hash, verify as verifyRaw } from './auth.js';
 import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
-import { registerChemicals } from './chemicals.js';
+import { checkDuplicates, registerChemicals } from './chemicals.js';
 import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
 import { items, licenceStart, moduleNames, modules, skippedModules } from './modules.js';
@@ -479,6 +479,8 @@ registerDashboard(app, auth);
 // ---- substances (0.44: chemicals.ts): made from the containers, edited by people with the Inventory tag ----
 registerChemicals(app, auth, bad);
 registerDraws(app, auth);
+// substances the lab already had may be the same one written twice (0.54): the inventory's editors are told once per pair
+checkDuplicates();
 
 // ---- profile: own password, preferences; global search ----
 app.post('/api/me/password', { preHandler: auth() }, async (req: any, reply) => {
@@ -540,7 +542,7 @@ app.get('/api/search', { preHandler: auth() }, async (req: any) => {
     db
       .prepare(
         `SELECT c.id,c.name,c.lot,c.status,a.name AS place FROM containers c LEFT JOIN storage_areas a ON a.id=c.area_id
-         WHERE (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q OR c.barcode LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
+         WHERE c.deleted_at IS NULL AND (c.name LIKE @q OR c.cas LIKE @q OR c.lot LIKE @q OR c.barcode LIKE @q) ORDER BY c.status='empty', c.name LIMIT 8`,
       )
       .all({ q }) as any[]
   ).map((c) => ({
@@ -551,7 +553,10 @@ app.get('/api/search', { preHandler: auth() }, async (req: any) => {
   }));
   const chemicals = (
     db
-      .prepare('SELECT id,name FROM chemicals WHERE name LIKE @q OR cas LIKE @q ORDER BY name LIMIT 8')
+      // short and other names live in data (0.54)
+      .prepare(
+        'SELECT id,name FROM chemicals WHERE deleted_at IS NULL AND (name LIKE @q OR cas LIKE @q OR data LIKE @q) ORDER BY name LIMIT 8',
+      )
       .all({ q }) as any[]
   ).map((c) => ({ key: 'chemical:' + c.id, label: c.name, hint: 'Substance', link: { view: 'chem', id: null } }));
   return { hits: [...items().flatMap((k) => k.search?.(q, p) ?? []), ...containers, ...chemicals] };

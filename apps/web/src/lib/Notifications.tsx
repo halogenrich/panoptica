@@ -4,7 +4,18 @@ import { api } from '../api';
 
 export type Note = {
   id: number;
-  kind: 'record' | 'fork' | 'comment' | 'reply' | 'mention' | 'update' | 'batch' | 'runs' | 'access' | 'hours';
+  kind:
+    | 'record'
+    | 'fork'
+    | 'comment'
+    | 'reply'
+    | 'mention'
+    | 'update'
+    | 'batch'
+    | 'runs'
+    | 'access'
+    | 'hours'
+    | 'inventory';
   text: string;
   link: { view: string; id: number };
   actor: string;
@@ -21,6 +32,7 @@ const ICON: Record<string, string> = {
   update: '⬆︎',
   access: '＋',
   hours: '◐',
+  inventory: '⧉',
 };
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 1000;
@@ -45,7 +57,8 @@ export function useNotifications() {
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   }, []);
-  useRefresh(load, ['notifications', 'presets', 'iv']);
+  // inventory: possible duplicate substances are told after containers change (0.54)
+  useRefresh(load, ['notifications', 'presets', 'iv', 'inventory']);
   return { ...d, load, read: (ids?: number[]) => api('/notifications/read', 'POST', ids ? { ids } : {}).then(load) };
 }
 

@@ -46,7 +46,13 @@ const CORE: Record<string, Page> = {
   chem: {
     key: 'chem',
     label: 'Inventory',
-    render: (p) => <Inventory canEdit={p.me.role === 'admin' || !!p.me.inventory} openId={p.openId} />,
+    render: (p) => (
+      <Inventory
+        canEdit={p.me.role === 'admin' || !!p.me.inventory}
+        openId={p.openId}
+        dups={(p.extra.dups as number) ?? 0}
+      />
+    ),
   },
   eq: { key: 'eq', label: 'Equipment', render: (p) => <EquipmentPage openId={p.openId} onOpen={p.onOpen} /> },
 };
@@ -189,6 +195,11 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
         /* ignore */
       }
       go('users');
+      return;
+    }
+    // possible duplicate substances (0.54): Inventory › Substances, with the review open
+    if (l.view === 'duplicates') {
+      go('chem', null, { dups: Date.now() });
       return;
     }
     if (KEYS.has(l.view)) go(l.view, l.id);

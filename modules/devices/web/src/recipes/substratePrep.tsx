@@ -4,6 +4,7 @@ import { DesignSvg } from '../designs/DesignSvg';
 import { itoArea, subLayers, type SubD } from '../designs/substrate';
 import { Section } from './shared';
 import type { Ctx, Kind } from './types';
+import { Picker } from '@web/views/Picker';
 
 const SOLV = ['Soap', 'Ultrapure Water', 'Acetone', 'Isopropanol'],
   SURF = ['N2 dry', 'UV-ozone', 'O2 plasma'];
@@ -52,22 +53,16 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   return (
     <>
       <Section title="Substrate">
-        <select
+        <Picker
+          label="Substrate"
+          empty={legacy(d) ? `Earlier version: ${sub(d)} (choose a design)` : 'Choose a substrate design'}
           value={d.subId}
-          onChange={(e) => {
-            const x = subs.find((s) => String(s.id) === e.target.value);
-            set({ subId: e.target.value, subName: x?.name ?? '', design: x?.data ?? null });
+          onChange={(subId) => {
+            const x = subs.find((s) => String(s.id) === subId);
+            set({ subId, subName: x?.name ?? '', design: x?.data ?? null });
           }}
-        >
-          <option value="">
-            {d.design ? '—' : legacy(d) ? `Earlier version: ${sub(d)} (choose a design)` : 'Choose a substrate design…'}
-          </option>
-          {subs.map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+          options={subs.map((s) => ({ value: String(s.id), label: s.name }))}
+        />
       </Section>
       <StepList title="Sonication" list={d.steps} options={SOLV} onChange={(steps) => set({ steps })} />
       <StepList

@@ -6,6 +6,7 @@ import type { TrayProps } from '@web/modules/types';
 import { ROLE_NAME, autoSplit, bundlesOf, eqCandidates, placedOf } from './lib/bundles';
 import type { StackD } from './stacks/model';
 import { STEP_KINDS } from '@psc/devices';
+import { Picker } from '@web/views/Picker';
 
 const STEP_LABEL: Record<string, string> = Object.fromEntries(STEP_KINDS.map((s) => [s.key, s.label]));
 
@@ -153,19 +154,17 @@ export default function Tray({ id, eqs, trained, isAdmin, narrow, version, onDra
                 </span>
               </button>
               {!placed && cands.length > 1 && (
-                <select
-                  className="tray-eq"
-                  aria-label={`Equipment for ${b.step}`}
-                  value={eq?.id}
-                  onChange={(e) => setPick({ ...pick, [b.key]: +e.target.value })}
-                >
-                  {cands.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {!isAdmin && !trained.includes(c.id) ? ' (not trained)' : ''}
-                    </option>
-                  ))}
-                </select>
+                <Picker
+                  className="tray-eq small"
+                  label={`Equipment for ${b.step}`}
+                  value={String(eq?.id ?? '')}
+                  onChange={(v) => setPick({ ...pick, [b.key]: +v })}
+                  options={cands.map((c) => ({
+                    value: String(c.id),
+                    label: c.name,
+                    hint: !isAdmin && !trained.includes(c.id) ? 'Not trained' : undefined,
+                  }))}
+                />
               )}
               {movable && (
                 <button

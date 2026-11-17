@@ -143,6 +143,8 @@ const step = async (name, fn) => {
   passed++;
   console.log('ok');
 };
+/** Escape in a picker closes its list, not the dialog around it (0.54). */
+const expectOpen = (dlg) => dlg.waitFor();
 const expect = (cond, what) => {
   if (!cond) throw new Error(what);
 };
@@ -670,11 +672,9 @@ try {
       const dlg = page.getByRole('dialog', { name: 'New booking' });
       await dlg.getByRole('radio', { name: /Spin coater A/ }).click();
       // the open batch is offered first, as "subject:id"
-      const sel = dlg.locator('select').first();
-      expect(
-        (await sel.locator('option:checked').textContent())?.includes('Browser batch'),
-        'the batch is not offered',
-      );
+      // a picker since 0.54: a text box that shows the batch picked
+      const sel = dlg.getByRole('combobox').first();
+      expect((await sel.inputValue()).includes('Browser batch'), 'the batch is not offered');
       const day = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
       await dlg.locator('input[type=date]').fill(day);
       await dlg.locator('input[type=time]').nth(0).fill('14:00');
@@ -938,7 +938,11 @@ try {
     await page.getByRole('tab', { name: 'Containers', exact: true }).click();
     await page.getByRole('button', { name: 'Add container' }).click();
     const dlg = page.getByRole('dialog', { name: 'Add container' });
-    await dlg.getByRole('combobox', { name: 'Substance' }).fill('Browser salt');
+    // the substance picker (0.54): a name that is not in the lab yet is used as typed
+    const box = dlg.getByRole('combobox', { name: 'Substance' });
+    await box.fill('Browser salt');
+    await page.getByRole('option', { name: /Use “Browser salt”/ }).waitFor();
+    await box.press('Enter');
     await dlg.getByText('A new substance', { exact: false }).waitFor();
     await dlg.getByLabel('Supplier').fill('Acme');
     await dlg.getByLabel('CAS number').fill('7681-82-5');
@@ -954,7 +958,7 @@ try {
       '"Browser solvent",C2H6O,64-17-5,,,"0.5 l / 1 l",BX-2,compartment Shelf 9,Gamma,controlled by the Federal Police',
     ].join('\n');
     await page.getByRole('tab', { name: 'Containers', exact: true }).click();
-    await page.getByRole('button', { name: 'Import CSV' }).click();
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
     await page
       .locator('section.import input[type=file]')
       .setInputFiles({ name: 'export.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
@@ -977,6 +981,117 @@ try {
     expect(
       solv?.pf && solv.bottle?.place === 'Browser cabinet',
       'the new substance, its control or its place is wrong',
+    );
+  });
+
+  await step('a substance is picked by typing its short name; a possible duplicate is merged (0.54)', async () => {
+    await api('POST', '/inventory/containers', {
+      name: 'N,N-Dimethylformamide',
+      cas: '68-12-2',
+      amount: 1,
+      size: 1,
+      unit: 'L',
+    });
+    // entered again under one of its other names, without a CAS number: a possible duplicate
+    await api('POST', '/inventory/containers', { name: 'Dimetilformamida', amount: 1, size: 1, unit: 'L' });
+    // a container's substance: "dmf" finds N,N-Dimethylformamide by its short name, first
+    await nav('Inventory');
+    await page.getByRole('tab', { name: 'Containers', exact: true }).click();
+    await page.getByRole('button', { name: 'Add container' }).click();
+    const dlg = page.getByRole('dialog', { name: 'Add container' });
+    const box = dlg.getByRole('combobox', { name: 'Substance' });
+    await box.fill('dmf');
+    const first = page.getByRole('listbox', { name: 'Substance' }).getByRole('option').first();
+    await first.filter({ hasText: /^DMF/ }).waitFor(); // the short name ranked first
+    await box.press('ArrowDown');
+    await box.press('Escape');
+    expect((await box.inputValue()) === '', 'Escape kept what was typed');
+    await expectOpen(dlg);
+    await dlg.getByRole('button', { name: 'Close' }).click();
+    // the notification opens the review
+    await page.getByRole('button', { name: /Notifications/ }).click();
+    await page
+      .getByText(/may be the same substance/)
+      .first()
+      .click();
+    const rev = page.getByRole('dialog', { name: 'Possible duplicates' });
+    const pair = rev.locator('.dup-pair').filter({ hasText: 'Dimetilformamida' });
+    await pair.getByText('A name of one is a name of the other').waitFor();
+    page.once('dialog', (d) => d.accept()); // merging cannot be undone: it asks first
+    await pair
+      .locator('.dup-side')
+      .filter({ hasText: 'N,N-Dimethylformamide' })
+      .getByRole('button', { name: 'Keep this one' })
+      .click();
+    await pair.waitFor({ state: 'detached' });
+    const subs = (await api('GET', '/chemicals')).j;
+    const dmf = subs.find((x) => x.cas === '68-12-2');
+    expect(
+      !subs.some((x) => x.name === 'Dimetilformamida') && dmf.bottles.length === 2,
+      'the merge did not move the container or keep the name',
+    );
+    await rev.getByRole('button', { name: 'Close' }).click();
+  });
+
+  await step('the template is downloaded, filled in and imported; a substance goes to the trash (0.54)', async () => {
+    await nav('Inventory');
+    await page.getByRole('tab', { name: 'Containers', exact: true }).click();
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+    const [dl] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Download the template' }).click(),
+    ]);
+    const { readXlsx, INVENTORY_TEMPLATE } = await import('../packages/core/src/index.ts');
+    const rows = readXlsx(new Uint8Array(readFileSync(await dl.path())));
+    expect(
+      rows[0].join() === INVENTORY_TEMPLATE.map((c) => c.header).join() && rows.length === 2,
+      'the template is not its header and the example row',
+    );
+    // filled in: the example row left in (the import leaves it out) and one container
+    const filled = [
+      ...rows,
+      rows[0].map(
+        (h) =>
+          ({
+            Substance: 'Browser template salt',
+            'Short name': 'BTS',
+            'Amount left': '3',
+            Size: '5',
+            Unit: 'g',
+            'Storage place': 'Browser cabinet',
+            Division: 'Drawer 1',
+          })[h] ?? '',
+      ),
+    ];
+    const { xlsx } = await import('../apps/web/src/lib/xlsx.ts');
+    await page.locator('section.import input[type=file]').setInputFiles({
+      name: 'filled.xlsx',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(xlsx([{ name: 'Inventory', rows: filled }])),
+    });
+    await page.getByText(/1 container of 1 substance; 1 line/).waitFor();
+    expect(
+      (await page.getByLabel('Division for Browser cabinet - Drawer 1').inputValue()) === 'Drawer 1',
+      'the division',
+    );
+    await page
+      .locator('section.import')
+      .getByRole('button', { name: /^Import 1/ })
+      .click();
+    await page.locator('section.import').waitFor({ state: 'detached' });
+    await page.getByRole('tab', { name: 'Substances', exact: true }).click();
+    await page.locator('tr').filter({ hasText: 'Browser template salt' }).getByText('BTS').click();
+    const dlg = page.getByRole('dialog', { name: 'Browser template salt' });
+    await dlg.getByRole('button', { name: 'Move to trash' }).click();
+    await dlg.waitFor({ state: 'detached' });
+    await page.locator('nav.side').getByRole('button', { name: /Trash/ }).click();
+    const row = page.locator('tr').filter({ hasText: 'Browser template salt' });
+    await row.getByText('Substance', { exact: true }).waitFor();
+    await row.getByRole('button', { name: 'Restore' }).click();
+    await row.waitFor({ state: 'detached' });
+    expect(
+      (await api('GET', '/chemicals')).j.find((x) => x.name === 'Browser template salt')?.bottles.length === 1,
+      'the substance did not come back with its container',
     );
   });
 

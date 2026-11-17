@@ -15,7 +15,8 @@ import {
   type SolMode,
   type SolutionD,
 } from '@psc/devices';
-import { Check, DragHandle, Num, RemoveRow, bottleText, useReorder } from '@web/views/common';
+import { ChemPicker, Check, DragHandle, Num, RemoveRow, bottleText, chemShort, useReorder } from '@web/views/common';
+import { Picker } from '@web/views/Picker';
 import { api } from '@web/api';
 import { MeCtx } from '@web/ctx';
 import { refreshAll } from '@web/lib/trash';
@@ -31,7 +32,8 @@ const prep = (d: D) =>
     d.stir ? `stir ${d.sm} min` : 'no stirring',
     d.heat ? `heat ${d.hT} °C for ${d.hm} min${d.cool ? ', cool down before use' : ', use warm'}` : 'no heating',
   ].join(' · ');
-const solvents = (d: D) => d.sv.map((s) => `${s.n} ${s.p}`).join(' : ');
+/** The solvents and their parts, by short name when the substance has one (0.54). */
+const solvents = (d: D, ctx?: Ctx) => d.sv.map((s) => `${ctx ? chemShort(ctx.chems, s.n) : s.n} ${s.p}`).join(' : ');
 /** A new perovskite solution has no ions chosen yet. */
 const noComp = (d: D) => !Object.keys(d.A).length && !Object.keys(d.X).length;
 const headline = (d: D, ctx: Ctx) =>
@@ -383,11 +385,13 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           <div className={'row wrap' + (rAd.drag === i ? ' dragging' : '')} key={i} ref={rAd.rowRef(i)}>
             <span className="inline">
               <DragHandle h={rAd.handle(i)} show={d.ad.length > 1} />
-              <select value={a.n} onChange={(e) => upAd(i, { n: e.target.value })}>
-                {ctx.chems.map((c) => (
-                  <option key={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <ChemPicker
+                chems={ctx.chems}
+                roles={['additive']}
+                value={a.n}
+                onChange={(n) => upAd(i, { n })}
+                label={`Additive ${i + 1}`}
+              />
             </span>
             <span className="inline">
               <Num v={a.v} on={(v) => upAd(i, { v })} />
@@ -507,11 +511,15 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
         </>
       ) : (
         <Section title="Solute">
-          <select value={sol} onChange={(e) => set({ sol: e.target.value })}>
-            {list.map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>
+          <Picker
+            label="Solute"
+            value={sol}
+            onChange={(n) => set({ sol: n })}
+            options={list.map((n) => {
+              const c = ctx.chems.find((x) => x.name === n);
+              return { value: n, label: n, short: c?.s || undefined, other: c ? [...c.aka, c.f, c.cas] : [] };
+            })}
+          />
           <div className="row">
             <span>Concentration</span>
             <span className="inline">
@@ -533,11 +541,13 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           <div className={'row' + (rSv.drag === i ? ' dragging' : '')} key={i} ref={rSv.rowRef(i)}>
             <span className="inline">
               <DragHandle h={rSv.handle(i)} show={d.sv.length > 1} />
-              <select value={v.n} onChange={(e) => upSv(i, { n: e.target.value })}>
-                {names('solvent').map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
+              <ChemPicker
+                chems={ctx.chems}
+                roles={['solvent']}
+                value={v.n}
+                onChange={(n) => upSv(i, { n })}
+                label={`Solvent ${i + 1}`}
+              />
             </span>
             <span className="inline">
               <Num v={v.p} on={(p) => upSv(i, { p })} />
@@ -604,19 +614,18 @@ function Bottle({ ctx, name, ok, edit }: { ctx: Ctx; name: string; ok: boolean; 
       {missing}
       {many ? (
         <div>
-          <select
+          <Picker
             className="small"
-            style={{ maxWidth: 320 }}
-            aria-label={`${name} container`}
-            value={c.bottle.id}
-            onChange={(e) => api(`/inventory/containers/${e.target.value}/use`, 'PUT', { use: true }).then(refreshAll)}
-          >
-            {c.bottles!.map((b) => (
-              <option key={b.id} value={b.id}>
-                {bottleText(b)}
-              </option>
-            ))}
-          </select>
+            label={`${name} container`}
+            value={String(c.bottle.id)}
+            onChange={(id) => api(`/inventory/containers/${id}/use`, 'PUT', { use: true }).then(refreshAll)}
+            options={c.bottles!.map((b) => ({
+              value: String(b.id),
+              label: bottleText(b),
+              other: [b.place],
+              hint: `${b.amount ?? '?'} ${b.unit}`,
+            }))}
+          />
         </div>
       ) : (
         <div className="small mut">{bottleText(c.bottle as any)}</div>
@@ -626,11 +635,13 @@ function Bottle({ ctx, name, ok, edit }: { ctx: Ctx; name: string; ok: boolean; 
 }
 
 function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
-  const r = plan(d, ctx);
+  const r = plan(d, ctx),
+    // short names wherever a substance has one (0.54); the full name on hover
+    sn = (n: string) => <span title={n}>{chemShort(ctx.chems, n)}</span>;
   const rows = [
     ...r.rows.map((a) => [
       <>
-        {a.s}
+        {sn(a.s)}
         <Bottle ctx={ctx} name={a.s} ok={a.ok} edit={!blanks} />
         {a.bundled.length > 0 && <small className="mut"> (+{a.bundled.join(', ')} additive)</small>}
       </>,
@@ -645,7 +656,7 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
     ]),
     ...r.extra.map((a) => [
       <>
-        {a.n}{' '}
+        {sn(a.n)}{' '}
         <small className="mut">
           (additive, {a.v} {a.b}
           {a.b === 'µL stock/mL' ? `, stock ${a.sc ?? 0} mg/mL` : ''})
@@ -662,12 +673,12 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
   const st = r.stocks;
   if (st) {
     // separate stock solutions, then the mix
-    const ratio = solvents(d).replace(/ /g, ' ');
+    const ratio = solvents(d, ctx).replace(/ /g, ' ');
     const sRows = st.list.map((x) => {
       const row = r.rows.find((y) => y.s === x.s)!;
       return [
         <>
-          {x.s}
+          {sn(x.s)}
           <Bottle ctx={ctx} name={x.s} ok={row.ok} edit={!blanks} />
         </>,
         `${r2(x.c)} M`,
@@ -691,7 +702,7 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
     const mRows = [
       ...st.list.map((x) => [
         <>
-          {x.s} stock{x.short && <span className="err"> · prepare more</span>}
+          {sn(x.s)} stock{x.short && <span className="err"> · prepare more</span>}
         </>,
         r.rows.find((y) => y.s === x.s)!.mmol.toFixed(3),
         `${x.need.toFixed(1)} µL`,
@@ -700,14 +711,14 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
         .filter((v) => v.ul > 0.05)
         .map((v) => [
           <>
-            {v.n} <small className="mut">(to make up {d.V} mL)</small>
+            {sn(v.n)} <small className="mut">(to make up {d.V} mL)</small>
           </>,
           '',
           `${v.ul.toFixed(1)} µL`,
         ]),
       ...r.extra.map((a) => [
         <>
-          {a.n}{' '}
+          {sn(a.n)}{' '}
           <small className="mut">
             (additive, {a.v} {a.b}
             {a.b === 'µL stock/mL' ? `, stock ${a.sc ?? 0} mg/mL` : ''})
@@ -775,7 +786,7 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
         />
       )}
       <T h={t.h} rows={t.rows} />
-      <T h={['Solvent', 'Volume (µL)']} rows={r.solv.map((v) => [v.n, v.ul.toFixed(0)])} />
+      <T h={['Solvent', 'Volume (µL)']} rows={r.solv.map((v) => [sn(v.n), v.ul.toFixed(0)])} />
       {r.density && (
         <p className="mut">
           Density method: {(r.density.solidMg / 1000).toFixed(3)} g of solids at {r.density.rho} g/cm³ take up{' '}
@@ -834,8 +845,8 @@ export const solution: Kind<D> = {
         }
       : {}),
     Volume: `${d.V} mL`,
-    Solvents: solvents(d),
-    Additives: d.ad.length ? d.ad.map((a) => `${a.n} ${a.v} ${a.b}`).join(', ') : 'none',
+    Solvents: solvents(d, ctx),
+    Additives: d.ad.length ? d.ad.map((a) => `${chemShort(ctx.chems, a.n)} ${a.v} ${a.b}`).join(', ') : 'none',
     Preparation: prep(d),
   }),
   runFields: (d, ctx) => {

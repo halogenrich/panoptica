@@ -61,12 +61,14 @@ function containerFor(u: Use, keep?: number) {
   if (kept) return kept;
   const named =
     u.box &&
-    (db.prepare("SELECT id, amount, unit, chem_id FROM containers WHERE id=? AND status<>'empty'").get(u.box) as any);
+    (db
+      .prepare("SELECT id, amount, unit, chem_id FROM containers WHERE id=? AND status<>'empty' AND deleted_at IS NULL")
+      .get(u.box) as any);
   if (named) return named;
   return db
     .prepare(
       `SELECT c.id, c.amount, c.unit, c.chem_id FROM containers c JOIN chemicals s ON s.id=c.chem_id
-       WHERE lower(s.name)=lower(?) AND c.status<>'empty' ORDER BY c.use DESC, c.added_at DESC, c.id DESC LIMIT 1`,
+       WHERE lower(s.name)=lower(?) AND c.status<>'empty' AND c.deleted_at IS NULL AND s.deleted_at IS NULL ORDER BY c.use DESC, c.added_at DESC, c.id DESC LIMIT 1`,
     )
     .get(u.name.trim()) as any;
 }
