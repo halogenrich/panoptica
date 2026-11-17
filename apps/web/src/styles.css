@@ -8690,3 +8690,158 @@ input[type='color']:focus-visible {
 .signin-address:hover {
   color: var(--ac);
 }
+
+/* ============ picker: a text box with a ranked list (0.54) ============ */
+.picker {
+  display: inline-flex;
+  position: relative;
+  width: min(320px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.picker.wide {
+  width: min(440px, 100%);
+}
+.picker.narrow {
+  width: min(200px, 100%);
+}
+.picker input.picker-box:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  padding-right: 28px;
+  /* a chevron says it opens a list, as a select's does */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--mut) 50%), linear-gradient(135deg, var(--mut) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.picker-list {
+  position: fixed;
+  z-index: 1000;
+  max-height: min(320px, 50vh);
+  overflow: auto;
+  background: var(--raise);
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  animation: rise 0.14s var(--ease);
+}
+.picker-list.up {
+  transform: translateY(-100%);
+  animation: none;
+}
+.picker-head {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mut);
+  padding: 8px 10px 4px;
+}
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 34px;
+}
+.picker-item.on {
+  background: var(--ac-soft);
+}
+.picker-item.cur b {
+  color: var(--ac);
+}
+.picker-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.picker-name b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.picker-sub {
+  font-size: 12px;
+  color: var(--mut);
+  overflow-wrap: anywhere;
+}
+.picker-hint {
+  font-size: 12px;
+  color: var(--mut);
+  white-space: nowrap;
+  flex: none;
+}
+.picker-none {
+  padding: 10px;
+  color: var(--mut);
+  font-size: 13px;
+}
+@media (pointer: coarse) {
+  .picker-item {
+    min-height: 44px;
+  }
+}
+.fld .picker,
+.picker.full {
+  width: 100%;
+}
+.picker.small input.picker-box:not([type='checkbox']) {
+  height: 28px;
+  font-size: 13px;
+}
+/* possible duplicates (0.54) */
+.dup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.dup-pair {
+  border: 1px solid var(--sep);
+  border-radius: var(--r);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.dup-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.dup-side {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dup-actions .btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-into {
+  margin-top: 8px;
+}
+@media (max-width: 560px) {
+  .dup-sides {
+    grid-template-columns: 1fr;
+  }
+}
+.picker.link-select {
+  width: min(320px, 100%);
+  height: auto;
+}
+.picker.link-select input.picker-box:not([type='checkbox']) {
+  height: 30px;
+}
+.dup-side .btn {
+  margin-top: 8px;
+}

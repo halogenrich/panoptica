@@ -1,3 +1,4 @@
+import { Picker, type PickOption } from '@web/views/Picker';
 import type { Link } from './model';
 
 export type LinkTargets = {
@@ -12,36 +13,57 @@ export const parseLink = (v: string): Link => {
   return k ? { kind: k as 'batch' | 'stack', id: +id, ...(variant ? { variant } : {}) } : null;
 };
 
-/** The <option>s for linking a sample: batches (each variant of a batch as its own choice), then stacks. */
-export default function LinkOptions({ t }: { t: LinkTargets | null }) {
-  if (!t) return null;
+/**
+ * Choices for linking a sample (0.54: a picker, typed into): batches (each variant of a batch as its own choice), then stacks.
+ */
+function linkChoices(t: LinkTargets | null, none: string): PickOption[] {
+  return [
+    { value: '', label: none },
+    ...(t?.batches ?? []).flatMap((b) => [
+      {
+        value: `batch:${b.id}`,
+        label: b.name || b.code,
+        hint: b.variants?.length ? 'Default device' : undefined,
+        other: [b.code],
+        group: 'Batches',
+      },
+      ...(b.variants ?? []).map((v) => ({
+        value: `batch:${b.id}:${v.id}`,
+        label: `${b.name || b.code}, variant ${v.name}`,
+        other: [b.code],
+        group: 'Batches',
+      })),
+    ]),
+    ...(t?.stacks ?? []).map((s) => ({ value: `stack:${s.id}`, label: s.name, group: 'Stacks' })),
+  ];
+}
+
+/** Which batch, variant or stack a sample is (0.54: replaces the select with every batch and stack). */
+export default function LinkPicker({
+  t,
+  value,
+  onChange,
+  label,
+  none = 'Not linked',
+  disabled,
+  className,
+}: {
+  t: LinkTargets | null;
+  value: Link | null | undefined;
+  onChange: (l: Link) => void;
+  label: string;
+  none?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
   return (
-    <>
-      {t.batches.length > 0 && (
-        <optgroup label="Batches">
-          {t.batches.flatMap((b) => [
-            <option key={'b' + b.id} value={`batch:${b.id}`}>
-              {b.name}
-              {b.name ? ` · ${b.name}` : ''}
-              {b.variants?.length ? ' (default device)' : ''}
-            </option>,
-            ...(b.variants ?? []).map((v) => (
-              <option key={`b${b.id}:${v.id}`} value={`batch:${b.id}:${v.id}`}>
-                {b.name}, variant {v.name}
-              </option>
-            )),
-          ])}
-        </optgroup>
-      )}
-      {t.stacks.length > 0 && (
-        <optgroup label="Stacks">
-          {t.stacks.map((s) => (
-            <option key={'s' + s.id} value={`stack:${s.id}`}>
-              {s.name}
-            </option>
-          ))}
-        </optgroup>
-      )}
-    </>
+    <Picker
+      label={label}
+      className={className}
+      disabled={disabled}
+      value={linkVal(value)}
+      onChange={(v) => onChange(parseLink(v))}
+      options={linkChoices(t, none)}
+    />
   );
 }

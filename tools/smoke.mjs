@@ -1346,7 +1346,6 @@ console.log('Substances made from containers (0.44)');
     s.M === 461.01 && s.roles.join() === 'metal,salt' && s.role === 'metal' && s.pf,
     'molar mass from the formula, roles and controls kept',
   );
-  ok((await call('DELETE', `/api/chemicals/${id}`)).s === 409, 'a substance with containers cannot be deleted');
   ok(
     (await call('GET', '/api/search?q=10101-63-0')).j.hits.some(
       (h) => h.key === 'chemical:' + id && h.hint === 'Substance',
@@ -1401,6 +1400,134 @@ console.log('Substances made from containers (0.44)');
     'search finds containers by barcode',
   );
   for (const x of [a, b, c, other]) await call('DELETE', '/api/inventory/containers/' + x.j.id);
+}
+
+console.log('Substances: short names, trash, possible duplicates, merge (0.54)');
+{
+  const add = (b) => call('POST', '/api/inventory/containers', { amount: 1, size: 1, unit: 'L', ...b });
+  const all = async () => (await call('GET', '/api/chemicals')).j;
+  const chemOf = (box) => db.prepare('SELECT chem_id FROM containers WHERE id=?').get(box).chem_id;
+  const dmf = await add({ name: 'N,N-Dimethylformamide', cas: '68-12-2' });
+  let s = (await all()).find((c) => c.id === chemOf(dmf.j.id));
+  ok(
+    s.s === 'DMF' && s.roles.includes('solvent') && s.aka.includes('Dimetilformamida'),
+    'a common compound gets its short name, other names and role from the reference list',
+  );
+  const notes0 = (await call('GET', '/api/notifications')).j.items.length;
+  const dup = await add({ name: 'DMF' });
+  const dupId = chemOf(dup.j.id);
+  let pairs = (await call('GET', '/api/chemicals/duplicates')).j;
+  ok(
+    pairs.some((p) => p.why === 'name' && [p.a.id, p.b.id].includes(dupId) && [p.a.id, p.b.id].includes(s.id)),
+    'a name that is another substance’s short name is a possible duplicate',
+  );
+  const notes = (await call('GET', '/api/notifications')).j.items;
+  ok(
+    notes.length === notes0 + 1 &&
+      notes[0].link.view === 'duplicates' &&
+      /may be the same substance/.test(notes[0].text),
+    'the inventory’s editors are told once',
+  );
+  await add({ name: 'DMF', supplier: 'Again' });
+  ok((await call('GET', '/api/notifications')).j.items.length === notes0 + 1, 'and not again for the same pair');
+  ok(
+    (await call('POST', '/api/chemicals/duplicates/not', { a: dupId, b: s.id })).s === 200 &&
+      !(await call('GET', '/api/chemicals/duplicates')).j.some((p) => [p.a.id, p.b.id].includes(dupId)),
+    '“Not a duplicate” stops showing the pair',
+  );
+  // the same atoms written two ways, no CAS numbers: merge one into the other
+  await call('POST', '/api/inventory/import', {
+    substances: [
+      { key: 'x', name: 'Smoke MACl', f: 'CH6ClN', roles: ['additive'] },
+      { key: 'y', name: 'Smoke methylamine HCl', s: 'SMA', f: 'CH3NH3Cl', notes: 'old bottle' },
+    ],
+    containers: [
+      { key: 'x', amount: 5, size: 10 },
+      { key: 'y', amount: 2, size: 10 },
+    ],
+  });
+  const [x, y] = ['Smoke MACl', 'Smoke methylamine HCl'].map(
+    (n) => db.prepare('SELECT id FROM chemicals WHERE name=?').get(n).id,
+  );
+  pairs = (await call('GET', '/api/chemicals/duplicates')).j;
+  ok(
+    pairs.some((p) => p.why === 'formula' && p.a.id === x && p.b.id === y),
+    'the same formula is a possible duplicate',
+  );
+  let recipe = null;
+  if (DEV)
+    recipe = await call('POST', '/api/presets', {
+      segment: 's2',
+      name: 'Smoke merge quench',
+      visibility: 'shared',
+      data: { steps: [], dp: [{ src: 'Solvent: Smoke methylamine HCl', v: 10, when: 'before', at: 0 }], N: 1, ov: 0 },
+    });
+  ok((await call('POST', `/api/chemicals/${y}/merge`, { into: x })).s === 200, 'one substance merged into the other');
+  s = (await all()).find((c) => c.id === x);
+  ok(
+    !(await all()).some((c) => c.id === y) &&
+      s.bottles.length === 2 &&
+      s.s === 'SMA' &&
+      s.aka.includes('Smoke methylamine HCl') &&
+      s.notes === 'old bottle',
+    'the kept one has both containers, the other’s names as other names, and what it did not know',
+  );
+  if (DEV)
+    ok(
+      JSON.parse(db.prepare('SELECT data FROM presets WHERE id=?').get(recipe.j.id).data).dp[0].src ===
+        'Solvent: Smoke MACl',
+      'recipes that named the merged one name the kept one',
+    );
+  const dmso = await add({ name: 'Dimethyl sulfoxide', cas: '67-68-5' });
+  ok(
+    (await call('POST', `/api/chemicals/${chemOf(dmf.j.id)}/merge`, { into: chemOf(dmso.j.id) })).s === 409,
+    'two substances with different CAS numbers are not merged',
+  );
+  ok(
+    (
+      await call('PUT', `/api/chemicals/${x}`, {
+        name: 'Smoke MACl renamed',
+        s: 'MACl',
+        aka: ['MACl', 'Smoke MACl', 'Old smoke name', 'old smoke name'],
+      })
+    ).s === 200 &&
+      (!DEV ||
+        JSON.parse(db.prepare('SELECT data FROM presets WHERE id=?').get(recipe.j.id).data).dp[0].src ===
+          'Solvent: Smoke MACl renamed'),
+    'a renamed substance: recipes follow',
+  );
+  ok(
+    (await all()).find((c) => c.id === x).aka.join() === 'Smoke MACl,Old smoke name',
+    'other names keep one of each, none that is its own name',
+  );
+  // the trash: with its containers, and back
+  ok((await call('DELETE', `/api/chemicals/${x}`)).s === 200, 'a substance moved to the trash');
+  const inv = (await call('GET', '/api/inventory')).j;
+  ok(
+    !(await all()).some((c) => c.id === x) && !inv.containers.some((c) => c.chem_id === x),
+    'it and its containers leave the inventory',
+  );
+  const tr = (await call('GET', '/api/trash')).j.items.find((i) => i.kind === 'substance' && i.id === x);
+  ok(tr?.type === 'Substance' && tr.name === 'Smoke MACl renamed', 'it is in the trash');
+  ok((await call('POST', `/api/trash/substance/${x}/restore`)).s === 200, 'restored');
+  ok((await all()).find((c) => c.id === x)?.bottles.length === 2, 'it comes back with its containers');
+  await call('DELETE', `/api/chemicals/${x}`);
+  const again = await add({ name: 'Smoke MACl renamed', amount: 3 });
+  s = (await all()).find((c) => c.id === x);
+  ok(
+    chemOf(again.j.id) === x &&
+      s?.bottles.length === 1 &&
+      !db.prepare('SELECT 1 FROM containers WHERE chem_id=? AND deleted_at IS NOT NULL').get(x),
+    'a container of a substance in the trash brings it back, without the containers thrown away with it',
+  );
+  ok(
+    (await call('GET', '/api/search?q=Old%20smoke')).j.hits.some((h) => h.key === 'chemical:' + x),
+    'search finds substances by their other names',
+  );
+  await call('DELETE', `/api/chemicals/${x}`);
+  await call('DELETE', `/api/trash/substance/${x}`);
+  ok(!db.prepare('SELECT 1 FROM containers WHERE chem_id=?').get(x), 'emptied from the trash: its containers go too');
+  if (recipe) await call('DELETE', '/api/presets/' + recipe.j.id);
 }
 
 if (!BUILT) {

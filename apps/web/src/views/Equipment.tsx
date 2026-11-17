@@ -10,6 +10,7 @@ import { useItemRoute } from '../lib/route';
 import { useRefresh } from '../lib/trash';
 import { Empty, Modal, fmtDate, fmtDateTime } from '../lib/ui';
 import { DragHandle, useReorder } from './common';
+import { Picker } from './Picker';
 
 export type EqRow = {
   id: number;
@@ -284,37 +285,25 @@ function WhereSelect({
 }) {
   const v = value.parent_id ? `e${value.parent_id}` : value.place_id ? `p${value.place_id}` : '';
   return (
-    <select
+    <Picker
+      label="Where it is"
+      empty="No place"
       value={v}
-      onChange={(e) => {
-        const x = e.target.value;
+      onChange={(x) =>
         onChange(
           x.startsWith('e')
             ? { place_id: null, parent_id: +x.slice(1) }
             : { place_id: x ? +x.slice(1) : null, parent_id: null },
-        );
-      }}
-    >
-      <option value="">No place</option>
-      {data.places.length > 0 && (
-        <optgroup label="In a place">
-          {data.places.map((p) => (
-            <option key={p.id} value={`p${p.id}`}>
-              {p.name}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      <optgroup label="Inside other equipment">
-        {data.equipment
+        )
+      }
+      options={[
+        { value: '', label: 'No place' },
+        ...data.places.map((p) => ({ value: `p${p.id}`, label: p.name, group: 'In a place' })),
+        ...data.equipment
           .filter((e) => e.id !== self)
-          .map((e) => (
-            <option key={e.id} value={`e${e.id}`}>
-              {e.name}
-            </option>
-          ))}
-      </optgroup>
-    </select>
+          .map((e) => ({ value: `e${e.id}`, label: e.name, group: 'Inside other equipment' })),
+      ]}
+    />
   );
 }
 
@@ -665,19 +654,16 @@ function EquipmentSheet({ id, data, onClose }: { id: number; data: Data; onClose
               )}
               {e.can.train && (
                 <div className="inline">
-                  <select
-                    aria-label="Person to mark as trained"
+                  <Picker
+                    label="Person to mark as trained"
+                    empty="Choose a person"
                     value={trainee}
-                    onChange={(x) => setTrainee(x.target.value)}
-                  >
-                    <option value="">Choose a person…</option>
-                    {untrained.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.id === me.id ? ' (you)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setTrainee}
+                    options={untrained.map((p) => ({
+                      value: String(p.id),
+                      label: p.name + (p.id === me.id ? ' (you)' : ''),
+                    }))}
+                  />
                   <button
                     className="btn secondary"
                     disabled={!trainee}

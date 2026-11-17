@@ -7,6 +7,9 @@
   "scripts": {
     "test": "vitest run"
   },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
   "devDependencies": {
     "vitest": "^5.0.5"
   }

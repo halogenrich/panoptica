@@ -23,6 +23,17 @@ const W: Record<string, number> = {
  * unknown element, a hydrate with n water, charges written as in SMILES). Never a guess: a wrong molar mass gives wrong masses.
  */
 export function molarMass(formula: string): number | null {
+  const c = composition(formula);
+  if (!c) return null;
+  const total = Object.entries(c).reduce((t, [e, n]) => t + W[e] * n, 0);
+  return total ? Math.round(total * 100) / 100 : null;
+}
+
+/**
+ * The atoms in a formula, by element (0.54: two substances with the same composition may be the same one, written CH3NH3Cl
+ * and CH6ClN); null when it cannot be read, as for `molarMass`.
+ */
+export function composition(formula: string): Record<string, number> | null {
   // parts joined by "·" or "." (CuSO4·5H2O, Cl2Sr.6.0H2O): a "." between digits is a decimal point
   const raw = formula.replace(/\s+/g, '').split(/[·•*]/),
     parts: string[] = [];
@@ -37,22 +48,22 @@ export function molarMass(formula: string): number | null {
     }
   }
   if (!parts.length) return null;
-  let total = 0;
+  const out: Record<string, number> = {};
   for (const part of parts) {
     const m = part.match(/^(\d*(?:\.\d+)?)(.*)$/)!;
     const k = m[1] ? +m[1] : 1,
       v = group(m[2]);
     if (v === null || !k) return null;
-    total += k * v;
+    for (const [e, n] of Object.entries(v)) out[e] = (out[e] ?? 0) + k * n;
   }
-  return Math.round(total * 100) / 100;
+  return out;
 }
-function group(s: string): number | null {
+function group(s: string): Record<string, number> | null {
   let i = 0;
-  const read = (): number | null => {
-    let sum = 0;
+  const read = (): Record<string, number> | null => {
+    const sum: Record<string, number> = {};
     while (i < s.length && s[i] !== ')' && s[i] !== ']') {
-      let v: number | null;
+      let v: Record<string, number> | null;
       if (s[i] === '(' || s[i] === '[') {
         i++;
         v = read();
@@ -61,17 +72,17 @@ function group(s: string): number | null {
       } else {
         const e = s.slice(i).match(/^[A-Z][a-z]?/);
         if (!e || W[e[0]] === undefined) return null;
-        v = W[e[0]];
+        v = { [e[0]]: 1 };
         i += e[0].length;
       }
       const n = s.slice(i).match(/^\d+(?:\.\d+)?/);
       if (n) i += n[0].length;
-      sum += v * (n ? +n[0] : 1);
+      for (const [e, k] of Object.entries(v)) sum[e] = (sum[e] ?? 0) + k * (n ? +n[0] : 1);
     }
     return sum;
   };
   const v = read();
-  return i === s.length && v ? v : null;
+  return i === s.length && Object.keys(v ?? {}).length ? v : null;
 }
 
 /** A CAS number written the usual way: no spaces, no leading zeros ("0127-08-2" → "127-08-2"). '' when there is none. */

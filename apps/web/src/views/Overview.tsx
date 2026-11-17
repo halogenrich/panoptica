@@ -8,6 +8,7 @@ import { INK, SlideButtons, SlideFrame, SlideNumbers, useSlide } from './overvie
 import { More, Stats, endOf, hrs, periodName, plural, seen, startOf, type Unit } from './overview/parts';
 import { MeCtx, type Tag } from '../ctx';
 import type { CoreDash, Open, OverviewPart, Who } from '../modules/types';
+import { Picker } from './Picker';
 
 /** A module's part of the Overview, with the key its numbers come under (`m.devices`). */
 export type Part = OverviewPart & { id: string };
@@ -144,30 +145,25 @@ export default function Overview({ open, parts }: { open: Open; parts: Part[] })
         </div>
         <div className="grow" />
         {scopes && (scopes.lab || scopes.students > 0) && (
-          <select
-            className="ov-scope"
-            aria-label="Whose overview"
+          <Picker
+            className="ov-scope narrow"
+            label="Whose overview"
             value={scope}
-            onChange={(ev) => {
+            onChange={(v) => {
               setPerson(null);
-              setScope(ev.target.value);
+              setScope(v);
             }}
-          >
-            <option value="me">Mine</option>
-            {scopes.students > 0 && <option value="students">My students</option>}
-            {scopes.lab && <option value="lab">The lab</option>}
-            {scopes.lab && (
-              <optgroup label="A person">
-                {scopes.people
-                  .filter((p) => p.id !== me.id)
-                  .map((p) => (
-                    <option key={p.id} value={'user:' + p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-          </select>
+            options={[
+              { value: 'me', label: 'Mine' },
+              ...(scopes.students > 0 ? [{ value: 'students', label: 'My students' }] : []),
+              ...(scopes.lab ? [{ value: 'lab', label: 'The lab' }] : []),
+              ...(scopes.lab
+                ? scopes.people
+                    .filter((p) => p.id !== me.id)
+                    .map((p) => ({ value: 'user:' + p.id, label: p.name, group: 'A person' }))
+                : []),
+            ]}
+          />
         )}
         <Seg
           value={unit}

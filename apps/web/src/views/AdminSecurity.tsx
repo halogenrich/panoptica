@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Badge } from '../lib/ui';
+import { Picker } from './Picker';
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
 const ago = (iso: string) => {
@@ -261,14 +262,13 @@ export function Activity() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="Person">
-          <option value="">Everyone</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
+        <Picker
+          className="narrow"
+          label="Person"
+          value={String(user)}
+          onChange={setUser}
+          options={[{ value: '', label: 'Everyone' }, ...users.map((u) => ({ value: String(u.id), label: u.name }))]}
+        />
         <label className="inline small">
           <input type="checkbox" checked={refused} onChange={(e) => setRefused(e.target.checked)} /> Refused only
         </label>

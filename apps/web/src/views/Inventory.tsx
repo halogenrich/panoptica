@@ -5,8 +5,18 @@ import { useRefresh } from '../lib/trash';
 import { fmtAmount, forecast, isMass, periodStart, series, toBase, amountIn, type Period } from '@psc/core';
 import { api } from '../api';
 import { Badge, Seg, fmtDate } from '../lib/ui';
-import { Dialog, DragHandle, ROLES, ROLE_LABEL, useReorder, type Chemical } from './common';
-import { normCas, readInventory, splitPlace, type ImportResult } from '@psc/core';
+import { ChemPicker, Dialog, chemShort, DragHandle, ROLES, ROLE_LABEL, useReorder, type Chemical } from './common';
+import { Picker } from './Picker';
+import {
+  INVENTORY_TEMPLATE,
+  normCas,
+  readInventory,
+  readInventoryRows,
+  readXlsx,
+  splitPlace,
+  type ImportResult,
+} from '@psc/core';
+import { downloadBytes, xlsx } from '../lib/xlsx';
 import Substances from './Substances';
 
 type Shelf = { id: number; name: string; pos: number };
@@ -176,7 +186,16 @@ const Fill = ({ b }: { b: Box }) => {
 };
 
 /** Inventory: storage places with divisions, containers, consumption, the substances the containers are of, the storage types. */
-export default function Inventory({ canEdit, openId = null }: { canEdit: boolean; openId?: number | null }) {
+export default function Inventory({
+  canEdit,
+  openId = null,
+  dups = 0,
+}: {
+  canEdit: boolean;
+  openId?: number | null;
+  /** a notification asked to review possible duplicate substances (0.54) */
+  dups?: number;
+}) {
   type Tab = 'storage' | 'containers' | 'use' | 'chems' | 'types';
   const [tab, setTab] = useState<Tab>(() => {
     try {
@@ -204,6 +223,9 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
   }, []);
   useRefresh(load, ['inventory', 'batches']);
   useItemRoute('chem', routeId);
+  useEffect(() => {
+    if (dups) go('chems');
+  }, [dups]);
   // a container found with the search (Ctrl K) opens directly
   useEffect(() => {
     const c = openId && inv?.containers.find((x) => x.id === openId);
@@ -239,7 +261,7 @@ export default function Inventory({ canEdit, openId = null }: { canEdit: boolean
       </div>
       {err && <p className="err">{err}</p>}
       {tab === 'chems' ? (
-        <Substances chems={chems} canEdit={canEdit} reload={load} />
+        <Substances chems={chems} canEdit={canEdit} reload={load} dups={dups} />
       ) : !inv ? (
         <p className="mut">Loading…</p>
       ) : tab === 'storage' ? (
@@ -919,14 +941,17 @@ function Containers({
       (!st ? b.status !== 'empty' : b.status === st) &&
       (!role || !!of(b)?.roles.includes(role)) &&
       (!ctl || !!of(b)?.[ctl]) &&
-      (!ql || [b.name, b.cas, b.supplier, b.lot, b.barcode, where(b)].some((x) => x?.toLowerCase().includes(ql))),
+      (!ql ||
+        [b.name, b.cas, b.supplier, b.lot, b.barcode, where(b), of(b)?.s, ...(of(b)?.aka ?? [])].some((x) =>
+          x?.toLowerCase().includes(ql),
+        )),
   );
   return (
     <>
       <div className="inline" style={{ marginBottom: 12 }}>
         <input
           type="search"
-          placeholder="Search name, CAS, supplier, lot, barcode, place"
+          placeholder="Search name, short name, CAS, supplier, lot, barcode, place"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -954,7 +979,7 @@ function Containers({
         <div className="grow" />
         {canEdit && (
           <button className="btn secondary" onClick={() => setImp(true)}>
-            Import CSV
+            Import
           </button>
         )}
         {canEdit && (
@@ -992,7 +1017,8 @@ function Containers({
             {list.map((b) => (
               <tr key={b.id} className={'clickable' + (b.status === 'empty' ? ' mut' : '')} onClick={() => onEdit(b)}>
                 <td>
-                  <b>{b.name}</b>
+                  <b>{of(b)?.s || b.name}</b>
+                  {of(b)?.s && <div className="mut small">{b.name}</div>}
                   {b.cas && <div className="mut small">CAS {b.cas}</div>}
                   {b.status !== 'empty' && of(b)?.bottle?.id === b.id && (of(b)?.bottles.length ?? 0) > 1 && (
                     <div className="small">Used in recipes</div>
@@ -1146,21 +1172,14 @@ function ContainerForm({
           <div className="grid2">
             <label className="fld span2">
               <span>Substance</span>
-              <input
-                list="inv-chems"
+              <ChemPicker
+                chems={chems}
+                label="Substance"
+                empty="Pick one, or type a new one"
                 value={f.name ?? ''}
-                autoFocus={!f.id}
-                placeholder="PbI2"
-                onChange={(e) => set({ name: e.target.value })}
+                onChange={(name) => set({ name })}
               />
             </label>
-            <datalist id="inv-chems">
-              {chems.map((c) => (
-                <option key={c.id} value={c.name}>
-                  {[c.cas && `CAS ${c.cas}`, c.f].filter(Boolean).join(', ')}
-                </option>
-              ))}
-            </datalist>
             <p className="mut small span2">
               {!f.name?.trim()
                 ? 'Pick a substance the lab has, or type a new one.'
@@ -1254,32 +1273,30 @@ function ContainerForm({
           <div className="grid2">
             <label className="fld">
               <span>Storage</span>
-              <select
-                value={f.area_id ?? ''}
-                onChange={(e) => set({ area_id: e.target.value ? +e.target.value : null, shelf_id: null })}
-              >
-                <option value="">None</option>
-                {inv.areas.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
+              <Picker
+                label="Storage"
+                empty="None"
+                value={f.area_id ? String(f.area_id) : ''}
+                onChange={(v) => set({ area_id: v ? +v : null, shelf_id: null })}
+                options={[
+                  { value: '', label: 'None' },
+                  ...inv.areas.map((a) => ({ value: String(a.id), label: a.name })),
+                ]}
+              />
             </label>
             <label className="fld">
               <span>Division</span>
-              <select
-                value={f.shelf_id ?? ''}
+              <Picker
+                label="Division"
                 disabled={!area?.shelves.length}
-                onChange={(e) => set({ shelf_id: e.target.value ? +e.target.value : null })}
-              >
-                <option value="">{area?.shelves.length ? 'None' : 'No divisions'}</option>
-                {area?.shelves.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                empty={area?.shelves.length ? 'None' : 'No divisions'}
+                value={f.shelf_id ? String(f.shelf_id) : ''}
+                onChange={(v) => set({ shelf_id: v ? +v : null })}
+                options={[
+                  { value: '', label: 'None' },
+                  ...(area?.shelves ?? []).map((x) => ({ value: String(x.id), label: x.name })),
+                ]}
+              />
             </label>
             <label className="fld">
               <span>Opened</span>
@@ -1367,26 +1384,35 @@ function Import({
     [places, setPlaces] = useState<Record<string, { area: string; shelf: string }>>({}),
     [err, setErr] = useState(''),
     [busy, setBusy] = useState(false);
-  const read = (f?: File) =>
-    f &&
-    f.text().then((t) => {
-      const r = readInventory(t);
-      if (!r.rows.length) return setErr('No containers found. Export a CSV with a header line and a name column.');
-      setErr('');
-      setRes(r);
-      setSubs(Object.fromEntries(r.substances.map((x) => [x.key, { name: x.name, roles: [] as string[] }])));
-      setPlaces(
-        Object.fromEntries(
-          r.places.map((pl) => [
-            pl,
+  // an Excel file (the template, 0.54) or a CSV export
+  const read = async (f?: File) => {
+    if (!f) return;
+    let r: ImportResult;
+    try {
+      r = /\.xlsx$/i.test(f.name)
+        ? readInventoryRows(readXlsx(new Uint8Array(await f.arrayBuffer())))
+        : readInventory(await f.text());
+    } catch {
+      return setErr('This file could not be read. Use the template saved as .xlsx, or a CSV file.');
+    }
+    if (!r.rows.length)
+      return setErr('No containers found. Fill in the template, or export a CSV with a header line and a name column.');
+    setErr('');
+    setRes(r);
+    setSubs(Object.fromEntries(r.substances.map((x) => [x.key, { name: x.name, roles: [] as string[] }])));
+    setPlaces(
+      Object.fromEntries(
+        r.places.map((pl) => [
+          pl,
+          r.placeParts[pl] ??
             splitPlace(
               pl,
               inv.areas.map((a) => a.name),
             ),
-          ]),
-        ),
-      );
-    });
+        ]),
+      ),
+    );
+  };
   const inLab = (x: ImportResult['substances'][number]) =>
     chems.find((c) => (x.cas && normCas(c.cas) === x.cas) || c.name.toLowerCase() === subs[x.key]?.name.toLowerCase());
   const go = () => {
@@ -1397,6 +1423,8 @@ function Import({
         key: x.key,
         name: subs[x.key].name.trim() || x.name,
         cas: x.cas,
+        s: x.s || undefined,
+        aka: x.aka,
         f: x.f,
         M: x.M ?? undefined,
         d: x.d,
@@ -1444,10 +1472,15 @@ function Import({
         </button>
       </div>
       <p className="mut small">
-        A CSV export from OpenEnventory, or any spreadsheet saved as CSV with a header line. Nothing is saved until you
-        check the substances and places below.
+        Fill in the template, or use a CSV export (OpenEnventory, or any spreadsheet saved as CSV with a header line).
+        Nothing is saved until you check the substances and places below.
       </p>
-      <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={(e) => read(e.target.files?.[0])} />
+      <div className="inline">
+        <input type="file" accept=".xlsx,.csv,.tsv,.txt,text/csv" onChange={(e) => read(e.target.files?.[0])} />
+        <button type="button" className="link" onClick={downloadTemplate}>
+          Download the template
+        </button>
+      </div>
       {res && (
         <>
           <p className="small">
@@ -1575,6 +1608,35 @@ function Import({
       )}
       {err && <p className="err small">{err}</p>}
     </section>
+  );
+}
+
+/**
+ * The inventory template (0.54): an Excel file with one column per field the importer reads and an example row (left out on
+ * import if it was not deleted), and a sheet saying what goes in each column.
+ */
+function downloadTemplate() {
+  downloadBytes(
+    'inventory-template.xlsx',
+    xlsx([
+      {
+        name: 'Inventory',
+        rows: [INVENTORY_TEMPLATE.map((c) => c.header), INVENTORY_TEMPLATE.map((c) => c.example)],
+        widths: INVENTORY_TEMPLATE.map((c) => Math.max(12, c.header.length + 4, String(c.example).length + 2)),
+      },
+      {
+        name: 'Notes',
+        rows: [
+          ['Column', 'What to write'],
+          ...INVENTORY_TEMPLATE.map((c) => [c.header, c.note || 'As written on the container.']),
+          [],
+          ['', 'One row per container. Containers with the same CAS number, or the same name, are one substance.'],
+          ['', 'Delete the example row. If it is left in, the import leaves it out.'],
+          ['', 'Nothing is saved until you check the substances and places on the import screen.'],
+        ],
+        widths: [18, 100],
+      },
+    ]),
   );
 }
 
@@ -1707,7 +1769,7 @@ function Consumption({ inv, chems }: { inv: Inv; chems: Chemical[] }) {
                     onClick={() => setOpen(open === r.name ? null : r.name)}
                   >
                     <td>
-                      <b>{r.name}</b>
+                      <b title={r.name}>{chemShort(chems, r.name)}</b>
                       {flag && (
                         <>
                           {' '}
@@ -1782,7 +1844,9 @@ function UseDetail({ r, p }: { r: Row; p: Period }) {
   return (
     <section className="group use-detail">
       <div className="inline">
-        <b className="use-title">{r.name}</b>
+        <b className="use-title" title={r.name}>
+          {r.name}
+        </b>
         <span className="mut small">
           Average {fmtAmount(r.f.rate, r.base)} per {p} over the last {p === 'week' ? 8 : 6} complete {p}s
           {r.stock !== null ? `, ${fmtAmount(r.stock, r.base)} in stock` : ''}

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useRefresh } from '../lib/trash';
+import { Picker, type PickOption } from './Picker';
 
 /** A container of a substance that is not empty (0.44). */
 export type Bottle = {
@@ -24,6 +25,10 @@ export type Chemical = {
   id: number;
   name: string;
   cas: string;
+  /** short name, shown wherever it is set (0.54) */
+  s: string;
+  /** other names search finds (0.54) */
+  aka: string[];
   f: string;
   M: number;
   d: number | null;
@@ -58,6 +63,87 @@ export const bottleText = (b: Bottle) =>
   [b.supplier || 'No supplier', b.lot && `lot ${b.lot}`, b.purity != null && `${b.purity} %`]
     .filter(Boolean)
     .join(', ');
+
+/** Plural headings of roles, for the groups of a substance picker. */
+const ROLE_GROUP: Record<string, string> = {
+  salt: 'Salts',
+  solvent: 'Solvents',
+  etl: 'ETL',
+  htl: 'HTL',
+  additive: 'Additives',
+  organic: 'Organic',
+  metal: 'Metals',
+  other: 'Other',
+};
+/** How a substance is shown where space is short (0.54): its short name when it has one. */
+export const chemShort = (chems: Chemical[], name: string) => chems.find((c) => c.name === name)?.s || name;
+
+/**
+ * The choices of a substance picker (0.54): with `roles`, the substances with one of them first, under their heading, then
+ * every other one under "Other substances" (nothing is hidden, so a solvent whose role was never set can still be picked); in
+ * stock before not in stock within each group.
+ */
+export function chemOptions(chems: Chemical[], roles?: string[]): PickOption[] {
+  const one = (c: Chemical, group?: string): PickOption => ({
+    value: c.name,
+    label: c.name,
+    short: c.s || undefined,
+    other: [...c.aka, c.f, c.cas].filter(Boolean),
+    hint: c.bottles.length ? undefined : 'Not in stock',
+    group,
+  });
+  const stock = (l: Chemical[]) => [...l.filter((c) => c.bottles.length), ...l.filter((c) => !c.bottles.length)];
+  if (!roles?.length) return stock(chems).map((c) => one(c));
+  const has = (c: Chemical) => c.roles.some((r) => roles.includes(r));
+  const head =
+    roles.length === 1 ? (ROLE_GROUP[roles[0]] ?? roles[0]) : roles.map((r) => ROLE_GROUP[r] ?? r).join(', ');
+  return [
+    ...stock(chems.filter(has)).map((c) => one(c, head)),
+    ...stock(chems.filter((c) => !has(c))).map((c) => one(c, 'Other substances')),
+  ];
+}
+
+/**
+ * A substance picker (0.54): type a name, short name, other name, formula or CAS number. `free`: a name not in the inventory
+ * can be used (recipes may name a compound borrowed or still to be bought).
+ */
+export function ChemPicker({
+  chems,
+  value,
+  onChange,
+  roles,
+  free = true,
+  label,
+  className,
+  empty,
+  disabled,
+}: {
+  chems: Chemical[];
+  value: string;
+  onChange: (name: string) => void;
+  roles?: string[];
+  free?: boolean;
+  label: string;
+  className?: string;
+  empty?: string;
+  disabled?: boolean;
+}) {
+  const options = useMemo(() => chemOptions(chems, roles), [chems, roles?.join()]);
+  // a name the recipe has that is not (or no longer) in the inventory is still shown as it is
+  return (
+    <Picker
+      value={value}
+      options={options}
+      onChange={onChange}
+      free={free}
+      label={label}
+      className={className}
+      empty={empty}
+      disabled={disabled}
+      placeholder="Name, short name, formula or CAS"
+    />
+  );
+}
 
 /** The substances, read again when the inventory changes (a container added, the bottle recipes use changed). */
 export function useChems() {

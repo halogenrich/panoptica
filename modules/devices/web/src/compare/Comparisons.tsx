@@ -53,6 +53,7 @@ import {
   type Group,
   type Member,
 } from './model';
+import { Picker } from '@web/views/Picker';
 
 const ALL_KEYS: MetricKey[] = METRICS.map((m) => m.key);
 const DIR_NAME = { rev: 'Backward', fwd: 'Forward', both: 'Both directions' } as const;
@@ -637,20 +638,23 @@ function DevicePicker({
           onChange={(e) => setQ(e.target.value)}
           aria-label="Search devices"
         />
-        <select value={set} onChange={(e) => setSet(e.target.value)} aria-label="Measurement">
-          <option value="">Every measurement</option>
-          {measurements.map((m) => (
-            <option key={m.set} value={m.set}>
-              {m.setName} ({m.date})
-            </option>
-          ))}
-        </select>
-        <select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Measured by">
-          <option value="">Anyone</option>
-          {people.map((p) => (
-            <option key={p}>{p}</option>
-          ))}
-        </select>
+        <Picker
+          className="narrow"
+          label="Measurement"
+          value={set}
+          onChange={setSet}
+          options={[
+            { value: '', label: 'Every measurement' },
+            ...measurements.map((m) => ({ value: String(m.set), label: m.setName, hint: m.date })),
+          ]}
+        />
+        <Picker
+          className="narrow"
+          label="Measured by"
+          value={who}
+          onChange={setWho}
+          options={[{ value: '', label: 'Anyone' }, ...people.map((p) => ({ value: p, label: p }))]}
+        />
         <label className="inline small">
           From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
@@ -717,14 +721,16 @@ function DevicePicker({
         <div className="grow" />
         <label className="inline small">
           Put them in
-          <select value={gid} onChange={(e) => setGid(e.target.value)} aria-label="Group">
-            <option value="__name">groups by name (batch_mod)</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name || 'Unnamed group'}
-              </option>
-            ))}
-          </select>
+          <Picker
+            className="narrow"
+            label="Group"
+            value={gid}
+            onChange={setGid}
+            options={[
+              { value: '__name', label: 'groups by name (batch_mod)' },
+              ...groups.map((g) => ({ value: g.id, label: g.name || 'Unnamed group' })),
+            ]}
+          />
         </label>
         <button className="btn" disabled={!chosen.length} onClick={() => onAdd(gid === '__name' ? null : gid, chosen)}>
           Add {chosen.length || ''} device{chosen.length === 1 ? '' : 's'}

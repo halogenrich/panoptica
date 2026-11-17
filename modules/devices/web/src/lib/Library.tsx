@@ -10,6 +10,7 @@ import { RunInput, fmtRun, runError } from './RunInputs';
 import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout, useToast } from '@web/lib/ui';
 import { trashed, useRefresh } from '@web/lib/trash';
 import Comments, { useCommentCount } from '@web/lib/Comments';
+import { Picker } from '@web/views/Picker';
 const CommentsLabel = ({ id }: { id: number }) => {
   const n = useCommentCount('preset', id);
   return <>Comments{n ? ` (${n})` : ''}</>;
@@ -698,14 +699,12 @@ export function RunForm({
       <div className="inline">
         <label className="inline">
           Batch {/* run data keeps the batch's hidden key; people choose it by name */}
-          <select value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })}>
-            <option value="">None</option>
-            {batches.map((x) => (
-              <option key={x.code} value={x.code}>
-                {x.name}
-              </option>
-            ))}
-          </select>
+          <Picker
+            label="Batch"
+            value={form.batch}
+            onChange={(batch) => setForm({ ...form, batch })}
+            options={[{ value: '', label: 'None' }, ...batches.map((x) => ({ value: x.code, label: x.name }))]}
+          />
         </label>
       </div>
       {g.stages.length > 0 && (

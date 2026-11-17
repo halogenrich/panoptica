@@ -399,6 +399,34 @@ addModule({
   },
   overview: devicesOverview,
   equipment: { role: roleFromSteps, stepsFor: stepsFromRole },
+  /**
+   * A substance renamed or merged (0.54): recipes keep substances as names (the solvent of a spin dispense as "Solvent: name"),
+   * so each value that names it follows. Batches keep the names they were made with.
+   */
+  substanceRenamed(from, to) {
+    const walk = (v: unknown): unknown =>
+      typeof v === 'string'
+        ? v === from
+          ? to
+          : v === `Solvent: ${from}`
+            ? `Solvent: ${to}`
+            : v
+        : Array.isArray(v)
+          ? v.map(walk)
+          : v && typeof v === 'object'
+            ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]))
+            : v;
+    const up = db.prepare('UPDATE presets SET data=? WHERE id=?');
+    for (const p of db
+      .prepare('SELECT id, data FROM presets WHERE instr(data, ?) > 0')
+      .all(JSON.stringify(from).slice(1, -1)) as {
+      id: number;
+      data: string;
+    }[]) {
+      const next = JSON.stringify(walk(JSON.parse(p.data)));
+      if (next !== p.data) up.run(next, p.id);
+    }
+  },
   audit: {
     labels: {
       'POST /api/presets': 'Created a recipe or design',

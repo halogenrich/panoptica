@@ -12,7 +12,8 @@ import {
   type SubKey,
 } from '@psc/devices';
 import { COLORS, DesignSvg, metalColor, type Layer } from '../designs/DesignSvg';
-import { Num } from '@web/views/common';
+import { ChemPicker, Num } from '@web/views/common';
+import { Picker } from '@web/views/Picker';
 import { SubstrateImg, mmss } from './parts';
 import { Bl, Formula, Section, T, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
@@ -25,17 +26,18 @@ type O = ReturnType<typeof orgDefaults>;
 const ru = (u: RateUnit) => u.replace('A', 'Å');
 
 function OrgEditor({ d, set, ctx }: { d: O; set: (p: Partial<O>) => void; ctx: Ctx }) {
-  const mats = ctx.chems.filter((c) => (c.roles ?? [c.role]).includes('organic')).map((c) => c.name);
   return (
     <Section title="Layer">
       <label className="row">
         <span>Material</span>
-        <select value={d.mat} onChange={(e) => set({ mat: e.target.value })}>
-          {!d.mat && <option value="">Choose a material…</option>}
-          {(mats.includes(d.mat) || !d.mat ? mats : [d.mat, ...mats]).map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
+        <ChemPicker
+          chems={ctx.chems}
+          roles={['organic']}
+          label="Material"
+          empty="Choose a material"
+          value={d.mat}
+          onChange={(mat) => set({ mat })}
+        />
       </label>
       <label className="row">
         <span>Thickness (nm)</span>
@@ -183,8 +185,7 @@ const sub = (d: M): SubKey => (d.sub in SUBSTRATES ? (d.sub as SubKey) : '1.2 ×
 const legacy = (d: M) => !d.mask && d.sub in SUBSTRATES;
 
 function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: Ctx }) {
-  const metals = ctx.chems.filter((c) => (c.roles ?? [c.role]).includes('metal')).map((c) => c.name),
-    m = metalStages(d.st);
+  const m = metalStages(d.st);
   const subs = ctx.designs.filter((x) => x.segment === 'sub'),
     masks = ctx.designs.filter((x) => x.segment === 'mask' && x.data.subId === d.subId);
   const up = (i: number, p: Partial<M['st'][0]>) => set({ st: d.st.map((x, j) => (j === i ? { ...x, ...p } : x)) });
@@ -193,37 +194,27 @@ function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: C
       <Section title="Substrate and mask">
         <label className="row">
           <span>Substrate</span>
-          <select
+          <Picker
+            label="Substrate"
+            empty="Choose a substrate design"
             value={d.subId}
-            onChange={(e) => set({ subId: e.target.value, maskId: '', maskName: '', mask: null })}
-          >
-            <option value="">Choose a substrate design…</option>
-            {subs.map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+            onChange={(subId) => set({ subId, maskId: '', maskName: '', mask: null })}
+            options={subs.map((s) => ({ value: String(s.id), label: s.name }))}
+          />
         </label>
         <label className="row">
           <span>Mask layout</span>
-          <select
-            value={d.maskId}
+          <Picker
+            label="Mask layout"
             disabled={!d.subId}
-            onChange={(e) => {
-              const x = masks.find((k) => String(k.id) === e.target.value);
-              set({ maskId: e.target.value, maskName: x?.name ?? '', mask: x?.data ?? null });
+            empty={d.subId ? (masks.length ? 'Choose a mask layout' : 'No mask layouts for this substrate') : '—'}
+            value={d.maskId}
+            onChange={(maskId) => {
+              const x = masks.find((k) => String(k.id) === maskId);
+              set({ maskId, maskName: x?.name ?? '', mask: x?.data ?? null });
             }}
-          >
-            <option value="">
-              {d.subId ? (masks.length ? 'Choose a mask layout…' : 'No mask layouts for this substrate') : '—'}
-            </option>
-            {masks.map((k) => (
-              <option key={k.id} value={String(k.id)}>
-                {k.name}
-              </option>
-            ))}
-          </select>
+            options={masks.map((k) => ({ value: String(k.id), label: k.name }))}
+          />
         </label>
         {!d.mask && (d.subId || legacy(d)) && (
           <p className="mut small">
@@ -236,12 +227,14 @@ function MetEditor({ d, set, ctx }: { d: M; set: (p: Partial<M>) => void; ctx: C
       <Section title="Metal">
         <label className="row">
           <span>Metal</span>
-          <select value={d.met} onChange={(e) => set({ met: e.target.value })}>
-            {!d.met && <option value="">Choose a metal…</option>}
-            {(metals.includes(d.met) || !d.met ? metals : [d.met, ...metals]).map((x) => (
-              <option key={x}>{x}</option>
-            ))}
-          </select>
+          <ChemPicker
+            chems={ctx.chems}
+            roles={['metal']}
+            label="Metal"
+            empty="Choose a metal"
+            value={d.met}
+            onChange={(met) => set({ met })}
+          />
         </label>
         <label className="row">
           <span>Starting power (%)</span>

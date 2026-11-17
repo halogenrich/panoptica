@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { chemRef, withRef } from '@psc/core';
 
 /**
  * Every change to the database, in order (0.40). Each runs once, in a transaction, and is recorded in the `migrations` table with
@@ -489,6 +490,34 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
     owner: 'core',
     name: 'what was taken says whether it came from run data (0.45.1)',
     up: (db) => add(db, 'container_draws', 'basis', "TEXT NOT NULL DEFAULT 'planned'"),
+  },
+  {
+    id: 40,
+    owner: 'core',
+    name: 'substances: trash, short and other names, pairs marked not the same, the reference list (0.54)',
+    up: (db) => {
+      // a substance goes to the trash with its containers (marked with the same time, so they come back together)
+      add(db, 'chemicals', 'deleted_at', 'TEXT');
+      add(db, 'chemicals', 'owner_id', 'INTEGER');
+      add(db, 'chemicals', 'visibility', "TEXT NOT NULL DEFAULT 'shared'");
+      add(db, 'containers', 'deleted_at', 'TEXT');
+      // possible duplicates: people were told about the pair ('told'), or said they are not the same ('not')
+      db.exec(`CREATE TABLE IF NOT EXISTS chem_pairs(
+        a INTEGER NOT NULL, b INTEGER NOT NULL, state TEXT NOT NULL, PRIMARY KEY(a, b))`);
+      // common compounds get their short name, other names and usual roles (solvent above all) from the reference list;
+      // only added, never removed or overwritten
+      for (const c of db.prepare("SELECT id, cas, data FROM chemicals WHERE cas<>''").all() as {
+        id: number;
+        cas: string;
+        data: string;
+      }[]) {
+        const r = chemRef(c.cas);
+        if (!r) continue;
+        const d = JSON.parse(c.data || '{}');
+        const next = withRef(d, r);
+        db.prepare('UPDATE chemicals SET data=? WHERE id=?').run(JSON.stringify(next), c.id);
+      }
+    },
   },
 ];
 

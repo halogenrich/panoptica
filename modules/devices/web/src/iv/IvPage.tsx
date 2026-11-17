@@ -1,7 +1,7 @@
 import { openDataPackage } from '../lib/DataPackage';
 import { useItemRoute } from '@web/lib/route';
 import CopyLink from '@web/lib/CopyLink';
-import LinkOptions, { linkVal, parseLink, type LinkTargets } from './LinkOptions';
+import LinkPicker, { type LinkTargets } from './LinkOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@web/api';
 import { trashed, useRefresh } from '@web/lib/trash';
@@ -232,16 +232,15 @@ function LinkSelect({ value, onChange, disabled }: { value: Link; onChange: (l: 
       .catch(() => setT({ batches: [], stacks: [] }));
   }, []);
   return (
-    <select
+    <LinkPicker
+      t={t}
       className="link-select"
-      aria-label="Linked batch or stack"
+      label="Linked batch or stack"
+      none="Not linked to a batch or stack"
       disabled={disabled || !t}
-      value={linkVal(value)}
-      onChange={(e) => onChange(parseLink(e.target.value))}
-    >
-      <option value="">Not linked to a batch or stack</option>
-      <LinkOptions t={t} />
-    </select>
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 

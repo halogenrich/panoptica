@@ -9,6 +9,7 @@ import { firstName, mdOf, useBirthdays, useHours } from '../lib/hours';
 import { minutesOf, withinHours, workDayOf, type WorkDay } from '@psc/core';
 import { bookingsChanged } from '../lib/live';
 import type { Open, TrayDrag, TrayProps } from '../modules/types';
+import { Picker } from './Picker';
 
 export type Eq = {
   id: number;
@@ -1482,16 +1483,20 @@ function BookingForm({
               {data.subjects.length > 0 && (
                 <label className="fld">
                   <span>{cap(`${measure ? 'finished ' : ''}${nounText}`)}</span>
-                  <select value={f.sel} onChange={(e) => setF({ ...f, sel: e.target.value, step: '' })}>
-                    {choices.map((b) => (
-                      <option key={key(b)} value={key(b)}>
-                        {kinds.length > 1 ? `${cap(b.noun)} ` : ''}
-                        {b.name || b.code}
-                        {b.status === 'running' ? ', running' : ''}
-                      </option>
-                    ))}
-                    <option value="">No {nounText}</option>
-                  </select>
+                  <Picker
+                    label={cap(nounText)}
+                    value={f.sel}
+                    onChange={(sel) => setF({ ...f, sel, step: '' })}
+                    options={[
+                      ...choices.map((b) => ({
+                        value: key(b),
+                        label: (kinds.length > 1 ? `${cap(b.noun)} ` : '') + (b.name || b.code),
+                        hint: b.status === 'running' ? 'Running' : undefined,
+                        other: [b.code],
+                      })),
+                      { value: '', label: `No ${nounText}` },
+                    ]}
+                  />
                 </label>
               )}
               {picked && (measure || !stepsOf) ? null : stepsOf ? (

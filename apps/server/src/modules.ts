@@ -136,12 +136,22 @@ export type Module = {
   migrations?: import('./schema.js').Migration[];
   /** A line about its data in a backup that was just checked ("12 recipes and designs"). */
   backupCheck?(db: import('node:sqlite').DatabaseSync): string;
+  /**
+   * A substance was renamed, or merged into another (0.54): its records that name `from` (recipes) now name `to`. What was
+   * recorded in the past (batch snapshots, run data) keeps the old name.
+   */
+  substanceRenamed?(from: string, to: string): void;
   /** its routes, registered after the core's */
   register?: (app: FastifyInstance, auth: (need?: any) => any, bad: (reply: any, p: any) => any) => void;
 };
 
 const mods: Module[] = [],
-  skipped: Module[] = [];
+  skipped: Module[] = [],
+  /** record types of the core itself (0.54: substances, for the trash) */
+  coreItems: ItemKind[] = [];
+export const addCoreItem = (k: ItemKind) => {
+  if (!coreItems.some((x) => x.kind === k.kind)) coreItems.push(k);
+};
 let licenceNote: string | null = null;
 /** Once, before the first module starts: installs a licence file the installer left (0.46); the line for the log. */
 export const licenceStart = () => (licenceNote ??= licenceAtStart());
@@ -170,7 +180,7 @@ export const stepDefs = () => mods.flatMap((m) => m.steps ?? []);
 export const stepKeys = () => stepDefs().map((s) => s.key);
 /** Equipment that can do a measuring step measures finished work. */
 export const measuring = (steps: readonly string[]) => steps.some((k) => stepDefs().find((s) => s.key === k)?.measures);
-export const items = () => mods.flatMap((m) => m.items ?? []);
+export const items = () => [...coreItems, ...mods.flatMap((m) => m.items ?? [])];
 /** The procedure (role) of equipment that can do these steps, from the first module that names one. */
 export const roleOf = (steps: readonly string[]) => mods.map((m) => m.equipment?.role(steps) ?? '').find(Boolean) ?? '';
 export const stepsOfRole = (role: string, name: string) =>

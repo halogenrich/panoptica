@@ -12,6 +12,9 @@ export type ImportRow = {
   key: string;
   name: string;
   cas: string;
+  /** short name and other names (0.54, the template's columns) */
+  s: string;
+  aka: string[];
   f: string;
   M: number | null;
   d: number | null;
@@ -45,11 +48,13 @@ export type ImportResult = {
   places: string[];
   /** which column each field was read from (shown so the person can check) */
   columns: Record<string, string>;
-  /** lines that are not containers ("Results from own database") */
+  /** lines that are not containers ("Results from own database"), and the template's example row */
   skipped: number;
+  /** places given as a storage place and a division in their own columns (the template, 0.54): read as they are */
+  placeParts: Record<string, { area: string; shelf: string }>;
 };
 
-type Field = keyof ImportRow | 'comment' | 'catalog';
+type Field = keyof ImportRow | 'comment' | 'catalog' | 'division' | 'pfcol' | 'armycol';
 /** Column headers, lowercased, for each field (OpenEnventory first, then common spreadsheet names). */
 const HEADERS: [Field, string[]][] = [
   [
@@ -57,6 +62,8 @@ const HEADERS: [Field, string[]][] = [
     ['name', 'molecule_name', 'molecule', 'chemical', 'chemical name', 'substance', 'compound', 'nome', 'reagente'],
   ],
   ['cas', ['cas number', 'cas', 'cas_nr', 'casnr', 'cas no', 'cas-nr', 'cas nº']],
+  ['s', ['short name', 'abbreviation', 'acronym', 'sigla', 'nome curto']],
+  ['aka', ['other names', 'synonyms', 'outros nomes', 'sinônimos', 'sinonimos']],
   ['f', ['empirical formula', 'formula', 'molecular formula', 'fórmula', 'formula molecular']],
   ['M', ['mw', 'molar mass', 'molecular weight', 'massa molar']],
   ['d', ['density', 'densidade']],
@@ -72,7 +79,13 @@ const HEADERS: [Field, string[]][] = [
   ['purity', ['purity/concentration', 'purity', 'pureza']],
   ['expires', ['expiry date', 'expiry_date', 'expiry', 'expires', 'expiration', 'validade']],
   ['opened', ['date opened', 'open_date', 'opened', 'opening date', 'aberto', 'data de abertura']],
-  ['place', ['storage', 'storage_name', 'location', 'place', 'cabinet', 'local', 'armário', 'armario']],
+  [
+    'place',
+    ['storage place', 'storage', 'storage_name', 'location', 'place', 'cabinet', 'local', 'armário', 'armario'],
+  ],
+  ['division', ['division', 'shelf', 'divisão', 'divisao', 'prateleira']],
+  ['pfcol', ['federal police', 'polícia federal', 'policia federal']],
+  ['armycol', ['army', 'exército', 'exercito']],
   ['barcode', ['barcode', 'código de barras']],
   ['comment', ['comment on chemical', 'comment', 'comments', 'notes', 'description', 'observações', 'observacoes']],
   ['catalog', ['catalog no.', 'catalog', 'catalogue no.', 'cat. no.']],
@@ -143,6 +156,9 @@ function amountOf(v: string): { amount: number | null; size: number | null; unit
 }
 const dateOf = (v: string) => {
   const s = v.trim();
+  // a date cell of a spreadsheet read as its number of days since 30/12/1899 (Excel's dates)
+  if (/^\d{5}(\.\d+)?$/.test(s))
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(+s) * 864e5).toISOString().slice(0, 10);
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   m = s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
@@ -186,9 +202,18 @@ const purityIn = (v: string) => {
   return p !== null && p > 0 && p <= 100 ? p : null;
 };
 
+/** A yes in a column of its own ("Federal Police": yes, sim, x, 1). */
+const yes = (v: string) => /^(yes|y|sim|s|x|1|true|✓|✔)$/i.test(v.trim());
+/** The note the template's example row carries: a row with it is left out if it was not deleted. */
+export const EXAMPLE_NOTE = 'Example row: delete this row';
+
 /** The export read into containers and the substances they are of. */
 export function readInventory(text: string): ImportResult {
-  const all = parseCsv(text);
+  return readInventoryRows(parseCsv(text));
+}
+/** The same, from rows already read (a spreadsheet, 0.54). */
+export function readInventoryRows(all: string[][]): ImportResult {
+  all = all.filter((r) => r.some((x) => (x ?? '').trim()));
   // the header: the first line where most cells are known column names
   let hi = all.findIndex((r) => r.filter((c) => HEADERS.some(([, s]) => s.includes(clean(c)))).length >= 3);
   if (hi < 0) hi = 0;
@@ -204,7 +229,12 @@ export function readInventory(text: string): ImportResult {
   }
   const body = all.slice(hi + 1),
     // a line with far fewer cells than the header is not a container ("Results from own database")
-    lines = body.filter((r) => r.length >= Math.max(2, head.length / 2));
+    lines = body.filter(
+      (r) =>
+        r.length >= Math.max(2, head.length / 2) &&
+        !(col.comment !== undefined && (r[col.comment] ?? '').trim() === EXAMPLE_NOTE),
+    );
+  const placeParts: ImportResult['placeParts'] = {};
   const rows: ImportRow[] = [];
   for (const r of lines) {
     const g = (f: Field) => (col[f] !== undefined ? (r[col[f]!] ?? '').trim() : '');
@@ -217,6 +247,14 @@ export function readInventory(text: string): ImportResult {
     const f = g('f').replace(/\s+/g, '');
     const M = num(g('M')) || (f ? molarMass(f) : null);
     const cas = normCas(g('cas'));
+    const area = g('place')
+        .replace(/\u00a0/g, ' ')
+        .replace(/^compartment\s+/i, '')
+        .trim(),
+      division = g('division');
+    // a division in its own column: the place is shown as both, and read as they are
+    const place = area && division ? `${area} - ${division}` : area;
+    if (area && division) placeParts[place] = { area, shelf: division };
     const notes = [
       comment
         .split('\n')
@@ -230,6 +268,11 @@ export function readInventory(text: string): ImportResult {
       key: cas || name.toLowerCase(),
       name,
       cas,
+      s: g('s'),
+      aka: g('aka')
+        .split(/[;\n]/)
+        .map((x) => x.trim())
+        .filter(Boolean),
       f,
       M,
       d: num(g('d')),
@@ -240,8 +283,8 @@ export function readInventory(text: string): ImportResult {
         .split(/[,;\s]+/)
         .map((x) => x.trim().toUpperCase())
         .filter((x) => /^GHS0\d$/.test(x)),
-      pf: POLICE.test(everything),
-      army: ARMY.test(comment),
+      pf: POLICE.test(everything) || yes(g('pfcol')),
+      army: ARMY.test(comment) || yes(g('armycol')),
       amount: am.amount,
       size: sz?.amount ?? am.size,
       unit: unitOf(g('unit')) ?? am.unit ?? sz?.unit ?? 'g',
@@ -250,10 +293,7 @@ export function readInventory(text: string): ImportResult {
       purity: purityIn(g('purity') ? g('purity') + (g('purity').includes('%') ? '' : '%') : '') ?? purityIn(g('name')),
       expires: dateOf(g('expires')),
       opened: dateOf(g('opened')),
-      place: g('place')
-        .replace(/\u00a0/g, ' ')
-        .replace(/^compartment\s+/i, '')
-        .trim(),
+      place,
       barcode: g('barcode'),
       notes,
     });
@@ -266,6 +306,8 @@ export function readInventory(text: string): ImportResult {
         key: r.key,
         name: r.name,
         cas: r.cas,
+        s: r.s,
+        aka: r.aka,
         f: r.f,
         M: r.M,
         d: r.d,
@@ -282,6 +324,8 @@ export function readInventory(text: string): ImportResult {
     s.containers++;
     // what one row leaves out, another may have; the shortest name is usually the plainest
     if (r.name.length < s.name.length) s.name = r.name;
+    s.s ||= r.s;
+    s.aka = [...new Set([...s.aka, ...r.aka])];
     s.f ||= r.f;
     s.M ??= r.M;
     s.d ??= r.d;
@@ -298,6 +342,7 @@ export function readInventory(text: string): ImportResult {
     places: [...new Set(rows.map((r) => r.place).filter(Boolean))],
     columns,
     skipped: body.length - lines.length,
+    placeParts,
   };
 }
 
@@ -313,3 +358,45 @@ export function splitPlace(place: string, known: string[] = []): { area: string;
   if (!m) return { area: p, shelf: '' };
   return { area: known.find((k) => k.toLowerCase() === m[1].toLowerCase()) ?? m[1], shelf: m[2] };
 }
+
+/**
+ * The inventory spreadsheet template (0.54): one column per field the importer reads, each with what to write in it (the notes
+ * sheet), and one example row the importer leaves out if it was not deleted. The import screen offers it as an Excel file.
+ */
+export const INVENTORY_TEMPLATE: { header: string; note: string; example: string | number }[] = [
+  { header: 'Substance', note: 'Required. The name the lab uses for it.', example: 'Lead(II) iodide' },
+  {
+    header: 'Short name',
+    note: 'Shown in recipes and lists in place of the full name. Common compounds get one from their CAS number.',
+    example: 'PbI2',
+  },
+  {
+    header: 'Other names',
+    note: 'Other names search also finds, separated by ";".',
+    example: 'Lead iodide; Iodeto de chumbo',
+  },
+  {
+    header: 'CAS number',
+    note: 'Containers with the same CAS number are one substance. Common compounds also get their short name and role from it.',
+    example: '10101-63-0',
+  },
+  { header: 'Formula', note: 'Gives the molar mass (PbI2, CH3NH3I, CuSO4·5H2O).', example: 'PbI2' },
+  { header: 'Amount left', note: 'A number: what the container holds now. 0 for an empty one.', example: 4.5 },
+  { header: 'Size', note: 'A number: what the container holds when full.', example: 5 },
+  { header: 'Unit', note: 'g, mg, kg, mL, L or µL. For both amounts.', example: 'g' },
+  { header: 'Purity (%)', note: 'A number, 99.99.', example: 99.99 },
+  { header: 'Supplier', note: '', example: 'Example supplier' },
+  { header: 'Lot', note: '', example: 'A1234' },
+  {
+    header: 'Storage place',
+    note: 'A storage place that does not exist yet is made (Glovebox 1).',
+    example: 'Glovebox 1',
+  },
+  { header: 'Division', note: 'A shelf or compartment of the storage place.', example: 'Shelf 2' },
+  { header: 'Barcode', note: '', example: '' },
+  { header: 'Opened', note: 'A date, dd/mm/yyyy.', example: '01/03/2026' },
+  { header: 'Expires', note: 'A date, dd/mm/yyyy.', example: '01/03/2028' },
+  { header: 'Federal Police', note: '"yes" when the Federal Police controls it.', example: 'no' },
+  { header: 'Army', note: '"yes" when the Army controls it.', example: 'no' },
+  { header: 'Notes', note: 'About this container.', example: EXAMPLE_NOTE },
+];
