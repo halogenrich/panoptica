@@ -4,7 +4,7 @@
 // Flows: first setup (installed as PANOPTICA Setup does, with a licence), the licence in Admin settings, sign out and in, the side menu, equipment, a booking, a stack's run sheet, starting a batch and its run
 // sheet, booking for the batch, search, a J–V import, the Overview, the trash, consumption, the builder's page; 0.52: the Node
 // shown in Admin settings › Updates, and the Node a newer release brings (from a fake GitHub). On a failure it saves a screenshot and the page's errors in out/browser-failure.png and prints the server log.
-import { chromium } from 'playwright';
+import { chromium, devices, webkit } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { zipSync } from 'fflate';
@@ -130,6 +130,14 @@ for (let i = 0; ; i++) {
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, locale: 'en-GB', timezoneId: 'UTC' });
+// the desktop flows keep the full app when they look at a phone width (0.55: the phone layout has its own flows below)
+await ctx.addInitScript(() => {
+  try {
+    localStorage.setItem('psc-full-app', '1');
+  } catch {
+    /* a page without storage (about:blank) */
+  }
+});
 const page = await ctx.newPage();
 page.setDefaultTimeout(10_000);
 const errors = [];
@@ -1201,6 +1209,172 @@ try {
       else await page.getByText(/From the recipes of 0 running and done batches/).waitFor();
     },
   );
+
+  /**
+   * The phone layout (0.55), on a phone of each engine: Chrome on Android (Chromium, Pixel 7) always, Safari on iPhone
+   * (WebKit, iPhone 14) with --webkit (CI installs WebKit; the cloud session cannot download it). Same server and account.
+   */
+  const phoneFlows = async (engine, device) => {
+    const b = engine === 'webkit' ? await webkit.launch() : browser;
+    const pc = await b.newContext({
+      ...devices[device],
+      locale: 'en-GB',
+      timezoneId: 'UTC',
+      // the sign-in only: the desktop context chose the full app
+      storageState: { cookies: (await ctx.storageState()).cookies, origins: [] },
+    });
+    const ph = await pc.newPage();
+    ph.setDefaultTimeout(10_000);
+    ph.on('pageerror', (e) => errors.push(`${device}: ${e.message}`));
+    const bar = (name) => ph.locator('nav.ph-bar').getByRole('button', { name, exact: true });
+    const fits = async (what) =>
+      expect(
+        await ph.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        `${what} is wider than the phone (${device})`,
+      );
+    const shot = async (name) => {
+      if (!process.env.SHOTS) return;
+      await ph.waitForTimeout(300);
+      await ph.screenshot({ path: join(root, 'out', `phone-${engine}-${name}.png`) });
+    };
+    try {
+      await step(`${device}: the phone layout opens, with Today, its tabs, Inventory and Schedule (0.55)`, async () => {
+        await ph.goto(base);
+        await ph.locator('nav.ph-bar').waitFor();
+        const tabs = (await ph.locator('nav.ph-bar button').allInnerTexts()).map((t) => t.trim());
+        expect(
+          tabs.join() === (CORE ? 'Today,Inventory,Schedule' : 'Today,Run sheet,Inventory,Schedule'),
+          `the bottom bar has ${tabs.join(', ')}`,
+        );
+        await ph.locator('.ph-hero').waitFor();
+        await fits('Today');
+        await shot('today');
+        // the bars keep clear of the home indicator, and nothing in the page hides under the bottom bar
+        const pad = await ph.evaluate(() =>
+          parseFloat(getComputedStyle(document.querySelector('.ph-main')).paddingBottom),
+        );
+        const h = await ph.locator('nav.ph-bar').evaluate((n) => n.getBoundingClientRect().height);
+        expect(pad >= h, 'the page ends under the bottom bar');
+        const m = await (await ph.request.get(base + '/manifest.webmanifest')).json();
+        expect(
+          m.name === 'PANOPTICA' && m.display === 'standalone' && m.icons.some((i) => i.sizes === '512x512'),
+          'the home-screen manifest',
+        );
+        expect(
+          (await ph.request.get(base + '/apple-touch-icon.png')).ok() &&
+            (await ph.locator('link[rel=apple-touch-icon]').count()) === 1,
+          'the iPhone home-screen icon',
+        );
+      });
+
+      await step(
+        `${device}: Inventory finds a container by barcode; the amount is corrected and it is marked empty`,
+        async () => {
+          const code = `PH-${engine}`,
+            name = `Phone salt ${engine}`;
+          const area = (await api('GET', '/inventory')).j.areas[0];
+          await api('POST', '/inventory/containers', {
+            name,
+            amount: 3,
+            size: 5,
+            unit: 'g',
+            barcode: code,
+            area_id: area?.id ?? null,
+          });
+          await bar('Inventory').click();
+          const box = ph.getByRole('searchbox', { name: 'Find a substance' });
+          expect(
+            parseFloat(await box.evaluate((n) => getComputedStyle(n).fontSize)) >= 16,
+            'the search box is under 16 px: Safari zooms in on it',
+          );
+          await box.fill(code);
+          const res = ph.locator('section.ph-chem').filter({ hasText: name });
+          await res.getByText('3 g').waitFor();
+          if (area) await res.getByText(area.name).first().waitFor();
+          await fits('Inventory');
+          await shot('inventory');
+          await res.getByRole('button', { name: 'Correct amount' }).click();
+          await res.getByLabel(/Amount left/).fill('2,5');
+          await shot('inventory-edit');
+          await res.getByRole('button', { name: 'Save' }).click();
+          await res.getByText('2.5 g').waitFor();
+          await res.getByRole('button', { name: 'Mark empty' }).click();
+          await res.getByText('Every container is empty.').waitFor();
+        },
+      );
+
+      await step(`${device}: Schedule lists bookings and books with the Calendar's form`, async () => {
+        await bar('Schedule').click();
+        await ph.getByRole('tab', { name: 'My bookings' }).waitFor();
+        await shot('schedule');
+        await ph.getByRole('tab', { name: 'By equipment' }).click();
+        await ph.getByText('Choose equipment to see its day.').waitFor();
+        const eq = (
+          await api('GET', `/calendar?from=${new Date().toISOString()}&to=${new Date().toISOString()}`)
+        ).j.equipment.find((e) => e.active && e.booked !== false);
+        const pick = ph.getByRole('combobox', { name: 'Equipment' });
+        await pick.click();
+        await pick.fill(eq.name);
+        await pick.press('Enter');
+        await ph.getByRole('button', { name: `Book ${eq.name}` }).click();
+        const dlg = ph.getByRole('dialog', { name: 'New booking' });
+        await dlg.waitFor();
+        await fits('the booking form');
+        await shot('book');
+        await dlg.getByRole('button', { name: 'Cancel' }).click();
+        await dlg.waitFor({ state: 'detached' });
+      });
+
+      if (!CORE)
+        await step(`${device}: Run sheet opens a batch's layers with their procedure and run data`, async () => {
+          await bar('Run sheet').click();
+          const first = ph.locator('button.ph-batch').first();
+          await first.waitFor();
+          await shot('runs');
+          await first.click();
+          await ph.locator('.ph-layer').first().waitFor();
+          await ph.locator('.ph-layer-h[aria-expanded=true]').waitFor();
+          await fits('the run sheet');
+          await shot('run-sheet');
+          await ph.getByRole('button', { name: 'Batches' }).click();
+          await first.waitFor();
+        });
+
+      await step(`${device}: the full app is one tap away, and the phone layout too`, async () => {
+        await ph.getByRole('button', { name: 'Account' }).click();
+        await ph.getByRole('button', { name: 'Open the full app' }).click();
+        await ph.locator('.tabbar').waitFor();
+        await ph.getByRole('button', { name: 'Menu' }).click();
+        await ph.getByRole('button', { name: 'Phone layout' }).click();
+        await ph.locator('nav.ph-bar').waitFor();
+        if (process.env.SHOTS) {
+          await ph.emulateMedia({ colorScheme: 'dark' });
+          await bar('Inventory').click();
+          await ph.getByRole('searchbox', { name: 'Find a substance' }).fill('Phone salt');
+          await ph.locator('section.ph-chem').first().waitFor();
+          await shot('inventory-dark');
+        }
+      });
+    } finally {
+      await pc.close();
+      if (b !== browser) await b.close();
+    }
+  };
+  await phoneFlows('chromium', 'Pixel 7');
+  if (process.argv.includes('--webkit')) await phoneFlows('webkit', 'iPhone 14');
+  await step('a tablet (768 px) keeps the full app', async () => {
+    const tc = await browser.newContext({
+      viewport: { width: 768, height: 1024 },
+      locale: 'en-GB',
+      timezoneId: 'UTC',
+      storageState: { cookies: (await ctx.storageState()).cookies, origins: [] },
+    });
+    const tp = await tc.newPage();
+    await tp.goto(base);
+    await tp.locator('nav.side').waitFor();
+    expect((await tp.locator('.phone').count()) === 0, 'the phone layout on a tablet');
+    await tc.close();
+  });
 
   // the builder's page (0.50) is not part of the package: it runs from the repository, on PANOPTICA's own computer
   if (!CORE)

@@ -66,7 +66,7 @@ export type Booking = {
 type Choice = { subject: string; noun: string; id: number; code: string; name: string; status?: string };
 /** A step equipment can do, from a module. */
 export type StepDef = { key: string; label: string; group: string; module: string; measures?: boolean };
-type Data = {
+export type Data = {
   equipment: Eq[];
   steps: StepDef[];
   bookings: Booking[];
@@ -82,7 +82,7 @@ type Data = {
 /** A kind of thing bookings are for: its name, the page one opens on, whether it has steps to choose. */
 type Subject = { kind: string; noun: string; plural: string; view: string | null; hint: string; steps: boolean };
 type View = 'day' | 'week' | 'month';
-type Draft = Partial<Booking> & { start: string; end: string };
+export type Draft = Partial<Booking> & { start: string; end: string };
 
 // ------------------------------------------------------------------ dates (local time)
 const DAY = 864e5;
@@ -1260,7 +1260,8 @@ function Month({
 }
 
 // ------------------------------------------------------------------ booking dialog
-function BookingForm({
+/** A booking made or changed; also the phone layout's (0.55), so both follow the same rules. */
+export function BookingForm({
   draft,
   data,
   isAdmin,

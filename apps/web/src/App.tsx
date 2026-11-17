@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import { LabCtx, MeCtx, PrefCtx, brandText, type LabPublic, type Me, type Prefs } from './ctx';
 import Shell from './Shell';
+import PhoneApp from './phone/PhoneApp';
+import { useNarrow, usePhone } from './phone/usePhone';
 import { live, stopLive } from './lib/live';
 import { setLabUrl } from './lib/route';
 import Login from './start/Login';
@@ -81,7 +83,7 @@ export default function App() {
                   .catch(() => {}),
             }}
           >
-            <Shell me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
+            <Main me={me} onLogout={() => api('/logout', 'POST').finally(() => setMe(null))} />
           </MeCtx.Provider>
         ) : lab.setup === 'here' ? (
           <Setup onDone={signedIn2} net0={lab.network} />
@@ -200,5 +202,16 @@ function RecoveryFile({ onDone, onLogout }: { onDone: () => void; onLogout: () =
         </button>
       </form>
     </main>
+  );
+}
+
+/** The phone layout on a narrow screen (0.55), the full app otherwise or when chosen on that phone. */
+function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
+  const [phone, setFull] = usePhone(),
+    narrow = useNarrow();
+  return phone ? (
+    <PhoneApp me={me} onFull={() => setFull(true)} onLogout={onLogout} />
+  ) : (
+    <Shell me={me} onLogout={onLogout} onPhone={narrow ? () => setFull(false) : undefined} />
   );
 }

@@ -2,6 +2,16 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.55.0 (2026-11-17)
+
+- **A layout made for the phone**: on a screen narrower than a tablet, PANOPTICA opens with a bar at the bottom: **Today**, **Run sheet**, **Inventory** and **Schedule**. Buttons are large enough to use with gloves. Tablets and computers keep the layout they had.
+- **Today**: your booking now or next, in large figures, the rest of your day, and your batches with how far each has got.
+- **Run sheet**: pick a batch (yours first) and follow its layers in the order of the printed run sheet. The layer to do next is open, with its procedure and **Add run data**. Each layer says whether it is booked, concluded or not scheduled; a step is still concluded by answering its booking.
+- **Inventory**: one box finds a substance by short name, name, other name, formula, CAS number or a container's barcode, and shows where each container is and how much is left. Where the browser can read barcodes (Chrome on Android, with HTTPS), the camera button scans one. People who manage the inventory can also correct the amount left and mark a container empty, with Undo.
+- **Schedule**: your bookings for the next 14 days, or one equipment's day; **Book equipment** opens the Calendar's own booking form, with the same rules. Tap a booking to change or remove it.
+- **Notifications** at the top; the account button has **Open the full app** for everything else, and the full app's menu has **Phone layout** to come back.
+- **Add to the home screen**: PANOPTICA has its own name and icon and opens without the browser's bars (Android needs HTTPS for this; iPhone does not).
+
 ## 0.54.2 (2026-11-17)
 
 - **Purge the inventory**: Admin settings › **Inventory** (admins only) removes in one go either what was **added in the last 7 days** (containers typed in or imported in that time, and substances first added then that have no older containers) or **everything** (every container and substance, also those in the trash). Storage places and divisions stay. Older items stay even when they were edited, past batches keep what they recorded, and recipes show a removed substance as not in the inventory. The counts are shown before anything is removed.

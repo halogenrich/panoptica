@@ -90,7 +90,7 @@ function Seg<T extends string>({ value, opts, on }: { value: T; opts: [T, string
   );
 }
 
-export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
+export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () => void; onPhone?: () => void }) {
   const { prefs, set } = useContext(PrefCtx),
     { lab } = useContext(LabCtx);
   // the modules the server has (until it says, every module this build has)
@@ -464,6 +464,11 @@ export default function Shell({ me, onLogout }: { me: Me; onLogout: () => void }
             <button className={'navitem' + (view === 'help' ? ' on' : '')} onClick={() => go('help')}>
               Help
             </button>
+            {onPhone && (
+              <button className="navitem" onClick={onPhone}>
+                Phone layout
+              </button>
+            )}
             <button className="navitem" onClick={onLogout}>
               Sign out
             </button>
