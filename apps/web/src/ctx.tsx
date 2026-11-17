@@ -34,6 +34,8 @@ export type Me = {
   visitorUntil?: string | null;
   firstNames?: string;
   surnames?: string;
+  /** 0.53: an admin who must download the recovery file before going on */
+  recovery?: boolean;
 };
 export type Prefs = {
   theme: 'system' | 'light' | 'dark';

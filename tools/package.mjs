@@ -69,8 +69,8 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  // stays node22 while installs made before 0.50.1 run the package on their Node 22 (Setup installs Node 26 since 0.50.1)
-  target: 'node22',
+  // 0.53: Node 26 only (Setup and updates bring it since 0.52; NODE_MIN in apps/server/src/updates.ts says the same)
+  target: 'node26',
   minify: true,
   legalComments: 'none',
   // libraries written for require(): give the bundle its own require, __filename and __dirname
@@ -95,7 +95,8 @@ rmSync(join(dest, 'docs/architecture.md'), { force: true }); // for developers
 writeFileSync(
   join(dest, 'package.json'),
   JSON.stringify(
-    { name: 'panoptica', version, private: true, description: 'PANOPTICA, built package', modules: mods },
+    // node (0.53): the oldest Node major the package runs on; an install refuses an update it could not start
+    { name: 'panoptica', version, private: true, description: 'PANOPTICA, built package', modules: mods, node: 26 },
     null,
     2,
   ) + '\n',

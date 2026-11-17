@@ -57,9 +57,10 @@ Not in the repository (see `.gitignore`): `node_modules`, builds, the database, 
 | `social.ts` | Comments, reactions, notifications, lab records, the trash: all over the record types the modules register. |
 | `dashboard.ts` | The Overview: people, equipment time and steps that did not go as planned, plus each module's part (`m.<module>`). |
 | `backup.ts` | Backups: make, check, list, prune, the encrypted second copy. |
+| `restore.ts` | Restore a lab from a backup in the first setup, the recovery file (0.53). |
 | `updates.ts` | Update check against GitHub releases, download with checksum, install. |
 | `config.ts` | The app root and the `config/` folder for this computer's secrets. |
-| `quiet.ts` | Hides Node 22's "SQLite is experimental" warning. |
+| `quiet.ts` | Hides the "SQLite is experimental" warning older Node versions print. |
 
 ### A request, step by step
 

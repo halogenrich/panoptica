@@ -106,6 +106,8 @@ const LABEL: Record<string, string> = {
   'PUT /api/backups/mirror': 'Changed the backup copy folder',
   'GET /api/backups/:name': 'Downloaded a backup',
   'GET /api/backups/key': 'Viewed the backup key',
+  'GET /api/backups/recovery': 'Downloaded the recovery file',
+  'POST /api/backups/recovery/saved': 'Confirmed the recovery file is saved',
   'PUT /api/settings/figure': 'Changed the figure logo',
   'PUT /api/lab': 'Changed the lab setup',
   'PUT /api/fun': 'Changed the funny settings',
@@ -125,6 +127,7 @@ const SKIP = [
   // logged by the handlers themselves, with who and what
   /^POST \/api\/login\//,
   /^POST \/api\/setup$/,
+  /^POST \/api\/setup\/restore/,
   /^POST \/api\/tray\//,
   /^POST \/api\/network\/check$/,
   /^POST \/api\/access-requests/,
@@ -133,7 +136,12 @@ const SKIP = [
   /^POST \/api\/notifications/,
 ];
 /** Reads that are themselves sensitive and are logged. */
-const LOGGED_READS = new Set(['GET /api/backups/:name', 'GET /api/backups/key', 'GET /api/audit/export']);
+const LOGGED_READS = new Set([
+  'GET /api/backups/:name',
+  'GET /api/backups/key',
+  'GET /api/backups/recovery',
+  'GET /api/audit/export',
+]);
 
 /** What a row refers to, looked up before the handler runs (so a deleted item still has its name). */
 function nameOf(route: string, params: Record<string, string>): string {

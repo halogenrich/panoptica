@@ -13,12 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        # Node 26 only since 0.53: Setup and updates bring it (0.52), and an install on an older Node refuses the update
         node: [26]
-        # An install made before 0.50.1 keeps its Node 22 through in-app updates (the update does not replace the runtime yet),
-        # so the package must still run there: checked on Linux until the update carries the runtime.
-        include:
-          - os: ubuntu-latest
-            node: 22
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -29,6 +25,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       # the main flows clicked through in Chromium, on the packaged app (Linux is enough: it is the same web app)
-      - if: runner.os == 'Linux' && matrix.node == 26
+      - if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium && npm run test:browser && npm run test:browser:core
       - run: npm audit --audit-level=moderate

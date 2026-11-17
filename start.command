@@ -1,6 +1,6 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)"; then echo "Node.js 22.13 or newer is required (found: $(node -v 2>/dev/null || echo none)): https://nodejs.org"; read -p "Press Enter"; exit 1; fi
+if ! command -v node >/dev/null || ! node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>=26?0:1)"; then echo "Node.js 26 or newer is required (found: $(node -v 2>/dev/null || echo none)): https://nodejs.org"; read -p "Press Enter"; exit 1; fi
 echo "PANOPTICA $(node -p "require('./package.json').version")"
 # A built package (0.39 and later; built.json marks it) runs as it is: nothing is installed or built on this computer.
 BUILT=0; [ -f built.json ] && [ -f apps/server/dist/server.mjs ] && BUILT=1

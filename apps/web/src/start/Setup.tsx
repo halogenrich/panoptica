@@ -4,6 +4,7 @@ import { api } from '../api';
 import type { LabPublic, Me } from '../ctx';
 import { Seg } from '../lib/ui';
 import { SignInFrame } from './Login';
+import Restore from './Restore';
 import { NetworkFields, draftProblem, movedTo, netBody, type NetDraft } from './Network';
 import {
   NameFields,
@@ -387,7 +388,8 @@ export default function Setup({
       cert: null,
       format: 'pem',
     })),
-    [netErr, setNetErr] = useState('');
+    [netErr, setNetErr] = useState(''),
+    [restoring, setRestoring] = useState(false);
   const setL = (p: Partial<LabDraft>) => setLab((x) => ({ ...x, ...p }));
   const remote = !!code;
   /** The Network step asks the server before going on, so a wrong certificate or a taken port shows here. */
@@ -430,6 +432,8 @@ export default function Setup({
       .catch((e) => setErr(e.message.replace(/^./, (c: string) => c.toUpperCase()) + '.'))
       .finally(() => setBusy(false));
   };
+  // 0.53: a lab moved to this computer, or a failed one replaced, comes back from its backup instead
+  if (restoring) return <Restore code={code} onBack={() => setRestoring(false)} onDone={() => location.reload()} />;
   return (
     <main className="setup">
       <aside className="setup-rail">
@@ -461,6 +465,15 @@ export default function Setup({
                 Everything here can be changed later under Admin settings › Lab setup. People ask for access from the
                 sign-in screen; you accept them in PANOPTICA.
               </p>
+              <div className="setup-alt">
+                <p>
+                  <b>Moving the lab to this computer, or replacing one that failed?</b> Restore it from a backup
+                  instead: accounts, data and licence come back as they were.
+                </p>
+                <button type="button" className="btn secondary" onClick={() => setRestoring(true)}>
+                  Restore from a backup
+                </button>
+              </div>
             </>
           )}
           {step === 1 && (

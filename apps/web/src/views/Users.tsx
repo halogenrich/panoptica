@@ -8,7 +8,7 @@ import { NetworkTab } from '../start/Network';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
 import { useContext } from 'react';
-import { fmtDate } from '../lib/ui';
+import { fmtDate, fmtDateTime } from '../lib/ui';
 import { HoursFields, LabFields, LookFields, blankLab, hoursOk, labBody, type LabDraft } from '../start/Setup';
 import { NameFields, todayIso, type NameParts } from '../start/parts';
 
@@ -354,14 +354,22 @@ function Backups() {
   type Check = { name: string; at: string; ok: boolean; msg: string } | null;
   const [key, setKey] = useState(''),
     [enc, setEnc] = useState<boolean | null>(null);
-  const [d, setD] = useState<{ dir: string; files: B[]; mirror: Mirror; check: Check } | null>(null),
+  type D = {
+    dir: string;
+    files: B[];
+    mirror: Mirror;
+    check: Check;
+    setup?: boolean;
+    recovery?: { pending: boolean; downloaded: string | null };
+  };
+  const [d, setD] = useState<D | null>(null),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState(''),
     [all, setAll] = useState(false);
   const [mdir, setMdir] = useState<string | null>(null),
     [mmsg, setMmsg] = useState('');
   const load = () =>
-    api<{ dir: string; files: B[]; mirror: Mirror; check: Check }>('/backups')
+    api<D>('/backups')
       .then(setD)
       .catch((e) => setMsg(e.message));
   const saveMirror = (dir: string, encrypt = enc ?? d?.mirror.encrypt ?? true) =>
@@ -460,9 +468,32 @@ function Backups() {
           check it. It keeps the last 14 daily and 30 manual backups. Folder: <code>{d?.dir ?? 'backups'}</code>
         </p>
         <p className="mut small">
-          To restore one: close the app window, run <b>restore.bat</b> (Windows) or <b>restore.command</b> (Mac) in the
-          app folder, and choose the backup. The current database is backed up first, so a restore can be undone.
+          To move the lab to another computer, or replace one that failed: install PANOPTICA there and choose{' '}
+          <b>Restore from a backup</b> in its first setup.
+          {!d?.setup && (
+            <>
+              {' '}
+              To go back to a backup on this computer: close the app window, run <b>restore.bat</b> (Windows) or{' '}
+              <b>restore.command</b> (Mac) in the app folder, and choose it. The current database is backed up first.
+            </>
+          )}
         </p>
+      </section>
+      <h3 className="sub">Recovery file</h3>
+      <section className="group">
+        <p className="small">
+          It holds the backup key and the lab’s id. With it, a new PANOPTICA restores this lab from its backups, also
+          the encrypted second copies. Keep it off this computer: in a password manager, or on a USB stick kept with the
+          lab’s papers.
+        </p>
+        <div className="inline">
+          <a className="btn secondary" href="/api/backups/recovery" download onClick={() => setTimeout(load, 500)}>
+            Download the recovery file
+          </a>
+          <span className={d?.recovery?.downloaded ? 'mut small' : 'warn-text small'}>
+            {d?.recovery?.downloaded ? `Last downloaded ${fmtDateTime(d.recovery.downloaded)}` : 'Not downloaded yet'}
+          </span>
+        </div>
       </section>
       <h3 className="sub">Second copy off this computer</h3>
       <section className="group">
@@ -513,9 +544,8 @@ function Backups() {
         {(enc ?? d?.mirror.encrypt ?? true) && (
           <div className="bk-key">
             <p className="small">
-              <b>Backup key.</b> The encrypted copies can only be read with this key. It is kept on this computer; if
-              the computer is lost, the key is needed to restore from the second copy. Save it in a password manager or
-              print it and keep it with the lab's important papers.
+              <b>Backup key.</b> The encrypted copies can only be read with this key. It is kept on this computer and in
+              the recovery file.
             </p>
             {key ? (
               <>
@@ -541,11 +571,6 @@ function Backups() {
                 Show key
               </button>
             )}
-            <p className="mut small">
-              To restore from an encrypted copy: put the <code>.db.enc</code> file anywhere, then in the{' '}
-              <code>apps/server</code> folder run <code>node db-tools.cjs decrypt path\to\file.db.enc</code> (it asks
-              for the key if this computer does not have it) and then restore as usual.
-            </p>
           </div>
         )}
       </section>

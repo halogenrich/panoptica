@@ -31,8 +31,8 @@ const ok = (cond, what) => {
 };
 
 // ---- fake GitHub: one release with a zip, its checksum and its signature (and a wrong checksum or signature on demand)
-const zip = Buffer.from('PK fake zip for the update test'),
-  good = createHash('sha256').update(zip).digest('hex');
+let zip = Buffer.from('PK fake zip for the update test');
+const good = createHash('sha256').update(zip).digest('hex');
 let sum = good;
 // releases are signed; the test signs with a key of its own and gives the server its public half
 const testKey = generateKeyPairSync('ed25519'),
@@ -877,6 +877,19 @@ sig = sign(null, zip, generateKeyPairSync('ed25519').privateKey).toString('base6
 await call('PUT', '/api/updates/settings', {}); // reads the release again, without telling the admins
 const forged = await call('POST', '/api/updates/download');
 ok(forged.s === 400 && /signature/.test(forged.j.error), 'a release signed with another key is refused');
+// 0.53: a package that needs a newer Node than this install will run is refused before it is installed, with what to do
+const fake = zip;
+zip = Buffer.from(zipSync({ 'panoptica/package.json': new TextEncoder().encode(JSON.stringify({ node: 99 })) }));
+sum = createHash('sha256').update(zip).digest('hex');
+sig = sign(null, zip, testKey.privateKey).toString('base64');
+await call('PUT', '/api/updates/settings', {});
+const tooNew = await call('POST', '/api/updates/download');
+ok(
+  tooNew.s === 400 && /needs Node 99/.test(tooNew.j.error) && /nodejs\.org/.test(tooNew.j.error),
+  'a package that needs a newer Node is refused, saying what to do (0.53)',
+);
+zip = fake;
+sum = good;
 sig = goodSig;
 await call('PUT', '/api/updates/settings', {}); // reads the release again, without telling the admins
 const d = await call('POST', '/api/updates/download');
@@ -2229,6 +2242,233 @@ console.log('The update carries Node (0.52)');
   db6.close();
   s6.kill();
   gh6.close();
+}
+
+console.log('Restore a lab from a backup, the recovery file (0.53)');
+{
+  // a server of its own: a database, config folder and backups folder, with the licence a Setup install leaves
+  const lic = byHand({
+    id: 'L-RESTORE-1',
+    lab: 'Restore Laboratory',
+    acronym: 'RL',
+    labId: 'restore-lab',
+    modules: MODULES,
+    setup: createHash('sha256').update('ABCDEFGHJKMNPQRS').digest('hex'),
+  });
+  const start = async (name) => {
+    const port = await freePort(),
+      cfg = join(tmp, name + '-config'),
+      bk = join(tmp, name + '-backups');
+    mkdirSync(cfg, { recursive: true });
+    writeFileSync(join(cfg, 'licence.json'), lic);
+    const s = spawn(process.execPath, serverArgs, {
+      cwd: serverCwd,
+      env: {
+        ...env,
+        PORT: String(port),
+        DB_PATH: join(tmp, name + '.db'),
+        ADMIN_PASSWORD: '',
+        CONFIG_DIR: cfg,
+        BACKUP_DIR: bk,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let log = '';
+    s.stdout.on('data', (x) => (log += x));
+    s.stderr.on('data', (x) => (log += x));
+    for (let i = 0; i < 300 && !log.includes('not set up yet'); i++) await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
+    let cookie = '';
+    const j = async (m, path, body, o = {}) => {
+      const raw = Buffer.isBuffer(body);
+      const r = await fetch(`http://127.0.0.1:${port}` + path, {
+        method: m,
+        headers: {
+          ...(body ? { 'content-type': raw ? 'application/octet-stream' : 'application/json' } : {}),
+          ...(cookie ? { cookie } : {}),
+          ...(o.remote ? { 'x-test-remote': '1' } : {}),
+          ...(o.code ? { 'x-setup-code': o.code } : {}),
+        },
+        body: body ? (raw ? body : JSON.stringify(body)) : undefined,
+      });
+      if (r.headers.get('set-cookie')) cookie = r.headers.get('set-cookie').split(';')[0];
+      const text = await r.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* not JSON */
+      }
+      return { s: r.status, j: json, text, headers: r.headers };
+    };
+    return { s, j, cfg, bk, db: join(tmp, name + '.db') };
+  };
+  const hours = Array.from({ length: 7 }, (_, i) => ({ on: i < 5, from: '08:00', to: '18:00' }));
+  // lab A: set up, some data, a backup and an encrypted second copy
+  const A = await start('labA');
+  const setupA = await A.j('POST', '/api/setup', {
+    admin: {
+      firstNames: 'Lise',
+      surnames: 'Meitner',
+      surname: 'Meitner',
+      email: 'lm@a.example',
+      birthDate: '1990-11-07',
+      password: 'Perov-Ç4ke',
+    },
+    lab: {
+      name: 'Restore Laboratory',
+      acronym: 'RL',
+      show: 'acronym',
+      institution: '',
+      domains: [],
+      departments: [],
+      hours,
+    },
+  });
+  ok(setupA.s === 200, 'lab A is set up');
+  ok(
+    (await A.j('GET', '/api/me')).j.recovery === true,
+    'after the first setup the admin is asked for the recovery file',
+  );
+  ok((await A.j('POST', '/api/backups/recovery/saved')).s === 409, 'it cannot be confirmed before it is downloaded');
+  const rf = await A.j('GET', '/api/backups/recovery');
+  ok(
+    rf.s === 200 &&
+      rf.j.type === 'PANOPTICA recovery file' &&
+      /^[0-9a-f]{64}$/.test(rf.j.key) &&
+      rf.j.labId === 'restore-lab' &&
+      /attachment; filename="PANOPTICA-recovery-RL\.json"/.test(rf.headers.get('content-disposition')),
+    'the recovery file holds the backup key and the lab id',
+  );
+  ok(
+    readFileSync(join(A.cfg, 'backup.key'), 'utf8').trim() === rf.j.key,
+    'its key is the one the copies are encrypted with',
+  );
+  ok((await A.j('POST', '/api/backups/recovery/saved')).s === 200, 'once downloaded, the admin confirms it is saved');
+  ok(!(await A.j('GET', '/api/me')).j.recovery, 'and is not asked again');
+  const logA = (await A.j('GET', '/api/audit')).j;
+  ok(JSON.stringify(logA).includes('Downloaded the recovery file'), 'the download is in the activity log');
+  ok((await A.j('POST', '/api/tags', { name: 'Perovskite team' })).s < 300, 'lab A has a tag');
+  const mirror = join(tmp, 'labA-share');
+  mkdirSync(mirror, { recursive: true });
+  ok((await A.j('PUT', '/api/backups/mirror', { dir: mirror, encrypt: true })).s === 200, 'a second copy is set');
+  const made = await A.j('POST', '/api/backups');
+  ok(made.s === 200, 'lab A is backed up');
+  const plain = join(A.bk, made.j.name),
+    enc = readdirSync(mirror).find((f) => f.endsWith('.enc'));
+  ok(!!enc, 'the second copy is encrypted');
+  A.s.kill();
+
+  // lab B: a fresh install of the same lab (a new computer)
+  const B = await start('labB');
+  ok(
+    (await B.j('POST', '/api/setup/restore/folder', { dir: mirror }, { remote: true })).s === 403,
+    'from another computer, no restore without the setup code',
+  );
+  const list = await B.j('POST', '/api/setup/restore/folder', { dir: mirror });
+  ok(
+    list.s === 200 && list.j.files.length === 1 && list.j.files[0].enc && list.j.files[0].name === enc,
+    'the backups in a folder are listed, by date',
+  );
+  ok(
+    (await B.j('POST', '/api/setup/restore/folder', { dir: join(tmp, 'nowhere') })).s === 400,
+    'a folder that does not exist is said so',
+  );
+  ok(
+    (await B.j('POST', '/api/setup/restore', { dir: mirror, name: '../labA.db' })).s === 400,
+    'only a backup the folder lists is read',
+  );
+  const noKey = await B.j('POST', '/api/setup/restore', { dir: mirror, name: enc });
+  ok(noKey.s === 400 && /encrypted/.test(noKey.j.error), 'an encrypted backup asks for the key');
+  const wrong = await B.j('POST', '/api/setup/restore', { dir: mirror, name: enc, key: 'ab'.repeat(32) });
+  ok(wrong.s === 400 && /does not open/.test(wrong.j.error), 'a wrong key is refused');
+  // a damaged backup: the first half of the plain file
+  const half = readFileSync(plain).subarray(0, Math.floor(readFileSync(plain).length / 2));
+  ok((await B.j('POST', '/api/setup/restore/upload', half)).s === 200, 'a file is sent from the browser');
+  const dmg = await B.j('POST', '/api/setup/restore', { upload: true, name: 'half.db' });
+  ok(dmg.s === 400 && /damaged|not a PANOPTICA backup/.test(dmg.j.error), 'a damaged backup is refused');
+  ok(
+    (await B.j('POST', '/api/setup/restore/upload', Buffer.from('just some text, not a backup at all'))).s === 400,
+    'a file that is not a backup is refused',
+  );
+  // a backup from a newer PANOPTICA, and one of another lab
+  const variant = (name, sql) => {
+    const f = join(tmp, name);
+    writeFileSync(f, readFileSync(plain));
+    const c = new DatabaseSync(f);
+    c.exec(sql);
+    c.close();
+    return readFileSync(f);
+  };
+  await B.j(
+    'POST',
+    '/api/setup/restore/upload',
+    variant('newer.db', "INSERT INTO migrations VALUES(9999,'core','later','x')"),
+  );
+  const newer = await B.j('POST', '/api/setup/restore', { upload: true });
+  ok(newer.s === 409 && /newer PANOPTICA/.test(newer.j.error), 'a backup from a newer PANOPTICA is refused');
+  await B.j(
+    'POST',
+    '/api/setup/restore/upload',
+    variant('other.db', "UPDATE meta SET value='other-lab' WHERE key='lab_id'"),
+  );
+  const other = await B.j('POST', '/api/setup/restore', { upload: true });
+  ok(other.s === 409 && /another lab/.test(other.j.error), 'a backup of another lab is refused');
+  ok((await B.j('GET', '/api/lab/public')).j.setup === 'here', 'after refusals the install is still new');
+  // over HTTP from another computer, with the setup code: the encrypted copy and the recovery file
+  ok(
+    (await B.j('POST', '/api/setup/restore/upload', readFileSync(join(mirror, enc)), { remote: true })).s === 403,
+    'sending a file from another computer needs the setup code',
+  );
+  ok(
+    (
+      await B.j('POST', '/api/setup/restore/upload', readFileSync(join(mirror, enc)), {
+        remote: true,
+        code: 'ABCD-EFGH-JKMN-PQRS',
+      })
+    ).s === 200,
+    'with the code it is taken',
+  );
+  const back = await B.j(
+    'POST',
+    '/api/setup/restore',
+    { upload: true, name: enc, recovery: rf.j, code: 'ABCD-EFGH-JKMN-PQRS' },
+    { remote: true },
+  );
+  ok(back.s === 200 && back.j.users === 1 && back.j.lab === 'RL', 'the lab is restored with the recovery file');
+  ok((await B.j('GET', '/api/lab/public')).j.setup === null, 'it is set up: the sign-in screen shows');
+  const login = await B.j('POST', '/api/login', { username: 'lisem', password: 'Perov-Ç4ke' });
+  ok(login.s === 200, 'the admin signs in with the same account');
+  ok(JSON.stringify((await B.j('GET', '/api/tags')).j).includes('Perovskite team'), 'the data came back');
+  ok((await B.j('GET', '/api/licence')).j.licence?.id === 'L-RESTORE-1', 'and the licence');
+  ok(
+    readFileSync(join(B.cfg, 'backup.key'), 'utf8').trim() === rf.j.key,
+    'this computer now uses the lab’s backup key: the same recovery file opens its copies',
+  );
+  ok(
+    !(await B.j('GET', '/api/me')).j.recovery,
+    'restored with the key: the admin is not asked for a new recovery file',
+  );
+  ok(
+    JSON.stringify((await B.j('GET', '/api/audit')).j).includes('Restored this lab from a backup'),
+    'the restore is in the activity log',
+  );
+  ok((await B.j('GET', '/api/audit/verify')).j.ok === true, 'the activity log’s chain still checks');
+  ok((await B.j('POST', '/api/setup/restore', { upload: true })).s === 409, 'no restore once the lab is set up');
+  B.s.kill();
+
+  // lab C: restored from the plain backup file, without a key: a new recovery file is asked for
+  const C = await start('labC');
+  await C.j('POST', '/api/setup/restore/upload', readFileSync(plain));
+  const c = await C.j('POST', '/api/setup/restore', { upload: true, name: made.j.name });
+  ok(c.s === 200 && c.j.users === 1, 'a backup that is not encrypted needs no key');
+  await C.j('POST', '/api/login', { username: 'lisem', password: 'Perov-Ç4ke' });
+  ok(
+    (await C.j('GET', '/api/me')).j.recovery === true,
+    'this computer has another key: the admin downloads a new recovery file',
+  );
+  ok((await C.j('POST', '/api/backups/recovery/saved')).s === 409, 'the old download does not count');
+  C.s.kill();
 }
 
 db.close();

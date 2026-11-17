@@ -66,6 +66,11 @@ export default function App() {
             onDone={() => setMe({ ...me, mustChange: 0 })}
             onLogout={() => api('/logout', 'POST').finally(() => setMe(null))}
           />
+        ) : me && me.recovery ? (
+          <RecoveryFile
+            onDone={() => setMe({ ...me, recovery: false })}
+            onLogout={() => api('/logout', 'POST').finally(() => setMe(null))}
+          />
         ) : me ? (
           <MeCtx.Provider
             value={{
@@ -143,6 +148,52 @@ function NewPassword({ me, onDone, onLogout }: { me: Me; onDone: () => void; onL
         {err && <p className="err">{err}</p>}
         <button className="btn" disabled={!cur || !passwordOk(nw, again)}>
           Save and continue
+        </button>
+        <button type="button" className="link" onClick={onLogout}>
+          Sign out
+        </button>
+      </form>
+    </main>
+  );
+}
+
+/**
+ * After the first setup, and after a restore that gave this computer a new backup key (0.53): the admin downloads the recovery
+ * file and says it is kept somewhere else before going on. Without it, a broken computer can take the lab's encrypted copies with
+ * it.
+ */
+function RecoveryFile({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
+  const [got, setGot] = useState(false),
+    [saved, setSaved] = useState(false),
+    [err, setErr] = useState('');
+  const go = (e: React.FormEvent) => {
+    e.preventDefault();
+    api('/backups/recovery/saved', 'POST')
+      .then(onDone)
+      .catch((x) => setErr((x as Error).message.replace(/^./, (c) => c.toUpperCase()) + '.'));
+  };
+  return (
+    <main className="login">
+      <form className="card recovery-card" onSubmit={go}>
+        <h1>Save the recovery file</h1>
+        <p>
+          It holds the backup key and the lab’s id. If this computer breaks or is replaced, a new PANOPTICA restores the
+          lab from its backups with it.
+        </p>
+        <p className="mut">
+          Keep it off this computer: in a password manager, or on a USB stick kept with the lab’s papers. You can
+          download it again from Admin settings › Backups.
+        </p>
+        <a className="btn secondary" href="/api/backups/recovery" download onClick={() => setGot(true)}>
+          Download the recovery file
+        </a>
+        <label className="recovery-check">
+          <input type="checkbox" checked={saved} disabled={!got} onChange={(e) => setSaved(e.target.checked)} /> I saved
+          it somewhere off this computer
+        </label>
+        {err && <p className="err">{err}</p>}
+        <button className="btn" disabled={!got || !saved}>
+          Continue
         </button>
         <button type="button" className="link" onClick={onLogout}>
           Sign out

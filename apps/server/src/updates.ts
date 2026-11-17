@@ -9,9 +9,11 @@ import {
   readdirSync,
   unlinkSync,
   writeFileSync,
+  rmSync,
   readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { unzipSync } from 'fflate';
 import type { FastifyInstance } from 'fastify';
 import { UpdateSettingsIn } from '@psc/schema';
 import { db } from './db.js';
@@ -281,8 +283,51 @@ async function download(): Promise<State> {
   // the Node it carries (0.52), when this install takes it; otherwise none is kept
   clearRuntime();
   const runtimeRefused = takesRuntime(rel) ? await downloadRuntime(rel, repo, logNote) : undefined;
+  // 0.53: a package that needs a newer Node than this install will run after the update is refused, since it would not start
+  // (an install made by Setup before 0.50.1 still runs Node 22; a manual install runs the computer's own Node)
+  const need = nodeNeeded(zip),
+    after = takesRuntime(rel) && !runtimeRefused ? rel.runtime!.version : runningNode();
+  if (need && Number(after.split('.')[0]) < need) {
+    for (const f of [file, file + '.sig']) rmSync(f, { force: true });
+    clearRuntime();
+    putState({ ...st, downloaded: undefined });
+    logNote(`${rel.version} refused: it needs Node ${need} and this install would run Node ${after}`);
+    throw new Error(
+      setupInstall()
+        ? `Version ${rel.version} needs Node ${need}, and PANOPTICA runs on Node ${after} here. Run the newest PANOPTICA Setup over this install: it brings Node ${need} and keeps the lab's data and settings`
+        : `Version ${rel.version} needs Node ${need}, and this computer has Node ${after}. Install Node ${need} or newer from nodejs.org, then update again`,
+    );
+  }
   putState({ ...st, downloaded: { version: rel.version, file }, runtimeRefused, runtimeFailed: undefined });
   return getState();
+}
+
+/** The oldest Node major a package runs on (0.53: `node` in its package.json); 0 when it does not say (older packages). */
+export function nodeNeeded(zip: Buffer): number {
+  try {
+    const f = unzipSync(new Uint8Array(zip), { filter: (e) => /^[^/]+\/package\.json$/.test(e.name) });
+    const p = Object.values(f)[0];
+    return p ? Number(JSON.parse(Buffer.from(p).toString('utf8')).node) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 0.53 needs Node 26. An install that reached it on an older Node (an update from 0.51 or older, whose update script never
+ * changed Node) is told once per Node it runs on: the admins get a notification, and the log a line.
+ */
+export const NODE_MIN = 26;
+export function oldNodeNotice(log: (m: string) => void) {
+  const node = runningNode();
+  if (Number(node.split('.')[0]) >= NODE_MIN) return;
+  const text = setupInstall()
+    ? `PANOPTICA runs on Node ${node} here and needs Node ${NODE_MIN}. Run the newest PANOPTICA Setup over this install: the lab's data and settings stay.`
+    : `PANOPTICA runs on Node ${node} here and needs Node ${NODE_MIN}. Install Node ${NODE_MIN} or newer from nodejs.org.`;
+  log(text);
+  if (db.prepare("SELECT 1 FROM meta WHERE key='old_node' AND value=?").get(node)) return;
+  db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('old_node',?)").run(node);
+  tellAdmins(text);
 }
 
 /** A line in updates/update.log, the record Admin settings › Updates shows. */

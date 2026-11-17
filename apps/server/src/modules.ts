@@ -132,6 +132,8 @@ export type Module = {
   audit?: { labels: Record<string, string>; names?: [string, string][] };
   /** What pages reload after a change to its routes (live updates): [route pattern, topics]. */
   topics?: [RegExp, string[]][];
+  /** Its database changes (0.53): run again on a backup being restored, to bring it to this version. */
+  migrations?: import('./schema.js').Migration[];
   /** A line about its data in a backup that was just checked ("12 recipes and designs"). */
   backupCheck?(db: import('node:sqlite').DatabaseSync): string;
   /** its routes, registered after the core's */
@@ -160,6 +162,8 @@ export function addModule(m: Module) {
   mods.push(m);
 }
 export const modules = () => [...mods];
+/** The database changes of every module in the package, running or not (their tables exist either way). */
+export const allMigrations = () => [...mods, ...skipped].flatMap((m) => (m.migrations ? [m.migrations] : []));
 export const subjects = () => mods.flatMap((m) => m.subjects ?? []);
 export const subject = (kind: string) => subjects().find((s) => s.kind === kind);
 export const stepDefs = () => mods.flatMap((m) => m.steps ?? []);
