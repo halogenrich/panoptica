@@ -12,7 +12,7 @@ import {
   rmSync,
   readFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 import type { FastifyInstance } from 'fastify';
 import { UpdateSettingsIn } from '@psc/schema';
@@ -348,7 +348,14 @@ function install(lan: boolean) {
   writeFileSync(join(DIR, 'restarting'), new Date().toISOString()); // the start script's window closes instead of waiting for a key
   const args = [f, 'restart', ...(lan ? ['lan'] : [])],
     // the update script waits for this port to be free (0.51: the port is a setting, not always 3000)
-    env = { ...process.env, PSC_ROOT: ROOT, OPEN_BROWSER: '0', PORT: String(listening().port) };
+    env = {
+      ...process.env,
+      PSC_ROOT: ROOT,
+      OPEN_BROWSER: '0',
+      PORT: String(listening().port),
+      // 0.53: the update script and the version it starts run on this Node, not on an older one found first in PATH
+      PATH: [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter),
+    };
   // the script replaces itself during the update, so a copy runs (a script edited while it runs can misbehave). An install made by
   // PANOPTICA Setup (0.49) has no scripts to run by hand: the update script is kept in internal/, for the app alone
   const script =
@@ -435,6 +442,7 @@ function install(lan: boolean) {
     const pass = ['PANOPTICA_TEST', 'UPDATE_PUBLIC_KEY'].flatMap((k) =>
       process.env[k] ? [`--setenv=${k}=${process.env[k]}`] : [],
     );
+    pass.push(`--setenv=PATH=${env.PATH}`, `--setenv=PORT=${env.PORT}`);
     const [cmd, a] = process.env.INVOCATION_ID
       ? [
           'systemd-run',
