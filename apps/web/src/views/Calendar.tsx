@@ -537,7 +537,9 @@ export default function Calendar({
     window.addEventListener('pointerup', stop);
   };
   const open = (d: Draft) => setDraft(d);
+  // nothing to book before the lab has equipment: the calendar still shows the days, birthdays and working hours (0.55.1)
   const newAt = (start: Date, end: Date, eq?: number) =>
+    eqs.length > 0 &&
     open({
       start: start.toISOString(),
       end: end.toISOString(),
@@ -584,6 +586,8 @@ export default function Calendar({
         />
         <button
           className="btn"
+          disabled={!!data && !eqs.length}
+          title={data && !eqs.length ? 'Add equipment under Lab › Equipment to book it' : undefined}
           onClick={() => {
             const s = new Date();
             s.setMinutes(Math.ceil(s.getMinutes() / 30) * 30, 0, 0);
@@ -615,13 +619,11 @@ export default function Calendar({
         </div>
       )}
       {err && <p className="err">{err}</p>}
+      {data && !eqs.length && (
+        <p className="mut small cal-noeq">No equipment yet, so nothing can be booked. Add it under Lab › Equipment.</p>
+      )}
       {!data ? (
         <p className="mut">Loading…</p>
-      ) : !eqs.length ? (
-        <div className="cal-empty">
-          <p>No equipment yet.</p>
-          <p className="mut">The lab’s equipment is added under Lab › Equipment.</p>
-        </div>
       ) : view === 'month' ? (
         <Month
           date={date}
@@ -784,7 +786,10 @@ function TimeGrid({
 }) {
   const cols =
     view === 'day'
-      ? eqs.map((e) => ({ key: 'e' + e.id, day: sod(date), eq: e }))
+      ? eqs.length
+        ? eqs.map((e) => ({ key: 'e' + e.id, day: sod(date), eq: e as Eq | undefined }))
+        : // no equipment yet (0.55.1): the day itself, with its birthdays and working hours
+          [{ key: 'd0', day: sod(date), eq: undefined as Eq | undefined }]
       : Array.from({ length: 7 }, (_, i) => ({
           key: 'd' + i,
           day: addDays(monday(date), i),

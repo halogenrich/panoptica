@@ -86,7 +86,10 @@ export default function Schedule({ me, view }: PhoneProps) {
           </div>
         </section>
       )}
-      <button className="btn ph-wide" disabled={!d} onClick={book}>
+      {d && !bookable.length && (
+        <p className="mut ph-hint">No equipment yet, so nothing can be booked. It is added in the full app.</p>
+      )}
+      <button className="btn ph-wide" disabled={!d || !bookable.length} onClick={book}>
         {mode === 'eq' && eq ? `Book ${eq.name}` : 'Book equipment'}
       </button>
       {!d ? (

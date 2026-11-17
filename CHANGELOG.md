@@ -2,6 +2,10 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.55.1 (2026-11-17)
+
+- **The Calendar shows before any equipment is added**: days, weeks and months, birthdays and working hours, as soon as the lab is set up. Until there is equipment, it says so and New booking is turned off; once equipment is added, it gets its own column in the Day view as before. The phone's Schedule and Today say the same.
+
 ## 0.55.0 (2026-11-17)
 
 - **A layout made for the phone**: on a screen narrower than a tablet, PANOPTICA opens with a bar at the bottom: **Today**, **Run sheet**, **Inventory** and **Schedule**. Buttons are large enough to use with gloves. Tablets and computers keep the layout they had.
