@@ -91,6 +91,20 @@ export function csvFiles(): IvFile[] {
   return [...csvExport('15_03_26-Control_1_01', 0.05, scan1), ...csvExport('15_03_26-Control_1_02', 0.02, scan2)];
 }
 
+/**
+ * The same measurement taken backward first (0.55.3): the software names its sweeps by order, so "Pixel n" is the backward one
+ * (1.2 → −0.1 V) and "Pixel n Reverse" the forward one; the forward scan is the slightly lower one, as in `csvFiles`.
+ */
+export function csvBackwardFirst(): IvFile[] {
+  const Vf = sweep(-0.1, 1.2, 0.02),
+    Vr = sweep(1.2, -0.1, 0.02);
+  const px: Px[] = [1, 2, 3].flatMap((n) => [
+    { label: `Pixel ${n}`, V: Vr, J: Vr.map(good) },
+    { label: `Pixel ${n} Reverse`, V: Vf, J: Vf.map(fwdLow) },
+  ]);
+  return csvExport('19_10_26-Bwdfwd_1_03', 0.02, px);
+}
+
 // ------------------------------------------------------------------ per-curve TXT export (mA/cm², one file per curve)
 export const A = 0.16;
 export function txtFiles(): IvFile[] {

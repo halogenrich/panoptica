@@ -36,11 +36,14 @@ const unitOf = (sec: number) =>
     : sec <= 72 * 3600
       ? { k: 3600, u: 'h', long: 'hours' }
       : { k: 86400, u: 'd', long: 'days' };
-/** Light (first reading) to dark (last) in one hue: the J–V curves of one pixel over the run. */
-const shade = (f: number) => {
-  const a = [196, 220, 250],
-    b = [11, 55, 140];
-  return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * f)).join(',')})`;
+/**
+ * The J–V curves of one pixel over the run in that pixel's colour on the time plot (0.55.3): light for the first reading,
+ * full strength for the last (a real colour, not a CSS mix, so the exported SVG keeps it).
+ */
+const shade = (hex: string, f: number) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)),
+    k = 0.28 + 0.72 * f;
+  return `rgb(${c.map((x) => Math.round(255 + (x - 255) * k)).join(',')})`;
 };
 
 /** The pixels picked for the time plot, kept per run in this browser (0.55.2). */
@@ -136,9 +139,13 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
   const picked = model.filter((l) => pick.includes(l.dev));
   const [px, setPx] = useState(best || devs[0] || ''),
     [pxDir, setPxDir] = useState<Dir>('rev');
+  // the same colour as the pixel's line on the time plot (0.55.3)
+  const pxColor = CMP[Math.max(0, devs.indexOf(px)) % CMP.length];
 
   if (!life) return <p className="mut">This measurement has no lifetime data.</p>;
-  const lines = picked.filter((l) => l.ok);
+  const lines = picked.filter((l) => l.ok),
+    // marks for each reading only when a line has few (0.55.3)
+    few = Math.max(0, ...lines.map((l) => l.pts.length)) <= 12;
   const nBad = lines.reduce((n, l) => n + l.pts.filter((p) => p.bad).length, 0),
     nBulge = lines.reduce((n, l) => n + l.pts.filter((p) => !p.bad && p.c.m.ff > 100).length, 0);
   const log = !norm && metric === 'rsh';
@@ -476,8 +483,8 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
                     fill="none"
                     stroke={l.color}
                     strokeWidth={2.2}
-                    // forward solid, backward dashed in the same colour, as in the J–V figure
-                    strokeDasharray={l.dir === 'rev' && dir === 'both' ? '8 5' : undefined}
+                    // backward solid, forward dashed in the same colour, as in the J–V figure (0.55.3)
+                    strokeDasharray={l.dir === 'fwd' && dir === 'both' ? '8 5' : undefined}
                     strokeLinejoin="round"
                   />
                 </g>
@@ -496,8 +503,8 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
                   })),
                   ...(dir === 'both'
                     ? [
-                        { k: 'fwd', c: INK, dash: undefined, t: 'Forward' },
-                        { k: 'rev', c: INK, dash: '8 5', t: 'Backward' },
+                        { k: 'rev', c: INK, dash: undefined, t: 'Backward' },
+                        { k: 'fwd', c: INK, dash: '8 5', t: 'Forward' },
                       ]
                     : []),
                 ];
@@ -505,19 +512,23 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
                 <>
                   {lines.map((l) => (
                     <g key={l.key}>
-                      {l.pts.map((p, i) => (
-                        <circle
-                          key={i}
-                          cx={X(p.t)}
-                          cy={Y(p.v)}
-                          r={p.bad ? 3.2 : 3.6}
-                          fill={p.bad ? '#fff' : l.color}
-                          stroke={p.bad ? l.color : '#fff'}
-                          strokeWidth={p.bad ? 1.5 : 1}
-                        >
-                          <title>{`${l.label}: ${fmt(p.t, 1)} ${tu.u}, ${fmt(p.raw, DIG[metric])} ${UNIT[metric]}${l.ok ? ` (${fmt((p.raw / l.v0) * 100, 1)} %)` : ''}${p.bad ? ', distorted curve' : ''}`}</title>
-                        </circle>
-                      ))}
+                      {l.pts.map((p, i) => {
+                        const tip = `${l.label}: ${fmt(p.t, 1)} ${tu.u}, ${fmt(p.raw, DIG[metric])} ${UNIT[metric]}${l.ok ? ` (${fmt((p.raw / l.v0) * 100, 1)} %)` : ''}${p.bad ? ', distorted curve' : ''}`;
+                        // plain lines as in the J–V figure (0.55.3): a small solid mark per reading only when there are few,
+                        // a distorted reading always as an open mark, and a wide invisible target so hovering shows the value
+                        return (
+                          <g key={i}>
+                            {p.bad ? (
+                              <circle cx={X(p.t)} cy={Y(p.v)} r={3.4} fill="#fff" stroke={l.color} strokeWidth={1.6} />
+                            ) : few ? (
+                              <circle cx={X(p.t)} cy={Y(p.v)} r={2.6} fill={l.color} />
+                            ) : null}
+                            <circle cx={X(p.t)} cy={Y(p.v)} r={8} fill="transparent">
+                              <title>{tip}</title>
+                            </circle>
+                          </g>
+                        );
+                      })}
                     </g>
                   ))}
                   <g
@@ -681,10 +692,10 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
                 key={c.id}
                 d={path(c)}
                 fill="none"
-                stroke={shade(jv.length > 1 ? i / (jv.length - 1) : 1)}
+                stroke={shade(pxColor, jv.length > 1 ? i / (jv.length - 1) : 1)}
                 strokeWidth={2.2}
-                // backward dashed, as in the J–V figure
-                strokeDasharray={c.dir === 'rev' ? '8 5' : undefined}
+                // forward dashed, as in the J–V figure (0.55.3)
+                strokeDasharray={c.dir === 'fwd' ? '8 5' : undefined}
                 strokeLinejoin="round"
               >
                 <title>{`${fmt((c.t ?? 0) / tu.k, 1)} ${tu.u}: PCE ${fmt(c.m.pce, 2)} %`}</title>
@@ -701,9 +712,9 @@ export default function Lifetime({ s }: { s: IvSetFull }) {
                     x2={30}
                     y1={0}
                     y2={0}
-                    stroke={shade(f)}
+                    stroke={shade(pxColor, f)}
                     strokeWidth={2.2}
-                    strokeDasharray={pxDir === 'rev' ? '8 5' : undefined}
+                    strokeDasharray={pxDir === 'fwd' ? '8 5' : undefined}
                   />
                   <text x={38} y={0} dominantBaseline="central">
                     {jv.length === 1 ? 'reading' : f ? 'last reading' : 'first reading'},{' '}

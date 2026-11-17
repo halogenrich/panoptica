@@ -494,6 +494,18 @@ try {
     await page.getByRole('button', { name: 'New equipment' }).click();
     const dlg = page.locator('.modal, .dialog').filter({ hasText: 'New equipment' }).last();
     await dlg.getByLabel('Name').fill('Spin coater A');
+    // 0.55.3: the colour stays a circle, and the drawing is chosen from the name (click it to change it)
+    const box = await dlg
+      .getByRole('textbox', { name: 'Colour' })
+      .or(dlg.locator('input[type=color]'))
+      .first()
+      .boundingBox();
+    expect(box && Math.abs(box.width - box.height) < 2, `the colour is an oval (${box?.width} × ${box?.height})`);
+    await dlg.getByRole('button', { name: 'Drawing of Spin coater A' }).click();
+    await page.getByRole('listbox', { name: 'Drawing of Spin coater A' }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'equipment-new.png') });
+    await page.keyboard.press('Escape');
+    await page.getByRole('listbox', { name: 'Drawing of Spin coater A' }).waitFor({ state: 'detached' });
     if (!CORE) await dlg.getByRole('button', { name: 'Spin coating' }).click();
     await dlg.getByRole('button', { name: 'Add equipment' }).click();
     // the new equipment opens in its sheet, once it is saved: the "New equipment" window closes first (it also says "What it
@@ -828,7 +840,7 @@ try {
         await page.getByRole('button', { name: 'All', exact: true }).click();
         expect((await on()) === 'P1,P2,P3', 'All picks every pixel');
         await page.getByRole('tab', { name: 'Both', exact: true }).click();
-        expect((await fig.locator('path[stroke-dasharray="8 5"]').count()) >= 3, 'backward dashed when both are shown');
+        expect((await fig.locator('path[stroke-dasharray="8 5"]').count()) >= 3, 'forward dashed when both are shown');
         if (process.env.SHOTS) await fig.screenshot({ path: join(root, 'out', 'lifetime-all-both.png') });
         await page.getByRole('button', { name: 'None', exact: true }).click();
         await page.getByText('Pick a pixel above to plot it.').waitFor();

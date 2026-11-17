@@ -115,6 +115,31 @@ export function splitId(id: string): { sample: string; substrate: string; scan: 
 }
 
 /** Flip a set of curves so the photocurrent is positive, judged on the strongest curve (dead pixels are noise). */
+/**
+ * The way a sweep ran, from its voltages in the order they were measured (0.55.3): falling = backward, rising = forward;
+ * null when it cannot tell (fewer than three points, or as many steps up as down). The Ossila software names its two sweeps by
+ * order ("Pixel n" first, "Pixel n Reverse" second), so with the backward sweep measured first its names are the wrong way
+ * round; the voltages are not.
+ */
+export function sweepDir(V: number[]): Dir | null {
+  const v = V.filter(Number.isFinite);
+  if (v.length < 3) return null;
+  let up = 0,
+    down = 0;
+  for (let i = 1; i < v.length; i++)
+    if (v[i] > v[i - 1]) up++;
+    else if (v[i] < v[i - 1]) down++;
+  return up === down ? null : up > down ? 'fwd' : 'rev';
+}
+
+/** The import's note when some names disagreed with the voltages (one line per file). */
+function dirNote(id: string, crossed: number, total: number) {
+  if (!crossed) return '';
+  return crossed === total
+    ? `${id}: the backward sweep was measured first, so "Pixel n" is read as backward and "Pixel n Reverse" as forward (taken from the voltages)`
+    : `${id}: ${crossed} of ${total} sweeps are named against the way their voltage runs; their direction is taken from the voltages`;
+}
+
 function orient(curves: { V: number[]; J: number[] }[]) {
   let best = 0;
   for (const c of curves) {
@@ -368,6 +393,7 @@ function readCsvExport(files: IvFile[], warn: string[]): IvCurve[] {
     for (const r of csvRows(e.metrics ?? '').slice(1))
       inst.set(r[0].trim(), { pce: num(r[1]), ff: num(r[2]), jsc: Math.abs(num(r[3]) * 1000), voc: num(r[4]) });
     const group: IvCurve[] = [];
+    let crossed = 0;
     for (let c = 0; c + 1 < head.length; c += 2) {
       const label = head[c].trim();
       if (!label) continue;
@@ -385,6 +411,10 @@ function readCsvExport(files: IvFile[], warn: string[]): IvCurve[] {
         }
       }
       if (V.length < 3) continue;
+      // the name says which sweep came first, the voltages which way it ran (0.55.3); the instrument's values stay with the name
+      const named: Dir = pm[2] ? 'rev' : 'fwd',
+        dir = sweepDir(V) ?? named;
+      if (dir !== named) crossed++;
       group.push({
         file: e.dataFile ?? id,
         system: 'csv',
@@ -393,7 +423,7 @@ function readCsvExport(files: IvFile[], warn: string[]): IvCurve[] {
         substrate,
         scan,
         pixel: pm[1],
-        dir: pm[2] ? 'rev' : 'fwd',
+        dir,
         area: area || 0,
         pin,
         V,
@@ -403,6 +433,8 @@ function readCsvExport(files: IvFile[], warn: string[]): IvCurve[] {
       });
     }
     if (!group.length) warn.push(`${id}: no curves found in the J-V Data file`);
+    const note = dirNote(id, crossed, group.length);
+    if (note) warn.push(note);
     orient(group);
     out.push(...group);
   }
@@ -432,6 +464,7 @@ function readTxtExport(files: IvFile[], warn: string[]): IvCurve[] {
   }
   const out: IvCurve[] = [],
     bySub = new Map<string, IvCurve[]>();
+  const txtCrossed: string[] = [];
   for (const f of files) {
     const m = TXT_CURVE.exec(base(f.name));
     if (!m) continue;
@@ -455,8 +488,10 @@ function readTxtExport(files: IvFile[], warn: string[]): IvCurve[] {
     }
     const s = splitId(id.replace(/^\d{6}_/, '')),
       date = ivDate((d ?? '').trim()) || ivDate(id.slice(0, 6));
-    const dir: Dir = /back/i.test(dirw) ? 'rev' : 'fwd',
+    const named: Dir = /back/i.test(dirw) ? 'rev' : 'fwd',
+      dir = sweepDir(V) ?? named, // the voltages decide (0.55.3), the file name only when they cannot
       p = params.get(`${id}-${dirw}-${pixel}`);
+    if (dir !== named) txtCrossed.push(base(f.name));
     A.sort((a, b) => a - b);
     const c: IvCurve = {
       file: f.name,
@@ -483,6 +518,10 @@ function readTxtExport(files: IvFile[], warn: string[]): IvCurve[] {
       .sort((a, b) => a - b);
     if (known.length) for (const c of g) if (!c.area) c.area = known[Math.floor(known.length / 2)]; // dead pixels: same mask as their neighbours
   }
+  if (txtCrossed.length)
+    warn.push(
+      `${txtCrossed.length} ${txtCrossed.length === 1 ? 'file is' : 'files are'} named against the way the voltage runs (${txtCrossed[0]}${txtCrossed.length > 1 ? ', …' : ''}); the direction is taken from the voltages`,
+    );
   return out;
 }
 
@@ -626,7 +665,8 @@ export function parseLifetime(files: IvFile[]): LifetimeRun[] {
     const exact = !!pick && pick.n === jv.length;
     const curves: LifeCurve[] = [];
     const times: number[] = [];
-    let dropped = 0;
+    let dropped = 0,
+      crossedLife = 0;
     jv.forEach(({ f, ms }, k) => {
       const rows = csvRows(f.text),
         head = rows[0] ?? [],
@@ -649,8 +689,11 @@ export function parseLifetime(files: IvFile[]): LifetimeRun[] {
           }
         }
         if (V.length < 3) continue;
-        const dir: Dir = pm[2] ? 'rev' : 'fwd',
-          row = sum.get(`${pm[1]}|${dir}`)?.[k];
+        // the per-scan file goes with the sweep of the same name; the direction comes from the voltages (0.55.3)
+        const named: Dir = pm[2] ? 'rev' : 'fwd',
+          dir = sweepDir(V) ?? named,
+          row = sum.get(`${pm[1]}|${named}`)?.[k];
+        if (dir !== named) crossedLife++;
         const t = exact && row && Number.isFinite(row[0]) ? row[0] : (ms - jv[0].ms) / 1000;
         group.push({
           file: f.name,
@@ -683,6 +726,8 @@ export function parseLifetime(files: IvFile[]): LifetimeRun[] {
       curves.push(...group);
       times.push(group.length ? Math.min(...group.map((c) => c.t)) : (ms - jv[0].ms) / 1000);
     });
+    const lifeNote = dirNote(run, crossedLife, curves.length);
+    if (lifeNote) warnings.push(lifeNote);
     if (dropped)
       warnings.push(
         `${run}: ${dropped} J–V point${dropped === 1 ? '' : 's'} with a current of exactly 0 (readings the instrument missed) left out`,

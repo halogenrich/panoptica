@@ -1,5 +1,5 @@
-import { add, db, has, meta, mark, migrate, type Migration } from '@psc/server/api';
-import { solutionDefaults, solutionUses, spinDefaults, spinUses } from '@psc/devices';
+import { add, audit, db, has, meta, mark, migrate, type Migration } from '@psc/server/api';
+import { solutionDefaults, solutionUses, spinDefaults, spinUses, sweepDir } from '@psc/devices';
 import { classifySet, markShortsInSet } from './ivdata.js';
 
 /**
@@ -212,5 +212,46 @@ CREATE TABLE IF NOT EXISTS comparisons(
       d.exec('CREATE UNIQUE INDEX IF NOT EXISTS batches_name ON batches(name COLLATE NOCASE)');
     },
   },
+  {
+    id: 42,
+    owner: 'devices',
+    name: 'scan direction from the voltages (0.55.3): curves of a backward-first measurement had their names the wrong way round',
+    up: (d) => {
+      // the Ossila software names sweeps by order ("Reverse" = the second); the stored voltages are in measured order
+      const rows = d.prepare('SELECT id, dir, data FROM iv_curves').all() as {
+        id: number;
+        dir: string;
+        data: string;
+      }[];
+      const set = d.prepare('UPDATE iv_curves SET dir=? WHERE id=?');
+      let n = 0;
+      for (const r of rows) {
+        let V: number[];
+        try {
+          V = (JSON.parse(r.data) as { V?: number[] }).V ?? [];
+        } catch {
+          continue; // a curve whose data cannot be read keeps its direction
+        }
+        const dir = sweepDir(V);
+        if (dir && dir !== r.dir) {
+          set.run(dir, r.id);
+          n++;
+        }
+      }
+      if (n) mark(d, 'iv_dir_fixed', String(n)); // told in the activity log once the app has started (below)
+    },
+  },
 ];
 migrate(db, MIGRATIONS);
+// 0.55.3: how many stored curves migration 42 corrected, once, in the activity log
+{
+  const fixed = db.prepare("SELECT value FROM meta WHERE key='iv_dir_fixed'").get() as { value: string } | undefined;
+  if (fixed) {
+    audit({
+      username: 'PANOPTICA',
+      action: 'Read the scan directions from the voltages',
+      target: `${fixed.value} J–V ${fixed.value === '1' ? 'curve' : 'curves'} corrected (backward sweep measured first)`,
+    });
+    db.prepare("DELETE FROM meta WHERE key='iv_dir_fixed'").run();
+  }
+}

@@ -8147,6 +8147,15 @@ input[type='color']::-moz-color-swatch {
   border: 0;
   border-radius: 50%;
 }
+/* round in any row or form: the field rules (min-width 64 px) had stretched it into an oval (0.55.3) */
+.inline input[type='color'],
+.row > input[type='color'],
+.fld input[type='color'],
+td input[type='color'] {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+}
 input[type='color']:focus-visible {
   outline: 2px solid var(--ac);
   outline-offset: 2px;
@@ -8404,6 +8413,19 @@ input[type='color']:focus-visible {
 }
 .modal.eq-new {
   width: min(640px, 100%);
+}
+/* new equipment (0.55.3): its drawing (click to change), the name, the colour, as on the equipment's page */
+.eq-new-head {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+.eq-new-colour {
+  flex: none;
+  justify-items: center;
+}
+.eq-new-colour input[type='color'] {
+  margin-bottom: 6px;
 }
 .eq-form {
   display: grid;

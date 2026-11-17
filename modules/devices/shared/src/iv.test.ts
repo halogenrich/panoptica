@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Dir } from './iv';
-import { A, csvFiles, txtFiles } from './ivfixtures';
+import { A, csvBackwardFirst, csvFiles, txtFiles } from './ivfixtures';
 import {
   boxStats,
   checkSweeps,
@@ -11,6 +11,7 @@ import {
   ivMetrics,
   parseIvFiles,
   splitId,
+  sweepDir,
   sweepStep,
 } from './iv';
 
@@ -185,5 +186,33 @@ describe('shorted pixels', () => {
   });
   it('a dead scan is not a short', () => {
     expect(shortedPixels([c('1', 'ok'), c('1', 'dead')]).size).toBe(0);
+  });
+});
+
+describe('scan direction (0.55.3)', () => {
+  it('comes from the voltages: falling is backward, rising forward', () => {
+    expect(sweepDir([1.2, 1.0, 0.8, 0.6])).toBe('rev');
+    expect(sweepDir([-0.1, 0.1, 0.3, 0.5])).toBe('fwd');
+    expect(sweepDir([0.1, 0.2])).toBe(null); // too short to tell
+    expect(sweepDir([0, 0.1, 0, 0.1, 0])).toBe(null); // as many steps up as down
+  });
+  it('a forward-first export is read as before', () => {
+    const { curves, warnings } = parseIvFiles(csvFiles());
+    const scan2 = curves.filter((c) => c.scan === '02');
+    expect(scan2.filter((c) => c.dir === 'rev').every((c) => c.V[0] > c.V[c.V.length - 1])).toBe(true);
+    expect(scan2.filter((c) => c.dir === 'fwd').every((c) => c.V[0] < c.V[c.V.length - 1])).toBe(true);
+    expect(warnings.some((w) => /measured first|named against/.test(w))).toBe(false);
+  });
+  it('a backward-first export: "Pixel n" is backward, "Pixel n Reverse" forward, and the import says so once', () => {
+    const { curves, warnings } = parseIvFiles(csvBackwardFirst());
+    expect(curves).toHaveLength(6);
+    for (const c of curves) expect(c.dir).toBe(c.V[0] > c.V[c.V.length - 1] ? 'rev' : 'fwd');
+    // the instrument's own values stay with the sweep they were written for: the forward one is the lower
+    const p1 = curves.filter((c) => c.pixel === '1');
+    expect(p1.find((c) => c.dir === 'fwd')!.inst!.pce!).toBeLessThan(p1.find((c) => c.dir === 'rev')!.inst!.pce!);
+    expect(warnings.filter((w) => /backward sweep was measured first/.test(w))).toHaveLength(1);
+    // hysteresis is now the right way round: backward above forward
+    const m = (d: Dir) => ivMetrics(p1.find((c) => c.dir === d)!.V, p1.find((c) => c.dir === d)!.J, 100).pce;
+    expect(hysteresisIndex(m('rev'), m('fwd'))).toBeGreaterThan(0);
   });
 });
