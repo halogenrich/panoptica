@@ -8845,3 +8845,15 @@ input[type='color']:focus-visible {
 .dup-side .btn {
   margin-top: 8px;
 }
+
+/* Admin settings › Inventory (0.54.2): the list of imports */
+.list.imports .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.list.imports .imp-file {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

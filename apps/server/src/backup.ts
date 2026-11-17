@@ -20,14 +20,14 @@ import { CONFIG_DIR, hasConfig, writeConfig } from './config.js';
 /**
  * Database backups. Files live in the app's `backups` folder (next to start.bat), named
  * data-YYYYMMDD-HHMMSS-<kind>.db. Kinds: auto (daily, by the server), manual (Back up now), update (update script),
- * before-restore (restore script). Files without a kind are older update-script backups.
+ * before-restore (restore script), before-purge (purging the inventory or undoing an import, 0.54.2). Files without a kind are older update-script backups.
  */
 export const BACKUP_DIR = resolve(
   process.env.BACKUP_DIR || fileURLToPath(new URL('../../../backups', import.meta.url)),
 );
-export type Kind = 'auto' | 'manual' | 'update' | 'before-restore';
-const KEEP: Record<Kind, number> = { auto: 14, manual: 30, update: 10, 'before-restore': 10 };
-const NAME = /^data-(\d{8})-(\d{6})(?:-(auto|manual|update|before-restore))?\.db(\.enc)?$/;
+export type Kind = 'auto' | 'manual' | 'update' | 'before-restore' | 'before-purge';
+const KEEP: Record<Kind, number> = { auto: 14, manual: 30, update: 10, 'before-restore': 10, 'before-purge': 10 };
+const NAME = /^data-(\d{8})-(\d{6})(?:-(auto|manual|update|before-restore|before-purge))?\.db(\.enc)?$/;
 const DAY = 24 * 3600 * 1000;
 
 export interface BackupFile {

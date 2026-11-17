@@ -80,7 +80,7 @@ The app supports HTTPS in two ways (section 7). **Without HTTPS, passwords and d
 | Automatic backups | Once a day while the app runs, and before every update and every restore |
 | Method | SQLite `VACUUM INTO`: a consistent copy while the app is in use |
 | Check | Every new backup is opened and passes SQLite's `integrity_check`; the result is shown to admins |
-| Kept | Last 14 daily, 30 manual, 10 before-update, 10 before-restore |
+| Kept | Last 14 daily, 30 manual, 10 before-update, 10 before-restore, 10 before-purge |
 | Second copy | Every backup is also copied to a folder off the computer (network drive, cloud-synced folder); retried every hour if that folder is offline |
 | Encryption of the second copy | **AES-256-GCM** (authenticated: a damaged or altered file is detected), random key per installation in `config/backup.key`. Each copy is read back and decrypted once to check it |
 | Recovery point | At most one day of work lost if the computer is lost (less with **Back up now**) |

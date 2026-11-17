@@ -13,7 +13,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const DB = path.resolve(process.env.DB_PATH || 'data.db');
 const DIR = path.resolve(process.env.BACKUP_DIR || path.join(__dirname, '..', '..', 'backups'));
-const NAME = /^data-(\d{8})-(\d{6})(?:-(auto|manual|update|before-restore))?\.db$/;
+const NAME = /^data-(\d{8})-(\d{6})(?:-(auto|manual|update|before-restore|before-purge))?\.db$/;
 
 const stamp = (d = new Date()) => {
   const p = (n) => String(n).padStart(2, '0');

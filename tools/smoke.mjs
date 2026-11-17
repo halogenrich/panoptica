@@ -1656,6 +1656,164 @@ if (!BUILT) {
   ok((await call('DELETE', '/api/trash/nothing/1')).s === 404, 'an unknown record type is not in the trash');
 }
 
+console.log('Purging the inventory, undoing an import (0.54.2)');
+{
+  const imp = (file, rows) =>
+    call('POST', '/api/inventory/import', {
+      file,
+      substances: rows.map(([key, name, cas]) => ({ key, name, ...(cas ? { cas } : {}) })),
+      containers: rows.map(([key, , , area, shelf]) => ({ key, amount: 1, size: 1, area, shelf })),
+    });
+  const purge = async () => (await call('GET', '/api/inventory/purge')).j;
+  // the log line is written once the answer is sent: wait for it
+  const logged = async (action, like) => {
+    for (let i = 0; i < 50; i++) {
+      const r = db.prepare('SELECT target FROM audit WHERE action=? AND target LIKE ?').get(action, like);
+      if (r) return r.target;
+      await new Promise((go) => setTimeout(go, 100));
+    }
+    return '';
+  };
+  const kept = () => db.prepare('SELECT COUNT(*) n FROM containers').get().n;
+  const p0 = await purge();
+  ok(
+    p0.all.containers > 0 && p0.all.containers === kept() && Array.isArray(p0.imports),
+    'the counts and the imports are listed',
+  );
+  ok(
+    (await call('GET', '/api/inventory/purge', null, { cookie: anaCookie })).s === 403 &&
+      (await call('POST', '/api/inventory/purge', { scope: 'all' }, { cookie: anaCookie })).s === 403,
+    'only admins see them and purge',
+  );
+  ok((await call('POST', '/api/inventory/purge', { scope: 'year' })).s === 400, 'only everything or the last 7 days');
+  // a wrong import: a new place with a division, a new substance, and a container of a substance the lab already has
+  const before = db.prepare("SELECT id FROM chemicals WHERE cas='68-12-2'").get()?.id;
+  const r1 = await imp('wrong file.xlsx', [
+    ['a', 'Smoke purge salt', '', 'Smoke purge cabinet', 'Top'],
+    ['b', 'N,N-Dimethylformamide', '68-12-2', 'Smoke purge cabinet', 'Top'],
+  ]);
+  ok(r1.s === 200 && r1.j.id > 0, 'an import is recorded');
+  let e = (await purge()).imports.find((x) => x.id === r1.j.id);
+  ok(
+    e.file === 'wrong file.xlsx' &&
+      e.username === 'admin' &&
+      e.containers === 2 &&
+      e.substances === 1 &&
+      e.left.containers === 2 &&
+      e.left.substances === 1 &&
+      e.left.places === 1 &&
+      e.left.divisions === 1,
+    'with its file, person and counts; undoing it would remove its containers, its new substance, place and division',
+  );
+  const boxes = db.prepare('SELECT id FROM containers WHERE import_id=?').all(r1.j.id);
+  const area = db.prepare("SELECT id FROM storage_areas WHERE name='Smoke purge cabinet'").get().id;
+  // one of its containers edited by hand; a container typed in by hand in the place it made
+  db.prepare('UPDATE containers SET updated_at=CURRENT_TIMESTAMP WHERE id=?').run(boxes[0].id);
+  const hand = await call('POST', '/api/inventory/containers', {
+    name: 'Smoke purge hand',
+    amount: 1,
+    size: 1,
+    unit: 'g',
+    area_id: area,
+  });
+  e = (await purge()).imports.find((x) => x.id === r1.j.id);
+  ok(
+    e.left.changed === 1 && e.left.places === 0 && e.left.divisions === 1,
+    'it says how many were edited since; a place someone else used stays',
+  );
+  const nBackups = async () =>
+    (await call('GET', '/api/backups')).j.files.filter((f) => f.kind === 'before-purge').length;
+  const b0 = await nBackups();
+  const u = await call('POST', `/api/inventory/imports/${r1.j.id}/undo`);
+  ok(
+    u.s === 200 && u.j.containers === 2 && u.j.substances === 1 && u.j.places === 0 && u.j.divisions === 1,
+    'undone: its two containers, its substance and the empty division',
+  );
+  ok(
+    !db.prepare('SELECT 1 FROM containers WHERE import_id=?').get(r1.j.id) &&
+      !db.prepare("SELECT 1 FROM chemicals WHERE name='Smoke purge salt'").get() &&
+      db.prepare("SELECT id FROM chemicals WHERE cas='68-12-2'").get()?.id === before &&
+      db.prepare('SELECT 1 FROM containers WHERE id=?').get(hand.j.id) &&
+      db.prepare('SELECT 1 FROM storage_areas WHERE id=?').get(area),
+    'the substance the lab already had, the hand-made container and its place stay',
+  );
+  ok((await nBackups()) === b0 + 1 && /before-purge/.test(u.j.backup), 'a backup was made first');
+  ok(
+    /^wrong file\.xlsx of .+: 2 containers, 1 substance, 1 division$/.test(
+      await logged('Undid an import', 'wrong file.xlsx%'),
+    ),
+    'in the activity log, with the counts',
+  );
+  e = (await purge()).imports.find((x) => x.id === r1.j.id);
+  ok(e.undone_how === 'undo' && !!e.undone_at && e.left === null, 'the list says it was undone');
+  ok((await call('POST', `/api/inventory/imports/${r1.j.id}/undo`)).s === 409, 'and it cannot be undone twice');
+  ok((await call('POST', '/api/inventory/imports/99999/undo')).s === 404, 'an unknown import is not found');
+
+  // the last 7 days: an old container and its substance stay; what came this week goes, also in the trash
+  const old = await call('POST', '/api/inventory/containers', {
+    name: 'Smoke purge old',
+    amount: 1,
+    size: 1,
+    unit: 'g',
+  });
+  const oldChem = db.prepare('SELECT chem_id FROM containers WHERE id=?').get(old.j.id).chem_id;
+  db.prepare("UPDATE containers SET added_at=datetime('now','-30 days'), updated_at=CURRENT_TIMESTAMP WHERE id=?").run(
+    old.j.id,
+  );
+  db.prepare("UPDATE chemicals SET created_at=datetime('now','-30 days') WHERE id=?").run(oldChem);
+  const newer = await call('POST', '/api/inventory/containers', {
+    name: 'Smoke purge old',
+    amount: 2,
+    size: 1,
+    unit: 'g',
+  });
+  const r2 = await imp('week.xlsx', [['c', 'Smoke purge week', '', 'Smoke purge shelf', '']]);
+  const weekChem = db.prepare("SELECT id FROM chemicals WHERE name='Smoke purge week'").get().id;
+  await call('DELETE', '/api/chemicals/' + weekChem); // in the trash with its container
+  const w = (await purge()).week;
+  ok(
+    w.containers ===
+      db.prepare("SELECT COUNT(*) n FROM containers WHERE added_at >= datetime('now','-7 days')").get().n &&
+      w.containers >= 3,
+    'the last 7 days counts what was added in that time',
+  );
+  const pw = await call('POST', '/api/inventory/purge', { scope: 'week' });
+  ok(pw.s === 200 && pw.j.containers === w.containers && pw.j.substances === w.substances, 'purged as counted');
+  ok(
+    db.prepare('SELECT 1 FROM containers WHERE id=?').get(old.j.id) &&
+      db.prepare('SELECT 1 FROM chemicals WHERE id=?').get(oldChem) &&
+      !db.prepare('SELECT 1 FROM containers WHERE id=?').get(newer.j.id) &&
+      !db.prepare('SELECT 1 FROM chemicals WHERE id=?').get(weekChem) &&
+      db.prepare("SELECT 1 FROM storage_areas WHERE name='Smoke purge shelf'").get(),
+    'the older container and its substance stay, even edited; the new ones go, from the trash too; places stay',
+  );
+  ok(
+    (await purge()).imports.find((x) => x.id === r2.j.id).undone_how === 'purge',
+    'an import with nothing left is marked',
+  );
+
+  // everything
+  const places = db.prepare('SELECT COUNT(*) n FROM storage_areas').get().n,
+    divisions = db.prepare('SELECT COUNT(*) n FROM shelves').get().n;
+  const pa = await call('POST', '/api/inventory/purge', { scope: 'all' });
+  ok(
+    pa.s === 200 &&
+      !db.prepare('SELECT 1 FROM containers').get() &&
+      !db.prepare('SELECT 1 FROM chemicals').get() &&
+      !db.prepare('SELECT 1 FROM chem_pairs').get(),
+    'everything: no container, substance or possible duplicate left',
+  );
+  ok(
+    db.prepare('SELECT COUNT(*) n FROM storage_areas').get().n === places &&
+      db.prepare('SELECT COUNT(*) n FROM shelves').get().n === divisions,
+    'storage places and divisions stay',
+  );
+  const p1 = await purge();
+  ok(p1.all.containers === 0 && p1.week.containers === 0, 'nothing left to purge');
+  const line = await logged('Purged the inventory', 'Everything%');
+  ok(/^Everything: 1 container, 1 substance$/.test(line), 'the purge is in the activity log');
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

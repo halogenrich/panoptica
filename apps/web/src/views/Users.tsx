@@ -5,6 +5,7 @@ import { api } from '../api';
 import { Badge, Modal, Seg } from '../lib/ui';
 import { Activity, Licence, Security, Updates } from './AdminSecurity';
 import { NetworkTab } from '../start/Network';
+import AdminInventory from './AdminInventory';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
 import { useContext } from 'react';
@@ -53,7 +54,8 @@ const permsText = (t: Tag) =>
     .filter(Boolean)
     .join(', ');
 const KIND_NOTE = { title: (t: Tag) => permsText(t) || undefined };
-type Tab = 'users' | 'requests' | 'lab' | 'network' | 'backups' | 'security' | 'activity' | 'updates' | 'licence';
+type Tab =
+  'users' | 'requests' | 'lab' | 'network' | 'backups' | 'inventory' | 'security' | 'activity' | 'updates' | 'licence';
 const dmy = (d?: string | null) => (d ? d.split('-').reverse().join('/') : '');
 
 /** Admin settings: one tab per job, the last one used reopens. A new version shows as a strip above the tabs. */
@@ -93,6 +95,7 @@ export default function AdminSettings({ meId }: { meId: number }) {
     ['lab', 'Lab setup'],
     ['network', 'Network'],
     ['backups', 'Backups'],
+    ['inventory', 'Inventory'],
     ['security', 'Security'],
     ['activity', 'Activity log'],
     ['updates', 'Updates'],
@@ -141,6 +144,10 @@ export default function AdminSettings({ meId }: { meId: number }) {
       ) : tab === 'backups' ? (
         <div className="admin-one">
           <Backups />
+        </div>
+      ) : tab === 'inventory' ? (
+        <div className="admin-one">
+          <AdminInventory />
         </div>
       ) : tab === 'security' ? (
         <div className="admin-one">
@@ -331,7 +338,7 @@ function Users({ meId }: { meId: number }) {
 
 type B = {
   name: string;
-  kind: 'auto' | 'manual' | 'update' | 'before-restore';
+  kind: 'auto' | 'manual' | 'update' | 'before-restore' | 'before-purge';
   size: number;
   created: string;
   enc?: boolean;
@@ -341,6 +348,7 @@ const KIND: Record<B['kind'], string> = {
   manual: 'Manual',
   update: 'Before update',
   'before-restore': 'Before restore',
+  'before-purge': 'Before purge',
 };
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
 const ago = (iso: string) => {

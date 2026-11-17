@@ -519,6 +519,27 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       }
     },
   },
+  {
+    id: 41,
+    owner: 'core',
+    name: 'imports recorded, when a substance was first made: purging the inventory and undoing an import (0.54.2)',
+    up: (db) => {
+      // each import, so it can be undone; what it made carries its id
+      db.exec(`CREATE TABLE IF NOT EXISTS inventory_imports(
+        id INTEGER PRIMARY KEY, at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, user_id INTEGER, username TEXT NOT NULL DEFAULT '',
+        file TEXT NOT NULL DEFAULT '', containers INTEGER NOT NULL DEFAULT 0, substances INTEGER NOT NULL DEFAULT 0,
+        undone_at TEXT, undone_by TEXT, undone_how TEXT)`);
+      add(db, 'containers', 'import_id', 'INTEGER');
+      add(db, 'chemicals', 'import_id', 'INTEGER');
+      add(db, 'storage_areas', 'import_id', 'INTEGER');
+      add(db, 'shelves', 'import_id', 'INTEGER');
+      // substances had no date: the one of their oldest container is the closest guess (none: left empty, never "recent")
+      add(db, 'chemicals', 'created_at', 'TEXT');
+      db.exec(
+        'UPDATE chemicals SET created_at=(SELECT MIN(added_at) FROM containers c WHERE c.chem_id=chemicals.id) WHERE created_at IS NULL',
+      );
+    },
+  },
 ];
 
 /**

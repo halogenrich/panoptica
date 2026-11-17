@@ -1095,6 +1095,49 @@ try {
     );
   });
 
+  await step(
+    'Admin settings › Inventory: a wrong import is undone; a purge shows what it removes (0.54.2)',
+    async () => {
+      await page.evaluate(() => (window.location.hash = '#/users'));
+      await page.getByRole('tab', { name: 'Inventory', exact: true }).click();
+      const row = page.locator('table.imports tr').filter({ hasText: 'filled.xlsx' });
+      await row.waitFor();
+      expect((await row.locator('td.num').allInnerTexts()).join() === '1,1', 'the import’s counts');
+      // the last 7 days: everything this test made; the count is the server's
+      const week = (await api('GET', '/inventory/purge')).j.week;
+      await page.locator('[data-purge-count]').getByText(`${week.containers} container`).waitFor();
+      await page.getByRole('tab', { name: 'Everything', exact: true }).click();
+      await page.getByText(/Storage places and divisions stay/).waitFor();
+      await page.getByRole('tab', { name: 'Added in the last 7 days', exact: true }).click();
+      if (process.env.SHOTS) {
+        await page.screenshot({ path: join(root, 'out', 'inventory-tab.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Purge…' }).click();
+        await page.getByRole('dialog', { name: /Purge what was added/ }).waitFor();
+        await page.screenshot({ path: join(root, 'out', 'inventory-purge-dialog.png') });
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.waitForTimeout(600);
+        await page.screenshot({ path: join(root, 'out', 'inventory-tab-390-dark.png'), fullPage: true });
+        await page.setViewportSize({ width: 1400, height: 900 });
+        await page.emulateMedia({ colorScheme: 'light' });
+      }
+      await row.getByRole('button', { name: 'Undo' }).click();
+      const dlg = page.getByRole('dialog', { name: 'Undo this import?' });
+      await dlg.getByText(/added by filled\.xlsx/).waitFor();
+      if (process.env.SHOTS) await page.waitForTimeout(400); // the dialog fades in
+      if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'inventory-undo-dialog.png') });
+      await dlg.getByRole('button', { name: 'Remove 1 container' }).click();
+      await dlg.waitFor({ state: 'detached' });
+      await row.getByText(/^Undone /).waitFor();
+      await page.getByText(/^Removed 1 container, 1 substance/).waitFor();
+      expect(
+        !(await api('GET', '/chemicals')).j.some((x) => x.name === 'Browser template salt'),
+        'the import’s substance is still there',
+      );
+    },
+  );
+
   if (!CORE)
     await step('a batch shows its substances by short name, in its outputs and the run data (0.54.1)', async () => {
       const sol = await api('POST', '/presets', {

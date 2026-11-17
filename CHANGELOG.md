@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.54.2 (2026-11-17)
+
+- **Purge the inventory**: Admin settings › **Inventory** (admins only) removes in one go either what was **added in the last 7 days** (containers typed in or imported in that time, and substances first added then that have no older containers) or **everything** (every container and substance, also those in the trash). Storage places and divisions stay. Older items stay even when they were edited, past batches keep what they recorded, and recipes show a removed substance as not in the inventory. The counts are shown before anything is removed.
+- **Undo an import**: the same tab lists every import (date, file, who, containers, new substances). **Undo** removes what that import added: its containers, also those edited since (the confirmation says how many), and the substances, storage places and divisions it created that nothing else uses. Imports made before this version are not in the list; use "Added in the last 7 days" for those.
+- PANOPTICA backs up the lab before every purge or undo (Backups › "Before purge") and removes nothing if the backup fails. Removed items skip the trash. Each purge and undo is in the activity log with what it removed.
+
 ## 0.54.1 (2026-11-17)
 
 - **Short names on run sheets and outputs**: printed run sheets of batches and stacks, the spin coating and evaporation outputs, recipe summaries and details, run data fields ("DMF dispensed", "MACl added"), the batch's "From the inventory" list, variant descriptions and the batch report show substances by their short name when they have one. On screen the full name shows on hover; the batch's Excel export has a Substances sheet with each short name and its full name.

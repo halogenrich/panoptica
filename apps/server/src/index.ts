@@ -24,6 +24,7 @@ import { db, tx, perms, tagHas, tagsOf } from './db.js';
 import { hash, verify as verifyRaw } from './auth.js';
 import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
+import { registerPurge } from './purge.js';
 import { checkDuplicates, registerChemicals } from './chemicals.js';
 import { registerDraws } from './draws.js';
 import { registerCalendar } from './calendar.js';
@@ -470,6 +471,7 @@ app.patch('/api/users/:id', { preHandler: auth(true) }, async (req: any, reply) 
 registerEvents(app, auth);
 registerSocial(app, auth, bad);
 registerInventory(app, auth, bad);
+registerPurge(app, auth, bad);
 registerEquipment(app, auth, bad);
 registerCalendar(app, auth, bad);
 for (const m of modules()) m.register?.(app, auth, bad);
