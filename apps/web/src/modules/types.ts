@@ -98,6 +98,21 @@ export type TrayProps = {
   open: Open;
 };
 
+/**
+ * The phone layout (0.55): on a screen narrower than 760 px the app opens a layout of its own with a bar at the bottom
+ * (Today, the modules' tabs, Inventory, Schedule). A module adds a tab (Electronic Devices: Run sheet) and its part of Today.
+ */
+export type PhoneProps = {
+  me: Me;
+  /** opens a tab of the phone layout, and an item on it */
+  go: (tab: string, id?: number | null) => void;
+  /** the item open on this tab */
+  openId: number | null;
+  /** opens what a desktop page shows ('batches', id): its phone tab when there is one, else the full app */
+  view: (view: string, id?: number | null) => void;
+};
+export type PhoneTab = { key: string; label: string; Icon: FC<{ size?: number }>; render: FC<PhoneProps> };
+
 export type WebModule = {
   id: string;
   groups: Group[];
@@ -108,4 +123,6 @@ export type WebModule = {
   afterOutcome?: Record<string, FC<{ booking: Booking; onClose: () => void }>>;
   /** always mounted next to the pages (windows a module opens from anywhere, such as the data package) */
   Overlay?: FC;
+  /** its place in the phone layout (0.55): a tab in the bottom bar, its part of Today, where its notifications open */
+  phone?: { tab?: PhoneTab; Today?: FC<PhoneProps>; views?: Record<string, string> };
 };

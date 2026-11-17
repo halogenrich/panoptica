@@ -24,7 +24,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      # the main flows clicked through in Chromium, on the packaged app (Linux is enough: it is the same web app)
+      # the main flows clicked through in Chromium, on the packaged app (Linux is enough: it is the same web app); the phone
+      # layout also in WebKit, Safari's engine, as an iPhone (0.55)
       - if: runner.os == 'Linux'
-        run: npx playwright install --with-deps chromium && npm run test:browser && npm run test:browser:core
+        run: npx playwright install --with-deps chromium webkit && npm run test:browser -- --webkit && npm run test:browser:core
       - run: npm audit --audit-level=moderate

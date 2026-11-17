@@ -8857,3 +8857,409 @@ input[type='color']:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------ the phone layout (0.55) */
+/* Safari on iPhone and Chrome on Android: safe areas (notch, home indicator), the address bar's changing height (dvh),
+   17 px fields (no zoom on focus), 48 px targets for gloved hands, no grey flash on tap. */
+.phone {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+.phone button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.ph-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: calc(4px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 4px
+    max(16px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-bottom: 1px solid var(--sep);
+}
+.ph-top h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ph-icon {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  padding: 0;
+}
+.ph-icon .bell-n {
+  top: 6px;
+  right: 4px;
+}
+.ph-main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px max(14px, env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+}
+.ph-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 2px max(4px, env(safe-area-inset-right)) calc(2px + env(safe-area-inset-bottom))
+    max(4px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-top: 1px solid var(--sep);
+}
+.ph-bar button {
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  background: none;
+  color: var(--mut);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+.ph-bar button.on {
+  color: var(--ac);
+  font-weight: 600;
+}
+.ph-pop {
+  top: calc(60px + env(safe-area-inset-top));
+  left: 10px;
+  right: 10px;
+  width: auto;
+  max-height: calc(100dvh - 160px);
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+}
+.ph-wide {
+  width: 100%;
+  min-height: 52px;
+  font-size: 17px;
+}
+.ph-stack {
+  display: grid;
+  gap: 14px;
+}
+.ph-stack > .group {
+  margin: 0;
+}
+.ph-stack > .seg {
+  display: flex;
+}
+.ph-stack > .seg button {
+  flex: 1;
+  min-height: 44px;
+  font-size: 15px;
+}
+.ph-hint {
+  margin: 0;
+  padding: 2px;
+  line-height: 1.45;
+}
+.ph-more {
+  justify-self: start;
+  min-height: 44px;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 15px;
+}
+.ph-list > * + * {
+  border-top: 1px solid var(--sep);
+}
+.ph-tap {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.gone {
+  opacity: 0.55;
+}
+
+/* a booking: the time in large figures, the equipment with its colour as a bar under the name */
+.ph-hero-when {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ac);
+}
+.ph-book {
+  display: grid;
+  grid-template-columns: 4.6em 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 12px 0;
+}
+.ph-time {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+.ph-time span {
+  display: block;
+  font-weight: 400;
+  color: var(--mut);
+}
+.ph-book.big {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+.ph-book.big .ph-time {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.ph-book.big .ph-time span {
+  display: inline;
+  font-size: 26px;
+  font-weight: 500;
+}
+.ph-book-b {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ph-eq {
+  justify-self: start;
+  padding-bottom: 3px;
+  border-bottom: 3px solid var(--c, var(--sep));
+  font-size: 17px;
+}
+.ph-book.big .ph-eq {
+  font-size: 20px;
+}
+.ph-what {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+/* inventory */
+.ph-search {
+  display: flex;
+  gap: 8px;
+  position: sticky;
+  top: calc(57px + env(safe-area-inset-top));
+  z-index: 5;
+}
+.ph-search input {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  padding: 0 14px;
+  font-size: 17px;
+  border-radius: var(--r);
+  border: 1px solid var(--sep);
+  background: var(--card);
+  color: var(--fg);
+}
+.ph-scan {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.ph-chem-h {
+  display: grid;
+  gap: 2px;
+}
+.ph-chem-h b {
+  font-size: 19px;
+}
+.ph-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+}
+.ph-box-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.ph-where {
+  font-size: 16px;
+}
+.ph-box.hit .ph-where {
+  font-weight: 700;
+}
+.ph-amt {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.ph-edit {
+  display: grid;
+  gap: 10px;
+}
+.ph-actions {
+  display: flex;
+  gap: 8px;
+}
+.ph-actions > .btn {
+  flex: 1;
+  min-height: 48px;
+  font-size: 16px;
+}
+.ph-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ph-field > span {
+  font-size: 13px;
+  color: var(--mut);
+}
+.ph-field input,
+.ph-field .picker input {
+  height: 48px;
+  font-size: 17px;
+}
+.ph-scanner video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: var(--r);
+  background: #000;
+}
+
+/* schedule */
+.ph-eqday {
+  gap: 12px;
+}
+.ph-daynav {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.ph-daynav > .btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+.ph-daynav .grow {
+  flex: 1;
+}
+
+/* run sheet */
+.ph-batch {
+  display: grid;
+  gap: 3px;
+  padding: 12px 0;
+}
+.ph-batch b {
+  font-size: 17px;
+}
+.ph-back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  font-size: 17px;
+}
+.ph-batch-h h2 {
+  margin: 0 0 2px;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+.ph-layers {
+  display: grid;
+  gap: 10px;
+}
+.ph-layer-h {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.ph-layer-h .grow {
+  display: grid;
+  gap: 1px;
+}
+.ph-layer-h b {
+  font-size: 17px;
+}
+.ph-layer-n {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--sep);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ph-layer.done .ph-layer-n {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: #fff;
+}
+.ph-layer-b {
+  display: grid;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sep);
+}
+.ph-proc {
+  display: grid;
+  gap: 10px;
+}
+.ph-proc-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ph-out {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
