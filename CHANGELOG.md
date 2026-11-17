@@ -2,6 +2,11 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.55.2 (2026-11-17)
+
+- **Lifetime figures look like the J–V figures**: both the parameter-over-time plot and the J–V curves over the run are 7 × 5, with a closed frame, ticks inside on all four sides, the same grid, fonts and line widths, a title, and the legend inside the frame. The J–V curves over the run use the J–V figure's axes (0–1.2 V by 0.2, 0–30 mA/cm² by 5, longer only when the data go beyond) and draw the backward scan dashed. With both directions, backward is dashed and forward solid in the same colour, as everywhere else.
+- **Pick the pixels to plot**: toggles above the time plot, one per pixel with its colour under its name, plus All and None. A run opens with its best pixel (highest first-reading PCE), and your choice is remembered for that run. The table below still lists every pixel, and the CSV keeps every reading. The J–V curves over the run also open on the best pixel.
+
 ## 0.55.1 (2026-11-17)
 
 - **The Calendar shows before any equipment is added**: days, weeks and months, birthdays and working hours, as soon as the lab is set up. Until there is equipment, it says so and New booking is turned off; once equipment is added, it gets its own column in the Day view as before. The phone's Schedule and Today say the same.
