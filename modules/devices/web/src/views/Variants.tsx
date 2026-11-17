@@ -6,6 +6,7 @@ import { RemoveRow } from '@web/views/common';
 import { SEG, METHODS, type Method, methodName } from '../stacks/model';
 import type { Batch } from './Batches';
 import { Picker } from '@web/views/Picker';
+import { useChems } from '@web/views/common';
 
 type P = { id: number; name: string; segment: string; parent_id: number | null };
 export const NO_VARIANTS: VariantsD = { control: '', list: [] };
@@ -35,6 +36,12 @@ export default function Variants({ b, onSaved }: { b: Batch; onSaved: (v: Varian
     [err, setErr] = useState(''),
     [control, setControl] = useState(v.control);
   useEffect(() => setControl(v.control), [v.control]);
+  // substances by short name (0.54.1): the batch's, else the inventory's
+  const live = useChems();
+  const short = (n: string) =>
+    (b.snapshot.chems as { name: string; s?: string }[]).find((c) => c.name === n)?.s ||
+    live.find((c) => c.name === n)?.s ||
+    n;
 
   const toIn = (x: Variant) => ({
     id: x.id,
@@ -123,7 +130,7 @@ export default function Variants({ b, onSaved }: { b: Batch; onSaved: (v: Varian
             <div className="var-name">
               <b>{x.name}</b>
               <ul className="var-changes">
-                {describeChanges(x, sl).map((t, i) => (
+                {describeChanges(x, sl, short).map((t, i) => (
                   <li key={i}>{t}</li>
                 ))}
               </ul>
@@ -257,7 +264,7 @@ function Editor({
     [mode, setMode] = useState<'changes' | 'stack'>(v.stack ? 'stack' : 'changes'),
     [stackId, setStackId] = useState(v.stack ? String(v.stack.id) : ''),
     [busy, setBusy] = useState(false),
-    chems = b.snapshot.chems.map((c: { name: string }) => c.name);
+    chems = b.snapshot.chems as { name: string; s?: string; f?: string }[];
   useEffect(() => {
     api<P[]>('/presets')
       .then(setAll)
@@ -406,7 +413,12 @@ function Editor({
                         free
                         value={c.name}
                         onChange={(name) => set(i, { ...c, name })}
-                        options={chems.map((n) => ({ value: n, label: n }))}
+                        options={chems.map((c) => ({
+                          value: c.name,
+                          label: c.name,
+                          short: c.s || undefined,
+                          other: c.f ? [c.f] : [],
+                        }))}
                       />
                       <input
                         className="var-amount"

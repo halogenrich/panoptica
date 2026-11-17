@@ -3,7 +3,7 @@ import { fmtAmount, isMass, toBase } from '@psc/core';
 import { snapshotUses } from '@psc/devices';
 import { api } from '@web/api';
 import { useRefresh } from '@web/lib/trash';
-import { bottleText } from '@web/views/common';
+import { bottleText, useChems } from '@web/views/common';
 import type { Batch, BRun } from './Batches';
 
 /** One amount a batch took from a container, as the server recorded it (0.45). */
@@ -53,6 +53,16 @@ function runsBy(runs: BRun[]) {
 
 export function BatchTakes({ b, runs }: { b: Batch; runs: BRun[] }) {
   const [takes, setTakes] = useState<Take[] | null>(null);
+  // short names (0.54.1): the batch's, else the inventory's for a batch started before
+  const live = useChems();
+  const short = (name: string) => {
+    const l = name.toLowerCase();
+    return (
+      (b.snapshot.chems as { name: string; s?: string }[]).find((c) => c.name.toLowerCase() === l)?.s ||
+      live.find((c) => c.name.toLowerCase() === l)?.s ||
+      name
+    );
+  };
   const started = b.status !== 'planned',
     counts = !!(b.snapshot as { takes?: boolean }).takes;
   const load = () => {
@@ -114,7 +124,7 @@ export function BatchTakes({ b, runs }: { b: Batch; runs: BRun[] }) {
                     const bt = bottleOf(s.name);
                     return (
                       <tr key={s.name}>
-                        <td>{s.name}</td>
+                        <td title={s.name}>{short(s.name)}</td>
                         <td className="nowrap">
                           {planned(s)}
                           <Basis v={!s.runs ? 'planned' : s.runs === s.parts ? 'run' : 'partly'} />
@@ -155,7 +165,7 @@ export function BatchTakes({ b, runs }: { b: Batch; runs: BRun[] }) {
             <tbody>
               {takes.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.substance}</td>
+                  <td title={t.substance}>{short(t.substance)}</td>
                   <td className="nowrap">
                     {t.amount !== null ? takenText(t.amount, t.unit) : '—'}
                     <Basis v={t.basis} />
