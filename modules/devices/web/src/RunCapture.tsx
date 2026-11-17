@@ -6,6 +6,7 @@ import { KINDS } from './recipes';
 import { norm } from './recipes/types';
 import { RunForm } from './lib/Library';
 import { stepCaptures, type StepPreset } from './lib/stepRuns';
+import { useChems } from '@web/views/common';
 
 /**
  * After a batch step is concluded: the run data of the step's recipes, one form after the other (0.43: Electronic Devices'
@@ -13,6 +14,7 @@ import { stepCaptures, type StepPreset } from './lib/stepRuns';
  */
 export default function RunCapture({ booking, onClose }: { booking: Booking; onClose: () => void }) {
   const [capture, setCapture] = useState<{ b: Batch; items: StepPreset[]; at: number } | null>(null);
+  const live = useChems();
   useEffect(() => {
     api<Batch>('/batches/' + booking.subject_id)
       .then((bt) => {
@@ -45,7 +47,7 @@ export default function RunCapture({ booking, onClose }: { booking: Booking; onC
         <RunForm
           key={capture.at}
           kind={k}
-          ctx={snapCtx(capture.b)}
+          ctx={snapCtx(capture.b, live)}
           d={d}
           presetId={+it.id}
           batch={booking.subject_code}

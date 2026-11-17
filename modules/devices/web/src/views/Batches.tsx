@@ -23,6 +23,7 @@ import { BatchMeasurements } from '../iv/IvPage';
 import { BatchTakes } from './BatchTakes';
 import type { Variants as VariantsD } from '@psc/devices';
 import Variants from './Variants';
+import { useChems } from '@web/views/common';
 
 type Status = 'planned' | 'running' | 'done';
 type Row = {
@@ -239,9 +240,16 @@ function List({ onOpen }: { onOpen: (id: number) => void }) {
 const progressText = (r: Pick<Row, 'steps' | 'concluded'>) =>
   r.steps ? `${r.concluded} of ${r.steps} steps concluded` : 'Not scheduled';
 
-/** A Ctx built from the batch's frozen snapshot, so recipe outputs and the 3D view show the batch exactly as it was started. */
-export function snapCtx(b: Pick<Batch, 'snapshot'>): Ctx {
-  const chems = b.snapshot.chems.map((c, i) => ({ id: i, ...c })),
+/**
+ * A Ctx built from the batch's frozen snapshot, so recipe outputs and the 3D view show the batch exactly as it was started.
+ * Short names (0.54.1): the snapshot's, or for a batch started before 0.54.1 the current inventory's (`live`), by name.
+ */
+export function snapCtx(b: Pick<Batch, 'snapshot'>, live: { name: string; s: string }[] = []): Ctx {
+  const chems = b.snapshot.chems.map((c, i) => ({
+      id: i,
+      ...c,
+      s: c.s ?? live.find((x) => x.name === c.name)?.s ?? '',
+    })),
     all: Rec[] = [];
   b.snapshot.stack.sl.forEach((s, i) => {
     const r = b.snapshot.resolved[i] ?? {},
@@ -339,7 +347,8 @@ function Detail({
     );
     return () => clearTimeout(t);
   }, [b?.record]);
-  const ctx = useMemo(() => (b ? snapCtx(b) : null), [b?.id]);
+  const live = useChems();
+  const ctx = useMemo(() => (b ? snapCtx(b, live) : null), [b?.id, live]);
   if (!b || !ctx) return <p className="mut">{msg || 'Loading…'}</p>;
   const st = b.snapshot.stack,
     rec = b.record ?? {};

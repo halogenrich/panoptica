@@ -87,7 +87,8 @@ export function applyVariant<S extends Snap>(snap: S, v: Variant | null | undefi
 }
 
 /** One line per change, for lists and reports: "Perovskite: recipe FAPbI3 + 5 % MACl", "Added layer PEAI after Perovskite". */
-export function describeChanges(v: Variant, sl: SnapSlot[]): string[] {
+/** `short` shows a substance by its short name (0.54.1). */
+export function describeChanges(v: Variant, sl: SnapSlot[], short: (name: string) => string = (n) => n): string[] {
   if (v.stack) return [`Made from the stack ${v.stack.name}`];
   const layer = (i: number | null) => (i === null ? '' : (sl[i]?.n ?? `Layer ${i + 1}`));
   return v.changes.map((c) => {
@@ -99,7 +100,7 @@ export function describeChanges(v: Variant, sl: SnapSlot[]): string[] {
       case 'remove':
         return `Without ${layer(c.slot)}`;
       case 'additive':
-        return `${layer(c.slot)}: additive ${[c.name, c.amount].filter(Boolean).join(' ')}`;
+        return `${layer(c.slot)}: additive ${[c.name && short(c.name), c.amount].filter(Boolean).join(' ')}`;
       case 'other':
         return c.slot === null ? c.text : `${layer(c.slot)}: ${c.text}`;
     }

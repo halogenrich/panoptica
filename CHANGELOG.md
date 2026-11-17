@@ -2,6 +2,11 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.54.1 (2026-11-17)
+
+- **Short names on run sheets and outputs**: printed run sheets of batches and stacks, the spin coating and evaporation outputs, recipe summaries and details, run data fields ("DMF dispensed", "MACl added"), the batch's "From the inventory" list, variant descriptions and the batch report show substances by their short name when they have one. On screen the full name shows on hover; the batch's Excel export has a Substances sheet with each short name and its full name.
+- New batches keep each substance's short name; batches started before take it from the inventory. Recipes and run data are unchanged.
+
 ## 0.54.0 (2026-11-17)
 
 - **Pick from a list by typing**: every list that grows with the lab's data is now a text box with a ranked list under it: substances (additives, solvents, salts, materials, metals), containers, storage places and divisions, equipment, batches, recipes, designs, people, measurements and groups. Type part of a name, a short name (DMF), another name, a formula or a CAS number; small typos are forgiven ("dimetilformamida" finds dimethylformamide). Arrow keys and Enter pick, Escape gives up. Long names end in "…" and no longer stretch the box past its card. Short fixed choices (units, Before spin / At remaining time, the switches) stay as they were.

@@ -12,7 +12,7 @@ import {
   type SubKey,
 } from '@psc/devices';
 import { COLORS, DesignSvg, metalColor, type Layer } from '../designs/DesignSvg';
-import { ChemPicker, Num } from '@web/views/common';
+import { ChemPicker, Num, chemShort } from '@web/views/common';
 import { Picker } from '@web/views/Picker';
 import { SubstrateImg, mmss } from './parts';
 import { Bl, Formula, Section, T, withBlank } from './shared';
@@ -78,12 +78,12 @@ function OrgEditor({ d, set, ctx }: { d: O; set: (p: Partial<O>) => void; ctx: C
   );
 }
 
-function OrgOutput({ d, blanks }: { d: O; ctx: Ctx; blanks?: boolean }) {
+function OrgOutput({ d, ctx, blanks }: { d: O; ctx: Ctx; blanks?: boolean }) {
   const mol = moleculeFor(d.mat);
   return (
     <>
       <p className="headline">
-        {d.mat}{' '}
+        <span title={d.mat}>{chemShort(ctx.chems, d.mat)}</span>{' '}
         <span className="mut">
           · {d.th} nm at {d.rate} {ru(d.u)}
         </span>
@@ -152,8 +152,8 @@ export const organic: Kind<O> = {
     );
   },
   summary: (d) => `${d.th} nm · ${d.rate} ${ru(d.u)} · ${mmss(depositionSeconds(d.th, d.rate, d.u))}`,
-  describe: (d) => ({
-    Material: d.mat,
+  describe: (d, ctx) => ({
+    Material: chemShort(ctx.chems, d.mat),
     Thickness: `${d.th} nm`,
     Rate: `${d.rate} ${ru(d.u)}`,
     'Expected T': `${d.T} °C`,
@@ -383,7 +383,7 @@ function Pattern({ d, small }: { d: M; small?: boolean }) {
   );
 }
 
-function MetOutput({ d, blanks }: { d: M; ctx: Ctx; blanks?: boolean }) {
+function MetOutput({ d, ctx, blanks }: { d: M; ctx: Ctx; blanks?: boolean }) {
   const m = metalStages(d.st);
   const t0 = withBlank(
     blanks,
@@ -402,7 +402,7 @@ function MetOutput({ d, blanks }: { d: M; ctx: Ctx; blanks?: boolean }) {
   return (
     <>
       <p className="headline">
-        {d.met || 'No metal yet'} · {m.final} nm{' '}
+        {d.met ? <span title={d.met}>{chemShort(ctx.chems, d.met)}</span> : 'No metal yet'} · {m.final} nm{' '}
         <span className="mut">
           · {(m.final / 100).toFixed(3)} kÅ on controller · start at {d.p0} % · {mmss(m.total)}
         </span>
@@ -427,12 +427,12 @@ export const metal: Kind<M> = {
   Editor: MetEditor,
   Output: MetOutput,
   Visual: ({ d }) => <Pattern d={d} small />,
-  summary: (d) => {
+  summary: (d, ctx) => {
     const m = metalStages(d.st);
-    return `${d.met} · ${m.final} nm · ${d.st.length} stages · ${mmss(m.total)}`;
+    return `${chemShort(ctx.chems, d.met)} · ${m.final} nm · ${d.st.length} stages · ${mmss(m.total)}`;
   },
-  describe: (d) => ({
-    Metal: d.met,
+  describe: (d, ctx) => ({
+    Metal: chemShort(ctx.chems, d.met),
     Substrate: d.mask ? d.mask.subName : sub(d),
     'Mask layout': d.mask ? d.maskName : pattern(sub(d), d.pat).name,
     Stages: d.st.map((x) => `${x.rate} Å/s to ${x.until} nm`).join(', '),

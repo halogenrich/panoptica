@@ -89,10 +89,12 @@ const sheetsAsCsv = (f: Files, dir: string, sheets: Sheet[]) =>
 
 async function packBatch(f: Files, id: number) {
   const b = await api<Batch & Record<string, unknown>>('/batches/' + id);
-  const [runs, books, sets] = await Promise.all([
+  const [runs, books, sets, live] = await Promise.all([
     api<BRun[]>(`/batches/${id}/runs`).catch(() => []),
     api<Booking[]>(`/batches/${id}/bookings`).catch(() => []),
     batchMeasurements(id),
+    // short names for a batch started before 0.54.1
+    api<{ name: string; s: string }[]>('/chemicals').catch(() => []),
   ]);
   // names tell batches apart; two that only differ in characters a file name drops keep apart by their number
   let dir = `batches/${slug(b.name)}`;
@@ -120,7 +122,7 @@ async function packBatch(f: Files, id: number) {
       runData: runs,
     }),
   );
-  sheetsAsCsv(f, dir, batchSheets(b, snapCtx(b), runs, sets, books));
+  sheetsAsCsv(f, dir, batchSheets(b, snapCtx(b, live), runs, sets, books));
   return { name: b.name, owner: b.owner, date: day(b.created_at) };
 }
 

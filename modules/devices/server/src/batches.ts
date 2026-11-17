@@ -65,6 +65,8 @@ const resolveStack = (u: User, stack: { sl?: { a: string; b: string }[] }, stric
 const frozenChems = () =>
   substances().map((c) => ({
     name: c.name,
+    // short name (0.54.1): run sheets and outputs show it
+    s: c.s,
     role: c.role,
     roles: c.roles,
     f: c.f,

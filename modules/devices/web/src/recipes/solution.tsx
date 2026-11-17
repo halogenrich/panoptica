@@ -41,7 +41,7 @@ const headline = (d: D, ctx: Ctx) =>
     ? noComp(d)
       ? 'No composition yet'
       : plan(d, ctx).target
-    : `${solute(d, ctx) || 'No solute yet'} ${d.c} ${d.u}`;
+    : `${solute(d, ctx) ? chemShort(ctx.chems, solute(d, ctx)) : 'No solute yet'} ${d.c} ${d.u}`;
 
 const A_IONS = ['Cs', 'FA', 'MA'],
   X_IONS = ['I', 'Br', 'Cl'];
@@ -850,18 +850,19 @@ export const solution: Kind<D> = {
     Preparation: prep(d),
   }),
   runFields: (d, ctx) => {
-    const r = plan(d, ctx);
+    const r = plan(d, ctx),
+      sn = (n: string) => chemShort(ctx.chems, n);
     if (r.stocks)
       return [
         ...r.stocks.list.map((x) => ({
           key: 'w:' + x.s,
-          label: `${x.s} weighed for the ${r2(x.c)} M stock (${+x.make.toFixed(3)} mL)`,
+          label: `${sn(x.s)} weighed for the ${r2(x.c)} M stock (${+x.make.toFixed(3)} mL)`,
           expected: `${fix(x.mg)} mg`,
           unit: 'mg',
         })),
         ...r.stocks.list.map((x) => ({
           key: 'v:stock:' + x.s,
-          label: `${x.s} stock added`,
+          label: `${sn(x.s)} stock added`,
           expected: `${fix(x.need, 1)} µL`,
           unit: 'µL',
         })),
@@ -869,27 +870,32 @@ export const solution: Kind<D> = {
           .filter((v) => v.ul > 0.05)
           .map((v) => ({
             key: 'v:' + v.n,
-            label: `${v.n} to make up the volume`,
+            label: `${sn(v.n)} to make up the volume`,
             expected: `${fix(v.ul, 1)} µL`,
             unit: 'µL',
           })),
         ...r.extra.map((a) => ({
           key: 'w:add:' + a.n,
-          label: `${a.n} added`,
+          label: `${sn(a.n)} added`,
           expected: a.ul ? `${fix(a.ul, 1)} µL` : `${fix(a.m)} mg`,
           unit: a.ul ? 'µL' : 'mg',
         })),
         ...(d.heat ? [{ key: 'heat', label: 'Heating', expected: `${d.hT} °C, ${d.hm} min` }] : []),
       ];
     return [
-      ...r.rows.map((a) => ({ key: 'w:' + a.s, label: `${a.s} weighed`, expected: `${fix(a.mg)} mg`, unit: 'mg' })),
+      ...r.rows.map((a) => ({ key: 'w:' + a.s, label: `${sn(a.s)} weighed`, expected: `${fix(a.mg)} mg`, unit: 'mg' })),
       ...r.extra.map((a) => ({
         key: 'w:add:' + a.n,
-        label: `${a.n} added`,
+        label: `${sn(a.n)} added`,
         expected: a.ul ? `${fix(a.ul, 1)} µL` : `${fix(a.m)} mg`,
         unit: a.ul ? 'µL' : 'mg',
       })),
-      ...r.solv.map((v) => ({ key: 'v:' + v.n, label: `${v.n} volume`, expected: `${fix(v.ul, 0)} µL`, unit: 'µL' })),
+      ...r.solv.map((v) => ({
+        key: 'v:' + v.n,
+        label: `${sn(v.n)} volume`,
+        expected: `${fix(v.ul, 0)} µL`,
+        unit: 'µL',
+      })),
       ...(d.heat ? [{ key: 'heat', label: 'Heating', expected: `${d.hT} °C, ${d.hm} min` }] : []),
     ];
   },

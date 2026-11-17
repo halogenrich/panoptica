@@ -13,6 +13,7 @@ import type { Batch, BRun } from './Batches';
 import type { Booking } from '@web/views/Calendar';
 import { layerState } from '../lib/stepRuns';
 import { fmtRun, parseSci } from '../lib/RunInputs';
+import { chemShort } from '@web/views/common';
 
 const STATUS: Record<string, string> = { planned: 'Planned', running: 'Running', done: 'Done' };
 export const slotPresets = (s: Slot) =>
@@ -123,7 +124,7 @@ export function BatchReport({
                 <tr key={v.id}>
                   <td>{v.name}</td>
                   <td>{v.substrates || '—'}</td>
-                  <td>{describeChanges(v, st.sl).join('; ')}</td>
+                  <td>{describeChanges(v, st.sl, (n) => chemShort(ctx.chems, n)).join('; ')}</td>
                 </tr>
               ))}
             </tbody>
@@ -373,8 +374,21 @@ export function batchSheets(b: Batch, ctx: Ctx, runs: BRun[], sets: IvSetFull[],
       rows: [
         ['Variant', 'Substrates', 'What changes from the default device'],
         ['Default device', b.variants.control, ''],
-        ...b.variants.list.map((v) => [v.name, v.substrates, describeChanges(v, st.sl).join('; ')]),
+        ...b.variants.list.map((v) => [
+          v.name,
+          v.substrates,
+          describeChanges(v, st.sl, (n) => chemShort(ctx.chems, n)).join('; '),
+        ]),
       ],
+    });
+  // the full name of each substance the sheets show by its short name (0.54.1), so the file still leads to the bottle
+  const used = (n: string) =>
+    ctx.all.some((r) => JSON.stringify(r.data ?? {}).includes(JSON.stringify(n).slice(1, -1)));
+  const named = ctx.chems.filter((c) => c.s && c.s !== c.name && used(c.name));
+  if (named.length)
+    sheets.push({
+      name: 'Substances',
+      rows: [['Short name', 'Name', 'Formula'], ...named.map((c) => [c.s, c.name, c.f ?? ''])],
     });
   sheets.push({
     name: 'Recipes',

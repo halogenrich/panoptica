@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { spinDefaults, spinPlan, spinUses, type Dispense, type SpinD, type SpinStep } from '@psc/devices';
-import { ChemPicker, Check, DragHandle, Num, RemoveRow, useReorder } from '@web/views/common';
+import { ChemPicker, Check, DragHandle, Num, RemoveRow, chemShort, useReorder } from '@web/views/common';
 import { Picker } from '@web/views/Picker';
 import { Seg } from '@web/lib/ui';
 import { Section, T } from './shared';
@@ -328,7 +328,11 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   );
 }
 
-function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
+/** What a dispense is shown as: a solution recipe by its name, a solvent by its short name when it has one (0.54.1). */
+const srcText = (src: string, ctx?: Ctx) =>
+  src.startsWith('Solvent: ') && ctx ? chemShort(ctx.chems, src.slice(9)) : src.replace(/^(Preset|Solvent): /, '');
+
+function Output({ d, ctx }: { d: D; ctx: Ctx; blanks?: boolean }) {
   const r = spinPlan(d.steps, d.dp, d.N, d.ov);
   return (
     <>
@@ -354,8 +358,7 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
         <ol>
           {r.events.map((e, i) => (
             <li key={i}>
-              {e.when === 'before' ? 'Before spin' : `At ${e.at} s remaining`}: {e.v} µL{' '}
-              {e.src.replace(/^(Preset|Solvent): /, '')}
+              {e.when === 'before' ? 'Before spin' : `At ${e.at} s remaining`}: {e.v} µL {srcText(e.src, ctx)}
               {e.filter ? ', 0.22 µm filtered' : ''}
               {e.over && <span className="err"> · exceeds total time</span>}
             </li>
@@ -366,7 +369,7 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
         <p>
           Volume needed for {d.N} substrates (+{d.ov} %):{' '}
           {Object.entries(r.vol)
-            .map(([k, v]) => `${k.replace(/^(Preset|Solvent): /, '')} ${v.toFixed(2)} mL`)
+            .map(([k, v]) => `${srcText(k, ctx)} ${v.toFixed(2)} mL`)
             .join(' · ')}
         </p>
       )}
@@ -429,26 +432,23 @@ export const spin: Kind<D> = {
   uses: spinUses,
   summary: (d) =>
     `${d.steps.length} steps · ${d.steps.reduce((a, s) => a + s.t, 0)} s · ${maxRpm(d)} rpm${d.an ? ` · ${d.aT} °C` : ''}`,
-  describe: (d) => ({
+  describe: (d, ctx) => ({
     Steps: d.steps.map((s) => `${s.t}s/${s.rpm}`).join(', '),
     'Total time': `${d.steps.reduce((a, s) => a + s.t, 0)} s`,
     Dispenses:
       d.dp
         .filter((x) => x.src)
-        .map(
-          (x) =>
-            `${x.v} µL ${x.src.replace(/^(Preset|Solvent): /, '')} ${x.when === 'before' ? 'before' : `@${x.at} s`}`,
-        )
+        .map((x) => `${x.v} µL ${srcText(x.src, ctx)} ${x.when === 'before' ? 'before' : `@${x.at} s`}`)
         .join(', ') || 'none',
     Annealing: d.an ? `${d.aT} °C, ${d.aM} min` : 'none',
     ...(d.ox ? { Activation: `${d.oa}, ${d.oh} h` } : {}),
   }),
-  runFields: (d) => [
+  runFields: (d, ctx) => [
     ...d.dp
       .filter((x) => x.src)
       .map((x, i) => ({
         key: 'dp:' + i,
-        label: `${x.src.replace(/^(Preset|Solvent): /, '')} dispensed`,
+        label: `${srcText(x.src, ctx)} dispensed`,
         expected: `${x.v} µL${x.when === 'remaining' ? ` @ ${x.at} s` : ''}`,
         unit: 'µL',
       })),

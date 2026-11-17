@@ -1095,6 +1095,60 @@ try {
     );
   });
 
+  if (!CORE)
+    await step('a batch shows its substances by short name, in its outputs and the run data (0.54.1)', async () => {
+      const sol = await api('POST', '/presets', {
+        segment: 's1',
+        name: 'Browser short solution',
+        visibility: 'shared',
+        data: {
+          mode: 'Solute',
+          sol: 'N,N-Dimethylformamide',
+          c: 1,
+          u: 'mg/mL',
+          V: 1,
+          sv: [{ n: 'N,N-Dimethylformamide', p: 1 }],
+        },
+      });
+      const spin = await api('POST', '/presets', {
+        segment: 's2',
+        name: 'Browser short spin',
+        visibility: 'shared',
+        data: {
+          steps: [{ t: 30, rpm: 4000, n2: false, final: true }],
+          dp: [{ src: 'Solvent: N,N-Dimethylformamide', v: 100, when: 'before', at: 0 }],
+          N: 1,
+          ov: 0,
+        },
+      });
+      const sl = [{ id: 'x1', n: 'Short layer', m: 'Spin', a: String(sol.j.id), b: String(spin.j.id), t: '', th: 50 }];
+      const b = await api('POST', '/batches', {
+        name: 'Browser short batch',
+        visibility: 'shared',
+        stack: { arch: 'n-i-p', sl },
+      });
+      expect(b.s === 200, 'batch not made: ' + JSON.stringify(b.j));
+      const snap = (await api('GET', '/batches/' + b.j.id)).j.snapshot;
+      expect(
+        snap.chems.find((c) => c.name === 'N,N-Dimethylformamide')?.s === 'DMF',
+        'the batch did not keep the short name',
+      );
+      await page.goto(`${base}/#/batches/${b.j.id}`);
+      // the run data form names the dispense by its short name (the second recipe of the layer is the spin program)
+      await page.getByRole('button', { name: 'Add run data' }).nth(1).click();
+      await page.getByText('DMF dispensed', { exact: false }).first().waitFor();
+      await page.keyboard.press('Escape');
+      // the printed run sheet too
+      const pr = await printOf(page.getByRole('button', { name: 'Print run sheet' }));
+      expect(
+        /100 µL DMF/.test(pr.text) && !/µL N,N-Dimethylformamide/.test(pr.text),
+        'the run sheet shows the full name',
+      );
+      await page.waitForTimeout(1100);
+      await page.keyboard.press('Shift');
+      await page.waitForFunction(() => !document.body.classList.contains('print-mode'));
+    });
+
   await step(
     CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
     async () => {

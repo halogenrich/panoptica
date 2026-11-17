@@ -2,6 +2,7 @@ import { describeChanges, type Variants } from '@psc/devices';
 import { SlotSheet } from '../views/Sheets';
 import type { Ctx } from '../recipes/types';
 import type { StackD } from './model';
+import { chemShort } from '@web/views/common';
 
 /** Printable run sheet: one block per layer with the recipe output and blank write-in cells. */
 export default function RunSheet({
@@ -50,7 +51,7 @@ export default function RunSheet({
               <tr key={v.id}>
                 <td>{v.name}</td>
                 <td>{v.substrates}</td>
-                <td>{describeChanges(v, st.sl).join('; ')}</td>
+                <td>{describeChanges(v, st.sl, (n) => chemShort(ctx.chems, n)).join('; ')}</td>
               </tr>
             ))}
           </tbody>
