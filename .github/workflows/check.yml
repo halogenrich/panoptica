@@ -31,4 +31,6 @@ jobs:
       # what labs run (the package's dependencies) must have no known vulnerability; the build and test tools are reported
       # without failing the run, since an advisory can come before its fix (picomatch, 17 Nov 2026: no fixed version yet)
       - run: npm audit --omit=dev --audit-level=moderate
-      - run: npm audit --audit-level=moderate || echo "::warning::npm audit found advisories in build or test tools (not shipped)"
+      # bash on Windows too: in PowerShell the step keeps npm's exit code after the echo
+      - shell: bash
+        run: npm audit --audit-level=moderate || echo "::warning::npm audit found advisories in build or test tools (not shipped)"
