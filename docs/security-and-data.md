@@ -56,6 +56,7 @@ Private work is visible only to its owner, people with Private comments and admi
 - A random 256-bit token in a cookie that scripts cannot read (`HttpOnly`), not sent from other websites (`SameSite=Lax`), and only over HTTPS when the app is served over HTTPS (`Secure`). Valid 7 days.
 - The database keeps only a SHA-256 hash of each token: a copy of the database or a backup cannot be used to sign in.
 - Changing a password ends the person's other sessions; disabling or deleting an account ends all of them.
+- The lab screen (a TV, 0.59) has a session of its own: a random token in a cookie sent only to the screen's own address (`/api/screen`), stored as a hash, opened with the screen password (tries limited per address). It reads only what the screen shows (equipment, the week's bookings, the best shared device of the week, birthdays people show, glovebox readings) and nothing else in the app. A new screen password, turning the screen off or **Sign out the screens** ends every one of them.
 
 ### Requests and the browser
 - Every change (POST, PUT, PATCH, DELETE) coming from a page of another website is refused (Origin check), on top of the SameSite cookie.

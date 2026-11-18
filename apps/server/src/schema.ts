@@ -581,6 +581,16 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       }
     },
   },
+  {
+    id: 46,
+    owner: 'core',
+    name: 'the lab screen: the TVs it is open on (0.59)',
+    up: (db) => {
+      // one row per TV that typed the screen password, stored as a hash of its cookie (like sessions); changing the password
+      // or turning the screen off empties it
+      db.exec('CREATE TABLE IF NOT EXISTS screen_sessions(token TEXT PRIMARY KEY, made TEXT NOT NULL, seen TEXT)');
+    },
+  },
 ];
 
 /**

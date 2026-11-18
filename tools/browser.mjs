@@ -1599,6 +1599,94 @@ try {
     },
   );
 
+  await step(
+    'the lab screen: set in Admin settings, opened on a TV from the sign-in screen; the clock at the top middle, both pages fit 1080p and 720p (0.59)',
+    async () => {
+      await page.evaluate(() => (window.location.hash = '#/users'));
+      await page.getByRole('tab', { name: 'Lab screen', exact: true }).click();
+      const on = page.getByLabel('Show the lab screen');
+      expect(await on.isDisabled(), 'it can be turned on before it has a password');
+      await page.getByLabel('New screen password').fill('Lab-screen-2026');
+      await page.getByLabel('Type it again').fill('Lab-screen-2026');
+      await page.getByRole('button', { name: 'Set password' }).click();
+      await page.getByText('Password set.').waitFor();
+      await on.check();
+      await page.getByText('The sign-in screen now offers the lab screen.').waitFor();
+      if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'screen-settings.png'), fullPage: true });
+      // the TV: another browser, nobody signed in
+      const tv = await browser.newContext({
+        viewport: { width: 1920, height: 1080 },
+        locale: 'en-GB',
+        timezoneId: 'UTC',
+      });
+      const t = await tv.newPage();
+      t.on('pageerror', (e) => errors.push('lab screen: ' + e.message));
+      await t.goto(base);
+      await t.getByRole('link', { name: 'Open the lab screen' }).click();
+      await t.getByLabel('Screen password').fill('Lab-screen-2025');
+      await t.getByRole('button', { name: 'Open the lab screen' }).click();
+      await t.getByText('Wrong password.').waitFor();
+      await t.getByLabel('Screen password').fill('Lab-screen-2026');
+      await t.getByRole('button', { name: 'Open the lab screen' }).click();
+      await t.locator('.ls-time').waitFor();
+      const look = async (size) => {
+        const r = await t.evaluate(() => {
+          const c = document.querySelector('.ls-clock').getBoundingClientRect();
+          return {
+            time: document.querySelector('.ls-time').textContent,
+            date: document.querySelector('.ls-date').textContent,
+            centre: Math.abs(c.left + c.width / 2 - window.innerWidth / 2),
+            top: c.top,
+            fits:
+              document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+              document.documentElement.scrollHeight <= window.innerHeight + 1,
+            out: [...document.querySelectorAll('.ls-page:not([hidden]) *')]
+              .filter((n) => {
+                const b = n.getBoundingClientRect();
+                return b.width && (b.right > window.innerWidth + 1 || b.bottom > window.innerHeight + 1);
+              })
+              .slice(0, 4)
+              .map((n) => n.className)
+              .join(', '),
+          };
+        });
+        expect(/^\d\d:\d\d$/.test(r.time), `the clock reads "${r.time}"`);
+        expect(/^[A-Z][a-z]{2} \d\d\/\d\d\/\d{4}$/.test(r.date), `the date reads "${r.date}" (dd/mm/yyyy)`);
+        expect(r.centre < 2 && r.top < 60, `the clock is not at the top middle at ${size}`);
+        expect(r.fits && !r.out, `the lab screen does not fit ${size}: ${r.out}`);
+      };
+      const second = () =>
+        t.evaluate(() => document.querySelectorAll('.ls-page').forEach((p, i) => (p.hidden = i === 0)));
+      await t.getByRole('heading', { name: 'This week' }).waitFor();
+      await t.getByRole('heading', { name: 'Equipment' }).waitFor();
+      await look('1920 × 1080');
+      if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-1.png') });
+      await second();
+      await t.getByRole('heading', { name: /^Birthdays in [A-Z][a-z]+$/ }).waitFor();
+      if (!CORE) await t.getByRole('heading', { name: 'Best device this week' }).waitFor();
+      else expect(!(await t.locator('.ls-best').count()), 'the core alone shows a best device');
+      await look('1920 × 1080, second page');
+      if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-2.png') });
+      // the password's click put the TV in full screen; the window is sized again outside it
+      await t.evaluate(() => document.fullscreenElement && document.exitFullscreen());
+      await t.setViewportSize({ width: 1280, height: 720 });
+      await t.reload(); // the TV keeps the screen: no password again
+      await t.locator('.ls-time').waitFor();
+      await look('1280 × 720');
+      await second();
+      await look('1280 × 720, second page');
+      // Admin settings counts it; turned off, the TV says so
+      await page.getByRole('tab', { name: 'Lab setup', exact: true }).click();
+      await page.getByRole('tab', { name: 'Lab screen', exact: true }).click();
+      await page.getByText(/^Open on 1 screen/).waitFor();
+      await page.getByLabel('Show the lab screen').uncheck();
+      await page.getByText('Off. Every screen was signed out.').waitFor();
+      await t.reload();
+      await t.getByText('The lab screen is off.', { exact: false }).waitFor();
+      await tv.close();
+    },
+  );
+
   /**
    * The phone layout (0.55), on a phone of each engine: Chrome on Android (Chromium, Pixel 7) always, Safari on iPhone
    * (WebKit, iPhone 14) with --webkit (CI installs WebKit; the cloud session cannot download it). Same server and account.

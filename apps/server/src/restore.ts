@@ -147,6 +147,7 @@ function apply(): { users: number; labId: string } {
       for (const k of OWN_META) if (!keep.some((r) => r.key === k)) db.prepare('DELETE FROM meta WHERE key=?').run(k);
       // sessions of the old computer do not sign anyone in here
       db.exec('DELETE FROM sessions');
+      db.exec('DELETE FROM screen_sessions'); // nor do the lab screens of the old computer (0.59)
       if (live.labId && !metaOf(db, 'lab_id')) put.run('lab_id', live.labId);
       db.exec('COMMIT');
     } catch (e) {

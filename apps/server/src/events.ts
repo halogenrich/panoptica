@@ -18,6 +18,7 @@ const TOPICS: [RegExp, string[]][] = [
   [/^\/api\/(comments|reactions|notifications)/, ['comments', 'notifications']],
   [/^\/api\/(users|tags|me)/, ['users']],
   [/^\/api\/trash/, ['all']],
+  [/^\/api\/screen/, ['screen']],
 ];
 const QUIET = /^\/api\/(presence|prefs|login|logout|events|updates|backups|audit|fun|settings)/;
 
@@ -26,26 +27,29 @@ export function broadcast(topics: string[], tab = '') {
   for (const c of clients) c.send(msg);
 }
 
-export function registerEvents(app: FastifyInstance, auth: (need?: any) => any) {
-  app.get('/api/events', { preHandler: auth() }, (req, reply) => {
-    reply.hijack();
-    const res = reply.raw;
-    res.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-store',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no', // nginx: pass events through at once
-      'x-content-type-options': 'nosniff',
-    });
-    res.write('retry: 3000\n\n');
-    const c: Client = { send: (s) => res.write(s) };
-    clients.add(c);
-    const beat = setInterval(() => res.write(': still here\n\n'), 25_000); // keeps proxies from closing an idle stream
-    req.raw.on('close', () => {
-      clearInterval(beat);
-      clients.delete(c);
-    });
+/** Keeps a page's event stream open (the app's, and the lab screen's since 0.59). */
+export function eventStream(req: any, reply: any) {
+  reply.hijack();
+  const res = reply.raw;
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no', // nginx: pass events through at once
+    'x-content-type-options': 'nosniff',
   });
+  res.write('retry: 3000\n\n');
+  const c: Client = { send: (s) => res.write(s) };
+  clients.add(c);
+  const beat = setInterval(() => res.write(': still here\n\n'), 25_000); // keeps proxies from closing an idle stream
+  req.raw.on('close', () => {
+    clearInterval(beat);
+    clients.delete(c);
+  });
+}
+
+export function registerEvents(app: FastifyInstance, auth: (need?: any) => any) {
+  app.get('/api/events', { preHandler: auth() }, eventStream);
   app.addHook('onResponse', async (req: any, reply) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || reply.statusCode >= 400) return;
     const url: string = req.routeOptions?.url ?? req.url;

@@ -40,6 +40,7 @@ import { lab, registerLab, setupNeeded, shownName } from './lab.js';
 import { recoveryFile } from './restore.js';
 import { listening, localUrl, registerNetwork, startNetwork } from './network.js';
 import { registerTray } from './tray.js';
+import { registerScreen } from './screen.js';
 import {
   BACKUP_DIR,
   backupKey,
@@ -576,6 +577,8 @@ const VERSION = JSON.parse(
 ).version;
 /** The version, and the modules installed (the app shows only their pages). */
 app.get('/api/version', async () => ({ version: VERSION, modules: modules().map((m) => m.id) }));
+/** The lab screen on a TV (0.59): its own password and cookie; admins can look at it while signed in. */
+registerScreen(app, auth, bad, (req) => userOf(req)?.role === 'admin', VERSION);
 /** Who can open it, the lab's address, the port and HTTPS (0.51), and where other devices reach it (the phone invitation). */
 registerNetwork(app, auth, bad, setupNeeded);
 registerTray(app, VERSION);

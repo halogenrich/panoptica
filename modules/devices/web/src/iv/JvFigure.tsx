@@ -49,6 +49,7 @@ export function JvFigure({
   link,
   svgRef,
   logo = true,
+  given,
 }: {
   curves: Curve[];
   best: Curve | undefined;
@@ -56,17 +57,24 @@ export function JvFigure({
   link: Link;
   svgRef?: React.Ref<SVGSVGElement>;
   logo?: boolean;
+  /**
+   * The lab screen (0.59) is not signed in: it hands over the logo's address and the device's layers, read by the server, instead
+   * of the figure asking for them.
+   */
+  given?: { wm: string; info: { arch: string; layers: string[] } | null };
 }) {
   const fs = useFigureSettings(),
-    wm = logo ? fs.watermark : '',
-    [info, setInfo] = useState<{ arch: string; layers: string[] } | null>(null);
+    wm = !logo ? '' : given ? given.wm : fs.watermark,
+    [found, setInfo] = useState<{ arch: string; layers: string[] } | null>(null),
+    info = given ? given.info : found;
   useEffect(() => {
+    if (given) return;
     let on = true;
     deviceInfo(link).then((d) => on && setInfo(d));
     return () => {
       on = false;
     };
-  }, [link?.kind, link?.id]);
+  }, [link?.kind, link?.id, !!given]);
   const jmax = Math.max(0, ...curves.flatMap((c) => c.J.filter((j, i) => c.V[i] >= -0.05 && Number.isFinite(j))));
   const vmax = Math.max(0, ...curves.map((c) => (Number.isFinite(c.m.voc) ? c.m.voc : 0)));
   const X1 = Math.max(1.2, Math.ceil((vmax + 0.05) / 0.2) * 0.2),

@@ -125,6 +125,8 @@ export type WebModule = {
   afterOutcome?: Record<string, FC<{ booking: Booking; onClose: () => void }>>;
   /** always mounted next to the pages (windows a module opens from anywhere, such as the data package) */
   Overlay?: FC;
+  /** its part of the lab screen's second page (0.59), from what its server part sent (`m`); `logo`: the lab logo's address, or '' */
+  screen?: FC<{ m: any; logo: string }>;
   /** its place in the phone layout (0.55): a tab in the bottom bar, its part of Today, where its notifications open */
   phone?: { tab?: PhoneTab; Today?: FC<PhoneProps>; views?: Record<string, string> };
 };

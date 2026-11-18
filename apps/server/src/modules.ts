@@ -122,6 +122,8 @@ export type Module = {
   items?: ItemKind[];
   uses?: UseReport;
   overview?: OverviewPart;
+  /** its part of the lab screen's second page (0.59: Electronic Devices' best device of the week); null: nothing to show */
+  screen?(): Record<string, unknown> | null;
   /** permissions a tag can give besides the core's (0.58: Electronic Devices' "designs"); the module checks them itself */
   perms?: string[];
   /**

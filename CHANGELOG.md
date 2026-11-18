@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.59.0 (2026-11-18)
+
+- **Lab screen**: PANOPTICA on a TV in the lab. An admin turns it on in Admin settings › Lab screen and sets its password; the sign-in screen then offers "Open the lab screen", and the TV stays on it after reloads and power cuts. Names show on it without anyone signing in. A new password, or turning it off, signs every screen out.
+- **The time and date** sit at the top middle of the screen, on every page.
+- **First page**: each piece of equipment with its state: in use (who, and until when), free (the next booking) or out of service. Beside it, the week's bookings on the lab's working days and hours, each with the name of who booked.
+- **Second page**: the best device of the week (the highest PCE measured since Monday, from shared measurements), with Voc, Jsc, FF, the person, the batch and its J–V curve; this month's birthdays; and the O₂ and H₂O of each glovebox over the last 7 days, as typed when its bookings were answered. Above a limit set in Admin settings, the line turns red.
+- **Admin settings › Lab screen**: how long each page shows (20 seconds by default), the theme (System, Light or Dark; Light by default), the O₂ and H₂O limits of each glovebox, and how many screens have it open.
+
 ## 0.58.0 (2026-11-18)
 
 - **Cleaning role**: substances can have the Cleaning role, beside solvent, salt and the others. Acetone, IPA, ethanol and water get it from their CAS number, including those already in the inventory.
