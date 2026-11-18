@@ -5,6 +5,7 @@ import { STEP_KINDS, roleFromSteps, stepsFromRole } from '@psc/devices';
 import { lockedById, markDone } from './batchlock.js';
 import { takeForBatch, usesOf } from './takes.js';
 import { devicesOverview } from './overview.js';
+import { screenPart } from './screen.js';
 import { registerBatches } from './batches.js';
 import { registerComparisons } from './comparisons.js';
 import { registerIv } from './iv.js';
@@ -402,6 +403,7 @@ addModule({
       })),
   },
   overview: devicesOverview,
+  screen: screenPart,
   equipment: { role: roleFromSteps, stepsFor: stepsFromRole },
   /**
    * A substance renamed or merged (0.54): recipes keep substances as names (the solvent of a spin dispense as "Solvent: name"),

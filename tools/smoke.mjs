@@ -1992,6 +1992,141 @@ console.log('Cleaning role, Edit designs, architectures (0.58)');
   if (tag.s === 200) await call('DELETE', '/api/tags/' + tag.j.id);
 }
 
+console.log('The lab screen (0.59)');
+{
+  // the TV's own cookie: only read here, never sent to the app's other routes
+  let screen = '';
+  const asTv = async (method, path, body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: { ...(screen ? { cookie: screen } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { s: r.status, j: await r.json().catch(() => null), h: r.headers };
+  };
+  ok((await call('GET', '/api/lab/public')).j.screen === false, 'the sign-in screen does not offer it while it is off');
+  const off = await asTv('GET', '/api/screen');
+  ok(off.s === 401 && off.j.on === false, 'nobody opens it while it is off');
+  ok((await call('PUT', '/api/screen/settings', { on: true })).s === 400, 'it cannot be turned on without a password');
+  ok(
+    (await call('PUT', '/api/screen/settings', { password: 'short' })).s === 400 &&
+      (await call('PUT', '/api/screen/settings', { password: 'password123' })).s === 400,
+    'a short or common password is refused',
+  );
+  ok(
+    (await call('PUT', '/api/screen/settings', { interval: 5 })).s === 400 &&
+      (await call('PUT', '/api/screen/settings', { theme: 'pink' })).s === 400,
+    'pages shorter than 10 seconds, or an unknown theme, are refused',
+  );
+  const memberTry = await fetch(base + '/api/screen/settings', { headers: { cookie: anaCookie } });
+  ok(memberTry.status === 403, 'only admins change it');
+  const st = await call('PUT', '/api/screen/settings', { password: 'Lab-screen-2026', on: true });
+  ok(st.s === 200 && st.j.on && st.j.theme === 'light' && st.j.interval === 20, 'turned on: Light and 20 s by default');
+  ok((await call('GET', '/api/lab/public')).j.screen === true, 'the sign-in screen offers it');
+  ok(
+    (await asTv('POST', '/api/screen/open', { password: 'Lab-screen-2025' })).s === 401,
+    'a wrong password is refused',
+  );
+  const open = await asTv('POST', '/api/screen/open', { password: 'Lab-screen-2026' });
+  const sc = open.h.get('set-cookie') ?? '';
+  screen = sc.split(';')[0];
+  ok(
+    open.s === 200 && /Path=\/api\/screen/i.test(sc) && /HttpOnly/i.test(sc),
+    'the right one gives the TV a cookie kept to the screen',
+  );
+  ok(
+    JSON.stringify((await call('GET', '/api/audit')).j).includes('Opened the lab screen'),
+    'opening it is in the activity log',
+  );
+  const eq = await call('POST', '/api/equipment', { name: 'Smoke screen glovebox' });
+  await call('PATCH', '/api/equipment/' + eq.j.id, { atmosphere: true });
+  const anaId = db.prepare("SELECT id FROM users WHERE username='anas'").get().id;
+  const iso = (ms) => new Date(Date.now() + ms).toISOString();
+  const add = db.prepare(
+    "INSERT INTO bookings(equipment_id,subject,user_id,purpose,start,end,atmo,outcome) VALUES(?,'',?,'smoke',?,?,?,?)",
+  );
+  add.run(eq.j.id, anaId, iso(-30 * 6e4), iso(60 * 6e4), '', null); // running now
+  add.run(eq.j.id, anaId, iso(-3 * 864e5), iso(-3 * 864e5 + 36e5), JSON.stringify({ o2: 0.4, h2o: 0.7 }), 'done');
+  add.run(eq.j.id, anaId, iso(-9 * 864e5), iso(-9 * 864e5 + 36e5), JSON.stringify({ o2: 9, h2o: 9 }), 'done');
+  const canceled = add.run(eq.j.id, anaId, iso(3 * 36e5), iso(4 * 36e5), '', 'canceled').lastInsertRowid;
+  const anaName = db.prepare('SELECT name FROM users WHERE id=?').get(anaId).name;
+  await call('PUT', '/api/screen/settings', { limits: { [eq.j.id]: { o2: 1, h2o: null } } });
+  const d = await asTv('GET', '/api/screen');
+  const mine = d.j?.equipment?.find((e) => e.id === eq.j.id),
+    box = d.j?.atmosphere?.find((e) => e.id === eq.j.id);
+  ok(d.s === 200 && Array.isArray(d.j.hours) && d.j.hours.length === 7, 'the TV reads the screen with its cookie');
+  ok(mine?.state === 'use' && mine.by === anaName && !!mine.until, 'equipment in use says who and until when');
+  ok(
+    box?.readings.length === 1 && box.readings[0].o2 === 0.4 && box.limits.o2 === 1 && box.limits.h2o === null,
+    'the glovebox shows the readings of the last 7 days only, with its limits',
+  );
+  ok(
+    !d.j.week.some((k) => k.id === Number(canceled)) && !mine.next,
+    'canceled bookings are left out of the week and the next booking',
+  );
+  ok(
+    (await asTv('GET', '/api/me')).s === 401 && (await asTv('GET', '/api/users')).s === 401,
+    'the screen’s cookie opens nothing else',
+  );
+  ok((await call('GET', '/api/screen')).s === 200, 'an admin signed in opens it too');
+  ok(
+    (await fetch(base + '/api/screen', { headers: { cookie: anaCookie } })).status === 401,
+    'a member needs the password',
+  );
+  ok(DEV ? 'devices' in d.j.modules : !('devices' in d.j.modules), 'the best device comes from Electronic Devices');
+  if (DEV) {
+    const V = Array.from({ length: 116 }, (_, i) => +(i * 0.01).toFixed(2)),
+      J = V.map((v) => 23 * (1 - Math.exp((v - 1.12) / 0.035))),
+      today = new Date(),
+      ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const curve = (dir, pixel, k = 1) => ({
+      file: `scr_${pixel}_${dir}`,
+      sample: 'Screen_ref',
+      substrate: '1',
+      scan: '01',
+      pixel,
+      dir,
+      area: 0.1,
+      pin: 100,
+      V: dir === 'rev' ? [...V].reverse() : V,
+      J: (dir === 'rev' ? [...J].reverse() : J).map((j) => j * k),
+    });
+    const priv = await call('POST', '/api/iv', {
+      name: 'smoke screen private',
+      date: ymd,
+      system: 'csv',
+      visibility: 'private',
+      curves: [curve('rev', '1', 1.3)],
+    });
+    const shared = await call('POST', '/api/iv', {
+      name: 'smoke screen',
+      date: ymd,
+      system: 'csv',
+      visibility: 'shared',
+      curves: [curve('rev', '2'), curve('fwd', '2', 0.97), curve('rev', '3', 0.9)],
+    });
+    const b = (await asTv('GET', '/api/screen')).j.modules.devices.best;
+    ok(
+      priv.s === 200 && shared.s === 200 && b?.set.id === shared.j.id && b.pixel === '2',
+      'the best device of the week is the highest PCE among shared measurements',
+    );
+    ok(
+      b.curves.length === 2 && b.curves.every((c) => c.pixel === '2' && c.V.length === 116),
+      'with both scans of its pixel for the J–V figure',
+    );
+  }
+  const n = (await call('GET', '/api/screen/settings')).j.screens;
+  ok(n === 1, 'Admin settings counts the screens it is open on');
+  await call('PUT', '/api/screen/settings', { password: 'Lab-screen-2027' });
+  ok((await asTv('GET', '/api/screen')).s === 401, 'a new password signs the TVs out');
+  await asTv('POST', '/api/screen/open', { password: 'Lab-screen-2027' }).then((r) => {
+    screen = (r.h.get('set-cookie') ?? '').split(';')[0];
+  });
+  await call('PUT', '/api/screen/settings', { on: false });
+  ok((await asTv('GET', '/api/screen')).s === 401, 'and so does turning it off');
+  db.prepare("DELETE FROM bookings WHERE purpose='smoke'").run();
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

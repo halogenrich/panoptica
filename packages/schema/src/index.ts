@@ -425,6 +425,20 @@ export const EquipmentIn = z.object({
     ])
     .optional(),
 });
+/**
+ * The lab screen (0.59): a TV in the lab opened from the sign-in screen with its own password. Admins set it in Admin settings ›
+ * Lab screen: on or off, the password, the seconds each page shows, the theme, and the O₂ and H₂O limits (ppm) of the equipment
+ * that records its atmosphere (null: no limit).
+ */
+const Limit = z.number().min(0).max(1e6).nullable();
+export const ScreenIn = z.object({
+  on: z.boolean().optional(),
+  password: z.string().min(1).max(200).optional(),
+  interval: z.number().int().min(10, 'at least 10 seconds a page').max(120, 'at most 120 seconds a page').optional(),
+  theme: z.enum(['system', 'light', 'dark']).optional(),
+  limits: z.record(z.string().regex(/^\d+$/), z.object({ o2: Limit, h2o: Limit })).optional(),
+});
+export const ScreenOpenIn = z.object({ password: z.string().min(1).max(200) });
 /** Outcome of a booking once it has ended; postponing or canceling needs a reason. */
 /** The glovebox atmosphere at the end of a booking, in ppm (0.38: asked for equipment that records it). */
 export const AtmoIn = z.object({ o2: z.number().min(0).max(1e6), h2o: z.number().min(0).max(1e6) });

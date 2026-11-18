@@ -374,6 +374,19 @@ const layerName = (slot: any, a: any, _b: any): string => {
       return slot.n;
   }
 };
+/** The layers and architecture of a frozen stack (a batch's snapshot, or a stack resolved as a batch would freeze it). */
+export function infoOfSnap(snap: Snap | null): DeviceInfo | null {
+  if (!snap) return null;
+  const st = snap.stack as any;
+  return {
+    // the figure states p-i-n or n-i-p (0.58: from the architecture, whatever it is called)
+    arch: polOf(st ?? {}) || st?.arch || '',
+    layers: (st?.sl ?? []).map((s: any, i: number) => {
+      const n = layerName(s, (snap as any).resolved?.[i]?.a?.data, (snap as any).resolved?.[i]?.b?.data);
+      return s.add?.length ? `${n} + ${s.add.join(' + ')}` : n;
+    }),
+  };
+}
 export function deviceInfo(l: Link): Promise<DeviceInfo | null> {
   if (!l) return Promise.resolve(null);
   const k = groupKey(l, '');
@@ -381,18 +394,7 @@ export function deviceInfo(l: Link): Promise<DeviceInfo | null> {
     infoCache.set(
       k,
       (async () => {
-        if (l.kind === 'batch') {
-          const snap = await batchSnap(l),
-            st = snap?.stack;
-          return {
-            // the figure states p-i-n or n-i-p (0.58: from the architecture, whatever it is called)
-            arch: polOf(st ?? {}) || st?.arch || '',
-            layers: (st?.sl ?? []).map((s: any, i: number) => {
-              const n = layerName(s, snap!.resolved?.[i]?.a?.data, snap!.resolved?.[i]?.b?.data);
-              return s.add?.length ? `${n} + ${s.add.join(' + ')}` : n;
-            }),
-          };
-        }
+        if (l.kind === 'batch') return infoOfSnap(await batchSnap(l));
         const st = (await api<any>(`/presets/${l.id}`)).data;
         const get = (id: string) =>
           id

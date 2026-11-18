@@ -7,6 +7,7 @@ import { useNarrow, usePhone } from './phone/usePhone';
 import { live, stopLive } from './lib/live';
 import { setLabUrl } from './lib/route';
 import Login from './start/Login';
+import LabScreen from './screen/LabScreen';
 import Setup, { SetupCode, SetupElsewhere } from './start/Setup';
 import { PasswordRules, passwordOk } from './start/parts';
 
@@ -14,7 +15,14 @@ export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined),
     [lab, setLab] = useState<LabPublic | null>(null),
     [prefs, setPrefs] = useState<Prefs>({ theme: 'system', vis: 'shared' }),
-    [setupCode, setSetupCode] = useState('');
+    [setupCode, setSetupCode] = useState(''),
+    // the lab screen on a TV (0.59): its own page at #/screen, signed in with the screen password or as an admin
+    [screen, setScreen] = useState(() => window.location.hash.startsWith('#/screen'));
+  useEffect(() => {
+    const f = () => setScreen(window.location.hash.startsWith('#/screen'));
+    window.addEventListener('hashchange', f);
+    return () => window.removeEventListener('hashchange', f);
+  }, []);
   const loadLab = () =>
     api<LabPublic>('/lab/public')
       .then((l) => {
@@ -54,6 +62,16 @@ export default function App() {
     api('/prefs', 'PUT', p).catch(() => {});
   };
   if (me === undefined || !lab) return null;
+  if (screen && !lab.setup)
+    return (
+      <LabScreen
+        lab={lab}
+        onLeave={() => {
+          window.history.pushState(null, '', window.location.pathname);
+          setScreen(false);
+        }}
+      />
+    );
   const signedIn2 = async () => {
     await loadPrefs();
     loadLab();

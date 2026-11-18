@@ -10,6 +10,7 @@ import RunCapture from './RunCapture';
 import PackageOverlay from './PackageOverlay';
 import RunSheetTab, { RunToday } from './phone/RunSheet';
 import { Clipboard } from '@web/Icons';
+import ScreenBest from './ScreenBest';
 
 /**
  * Electronic Devices on screen (0.42): its pages in the side menu, in the order work happens: make devices (Fabrication, with the
@@ -103,6 +104,8 @@ const devices: WebModule = {
   calendarTray: { param: 'schedule', Tray },
   afterOutcome: { batch: RunCapture },
   Overlay: PackageOverlay,
+  // the lab screen (0.59): the best device of the week, on its second page
+  screen: ScreenBest,
   // the phone layout (0.55): Run sheet in the bottom bar, the person's batches on Today; links to batches open there
   phone: {
     tab: { key: 'run', label: 'Run sheet', Icon: Clipboard, render: RunSheetTab },

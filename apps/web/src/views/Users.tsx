@@ -6,6 +6,7 @@ import { Badge, Modal, Seg } from '../lib/ui';
 import { Activity, Licence, Security, Updates } from './AdminSecurity';
 import { NetworkTab } from '../start/Network';
 import AdminInventory from './AdminInventory';
+import AdminScreen from './AdminScreen';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
 import { MODULES } from '../modules/installed';
@@ -58,7 +59,17 @@ const permsText = (t: Tag) =>
     .join(', ');
 const KIND_NOTE = { title: (t: Tag) => permsText(t) || undefined };
 type Tab =
-  'users' | 'requests' | 'lab' | 'network' | 'backups' | 'inventory' | 'security' | 'activity' | 'updates' | 'licence';
+  | 'users'
+  | 'requests'
+  | 'lab'
+  | 'screen'
+  | 'network'
+  | 'backups'
+  | 'inventory'
+  | 'security'
+  | 'activity'
+  | 'updates'
+  | 'licence';
 const dmy = (d?: string | null) => (d ? d.split('-').reverse().join('/') : '');
 
 /** Admin settings: one tab per job, the last one used reopens. A new version shows as a strip above the tabs. */
@@ -96,6 +107,7 @@ export default function AdminSettings({ meId }: { meId: number }) {
     ['users', 'Users'],
     ['requests', waiting ? `Access requests (${waiting})` : 'Access requests'],
     ['lab', 'Lab setup'],
+    ['screen', 'Lab screen'],
     ['network', 'Network'],
     ['backups', 'Backups'],
     ['inventory', 'Inventory'],
@@ -139,6 +151,10 @@ export default function AdminSettings({ meId }: { meId: number }) {
       ) : tab === 'lab' ? (
         <div className="admin-one">
           <LabSetup />
+        </div>
+      ) : tab === 'screen' ? (
+        <div className="admin-one">
+          <AdminScreen />
         </div>
       ) : tab === 'network' ? (
         <div className="admin-one">

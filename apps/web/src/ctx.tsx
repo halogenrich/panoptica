@@ -76,6 +76,8 @@ export type LabPublic = {
   foot?: 'name' | 'logo' | 'both';
   /** the lab's address as people open it (0.51), '' when it has none */
   url?: string;
+  /** the lab screen is on (0.59): the sign-in screen offers it */
+  screen?: boolean;
   /** how PANOPTICA listens, while it is not set up (0.51) */
   network?: { open: 'computer' | 'network'; port: number; https: boolean };
   /** while there is no admin: 'here' on the computer that runs the app, 'elsewhere' on others */

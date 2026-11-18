@@ -240,6 +240,14 @@ export default function Login({ lab, onLogin }: { lab: LabPublic; onLogin: (m: M
           Request access
         </button>
       </p>
+      {/* 0.59: a TV in the lab opens the lab screen from here, with the screen password */}
+      {lab.screen && (
+        <p className="signin-alt">
+          <a className="link" href="#/screen">
+            Open the lab screen
+          </a>
+        </p>
+      )}
     </SignInFrame>
   );
 }

@@ -9,6 +9,7 @@ import { audit, ipOf } from './audit.js';
 import { hasSetupCode, noRoom, setupCodeOk } from './licence.js';
 import { applyNetwork, listening, localUrl, planNetwork, publicUrl, settings as netSettings } from './network.js';
 import { registerRestore } from './restore.js';
+import { screenSettings } from './screen.js';
 
 /**
  * The lab as a whole (0.36): the first setup on the computer that runs PANOPTICA, the lab's settings (name, institution, email
@@ -68,6 +69,8 @@ export function lab(): Lab {
 /** The name the lab shows (0.49): its acronym when it chose that, else its full name. */
 export const shownName = (l: Lab = lab()) => (l.show === 'acronym' && l.acronym ? l.acronym : l.name);
 const figure = () => JSON.parse(getMeta('figure') ?? '{}') as { watermark?: string; group?: string };
+/** The lab has a logo (figures, the sign-in screen, the lab screen). */
+export const hasLogo = () => !!figure().watermark;
 
 /** Saves lab settings; the logo is the figure logo (one logo for the app), and the name the lab shows is the name on slides. */
 function saveLab(p: ReturnType<typeof LabIn.parse>) {
@@ -138,6 +141,8 @@ export function registerLab(
       foot: l.foot,
       /** where the lab opens PANOPTICA (0.51): its address, for the sign-in screen and copied links; '' without one */
       url: publicUrl(),
+      /** the lab screen is on (0.59): the sign-in screen offers it */
+      screen: screenSettings().on,
       // 'code' (0.46): from another computer, with the one-time setup code on the install sheet
       setup: setupNeeded() ? (isLocal(req) ? 'here' : hasSetupCode() ? 'code' : 'elsewhere') : null,
       // how PANOPTICA listens, for the first setup's Network step (0.51); nothing once it is set up

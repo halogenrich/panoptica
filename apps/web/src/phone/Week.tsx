@@ -16,7 +16,7 @@ const BAR = 30,
   LANE_MIN = 8,
   GAP = 2;
 
-type Block = { k: Booking; a: number; z: number; cutL: boolean; cutR: boolean; lane: number };
+export type Block = { k: Booking; a: number; z: number; cutL: boolean; cutR: boolean; lane: number };
 
 /** The minutes the week's scale covers: earliest start to latest end of the working days. */
 export function scaleOf(hours: WorkDay[]) {
@@ -35,7 +35,7 @@ export function weekDays(from: Date, hours: WorkDay[]) {
 }
 
 /** A day's bookings as blocks on the scale, in percent, each in the first lane free at its start. */
-function blocksOf(day: Date, list: Booking[], lo: number, hi: number) {
+export function blocksOf(day: Date, list: Booking[], lo: number, hi: number) {
   const t0 = day.getTime() + lo * 6e4,
     t1 = day.getTime() + hi * 6e4,
     d0 = day.getTime(),
@@ -60,7 +60,7 @@ function blocksOf(day: Date, list: Booking[], lo: number, hi: number) {
 }
 
 /** Tick hours for a scale: every hour up to 6 h, every 2 h up to 12 h, else every 4 h. */
-function ticks(lo: number, hi: number) {
+export function ticks(lo: number, hi: number) {
   const span = (hi - lo) / 60,
     step = span <= 6 ? 1 : span <= 12 ? 2 : 4;
   const out: number[] = [];

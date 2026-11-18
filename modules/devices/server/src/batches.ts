@@ -44,7 +44,7 @@ const batchOf = (req: any, reply: any, edit = false) => {
   };
 };
 /** Every layer's presets resolved (frozen copy of name and data); a recipe the user cannot see resolves to null. */
-const resolveStack = (u: User, stack: { sl?: { a: string; b: string }[] }, strict = false) => {
+export const resolveStack = (u: User, stack: { sl?: { a: string; b: string }[] }, strict = false) => {
   const resolved: Record<number, { a: unknown; b: unknown }> = {};
   const one = (id: string) => {
     try {
