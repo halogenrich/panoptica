@@ -79,7 +79,7 @@ function OrgEditor({ d, set, ctx }: { d: O; set: (p: Partial<O>) => void; ctx: C
 }
 
 function OrgOutput({ d, ctx, blanks }: { d: O; ctx: Ctx; blanks?: boolean }) {
-  const mol = moleculeFor(d.mat);
+  const mol = moleculeFor(d.mat, ctx.chems);
   return (
     <>
       <p className="headline">
@@ -140,8 +140,8 @@ export const organic: Kind<O> = {
   Editor: OrgEditor,
   Output: OrgOutput,
   noFactsArt: true,
-  Visual: ({ d }) => {
-    const mol = moleculeFor(d.mat);
+  Visual: ({ d, ctx }) => {
+    const mol = moleculeFor(d.mat, ctx.chems);
     return mol ? (
       <Molecule mol={mol} size={108} hydrogens={false} fit />
     ) : (

@@ -1,7 +1,7 @@
 import { useItemRoute } from '@web/lib/route';
 import CopyLink from '@web/lib/CopyLink';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { Chem } from '@psc/devices';
+import { toChems, type Chem } from '@psc/devices';
 import { api } from '@web/api';
 import { PrefCtx } from '@web/ctx';
 import { useChems } from '@web/views/common';
@@ -49,7 +49,7 @@ export function useRecipeCtx(openBatch?: (id: number) => void): Ctx {
       .then(setAll)
       .catch(() => {});
   }, [tick]);
-  const cl: Chem[] = useMemo(() => chems.map((c) => ({ n: c.name, f: c.f, M: c.M, pur: c.pur })), [chems]);
+  const cl: Chem[] = useMemo(() => toChems(chems), [chems]);
   return useMemo(
     () => ({
       chems,

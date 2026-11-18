@@ -21,7 +21,7 @@ import type { Booking } from '@web/views/Calendar';
 import { FIT_BATCH, StackIcon, View3D } from '../stacks/stack';
 import { BatchMeasurements } from '../iv/IvPage';
 import { BatchTakes } from './BatchTakes';
-import type { Variants as VariantsD } from '@psc/devices';
+import { toChems, type Variants as VariantsD } from '@psc/devices';
 import Variants from './Variants';
 import { useChems } from '@web/views/common';
 
@@ -262,7 +262,7 @@ export function snapCtx(b: Pick<Batch, 'snapshot'>, live: { name: string; s: str
   });
   return {
     chems,
-    cl: chems.map((c: any) => ({ n: c.name, f: c.f, M: c.M, pur: c.pur })),
+    cl: toChems(chems),
     solutions: [],
     designs: [],
     all,

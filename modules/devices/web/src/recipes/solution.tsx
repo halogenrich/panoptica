@@ -15,7 +15,17 @@ import {
   type SolMode,
   type SolutionD,
 } from '@psc/devices';
-import { ChemPicker, Check, DragHandle, Num, RemoveRow, bottleText, chemShort, useReorder } from '@web/views/common';
+import {
+  ChemPicker,
+  Check,
+  DragHandle,
+  Num,
+  RemoveRow,
+  bottleText,
+  chemFor,
+  chemShort,
+  useReorder,
+} from '@web/views/common';
 import { Picker } from '@web/views/Picker';
 import { api } from '@web/api';
 import { MeCtx } from '@web/ctx';
@@ -382,34 +392,33 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
     <>
       <Section title="Additives">
         {d.ad.map((a, i) => (
-          <div className={'row wrap' + (rAd.drag === i ? ' dragging' : '')} key={i} ref={rAd.rowRef(i)}>
-            <span className="inline">
-              <DragHandle h={rAd.handle(i)} show={d.ad.length > 1} />
-              <ChemPicker
-                chems={ctx.chems}
-                roles={['additive']}
-                value={a.n}
-                onChange={(n) => upAd(i, { n })}
-                label={`Additive ${i + 1}`}
-              />
-            </span>
+          // 0.55.4: one line, as the solvents (handle, substance, amount, unit, ✕); the stock's concentration on a line below
+          <div className={'row listrow' + (rAd.drag === i ? ' dragging' : '')} key={i} ref={rAd.rowRef(i)}>
+            <DragHandle h={rAd.handle(i)} show={d.ad.length > 1} />
+            <ChemPicker
+              chems={ctx.chems}
+              roles={['additive']}
+              value={a.n}
+              onChange={(n) => upAd(i, { n })}
+              label={`Additive ${i + 1}`}
+            />
             <span className="inline">
               <Num v={a.v} on={(v) => upAd(i, { v })} />
-              <select value={a.b} onChange={(e) => upAd(i, { b: e.target.value as Basis })}>
+              <select value={a.b} onChange={(e) => upAd(i, { b: e.target.value as Basis })} aria-label="Unit">
                 {BASES.map((b) => (
                   <option key={b}>{b}</option>
                 ))}
               </select>
-              {a.b === 'µL stock/mL' && (
-                <>
-                  <Num v={a.sc ?? 0} on={(sc) => upAd(i, { sc })} /> mg/mL stock
-                </>
-              )}
               <RemoveRow
                 label={`Remove additive ${i + 1}`}
                 onClick={() => set({ ad: d.ad.filter((_, j) => j !== i) })}
               />
             </span>
+            {a.b === 'µL stock/mL' && (
+              <span className="inline listrow-more">
+                Stock solution at <Num v={a.sc ?? 0} on={(sc) => upAd(i, { sc })} /> mg/mL
+              </span>
+            )}
           </div>
         ))}
         <button
@@ -538,17 +547,15 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
       )}
       <Section title="Solvents (volume parts)">
         {d.sv.map((v, i) => (
-          <div className={'row' + (rSv.drag === i ? ' dragging' : '')} key={i} ref={rSv.rowRef(i)}>
-            <span className="inline">
-              <DragHandle h={rSv.handle(i)} show={d.sv.length > 1} />
-              <ChemPicker
-                chems={ctx.chems}
-                roles={['solvent']}
-                value={v.n}
-                onChange={(n) => upSv(i, { n })}
-                label={`Solvent ${i + 1}`}
-              />
-            </span>
+          <div className={'row listrow' + (rSv.drag === i ? ' dragging' : '')} key={i} ref={rSv.rowRef(i)}>
+            <DragHandle h={rSv.handle(i)} show={d.sv.length > 1} />
+            <ChemPicker
+              chems={ctx.chems}
+              roles={['solvent']}
+              value={v.n}
+              onChange={(n) => upSv(i, { n })}
+              label={`Solvent ${i + 1}`}
+            />
             <span className="inline">
               <Num v={v.p} on={(p) => upSv(i, { p })} />
               <RemoveRow
@@ -598,7 +605,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
 function Bottle({ ctx, name, ok, edit }: { ctx: Ctx; name: string; ok: boolean; edit: boolean }) {
   const { me } = useContext(MeCtx),
     canSwitch = me.role === 'admin' || !!me.inventory,
-    c = ctx.chems.find((x) => x.name === name);
+    c = chemFor(ctx.chems, name);
   if (!c) return <div className="err small">Not in the inventory: add a container of it</div>;
   const missing = !ok && <div className="err small">No molar mass: add it in Inventory › Substances</div>;
   if (!c.bottle)

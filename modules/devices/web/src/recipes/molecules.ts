@@ -933,6 +933,9 @@ export const MOLECULES: Record<string, Mol> = {
 const ALIASES: Record<string, string> = {
   c60: 'C60',
   fullerene: 'C60',
+  fullerenec60: 'C60',
+  c60fullerene: 'C60',
+  buckminsterfullerene: 'C60',
   bcp: 'BCP',
   bathocuproine: 'BCP',
   bphen: 'BPhen',
@@ -943,6 +946,17 @@ const ALIASES: Record<string, string> = {
   alphanpd: 'NPB',
   tapc: 'TAPC',
 };
-/** Structure for a material name, matched loosely ("C60", "c-60", "Bathocuproine"…). */
-export const moleculeFor = (name: string): Mol | null =>
-  MOLECULES[ALIASES[name.toLowerCase().replace(/[^a-z0-9]/g, '')] ?? ''] ?? null;
+const one = (name: string): Mol | null =>
+  MOLECULES[ALIASES[(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')] ?? ''] ?? null;
+/**
+ * Structure for a material, matched loosely ("C60", "c-60", "Bathocuproine"…): by its name, then by the inventory's short
+ * name and other names for it (0.55.4: the substance became "Fullerene C60", whose short name is C60, and lost its drawing).
+ */
+export const moleculeFor = (name: string, chems: { name: string; s?: string; aka?: string[] }[] = []): Mol | null => {
+  const c = chems.find((x) => x.name === name);
+  for (const n of [name, c?.s ?? '', ...(c?.aka ?? [])]) {
+    const m = one(n);
+    if (m) return m;
+  }
+  return null;
+};

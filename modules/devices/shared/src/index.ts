@@ -1,6 +1,18 @@
 // Pure domain logic: no I/O, no framework. Ported from the HTML prototype.
+import { chemNamed } from '@psc/core';
 
-export type Chem = { n: string; f: string; M: number; pur?: number };
+/**
+ * A substance as the calculations read it. `s` (short name), `aka` (other names) and `cas` let a worked-out name such as PbI2
+ * find "Lead(II) iodide" in the inventory (0.55.4).
+ */
+export type Chem = { n: string; f: string; M: number; pur?: number; s?: string; aka?: string[]; cas?: string };
+/** The substance a name means in a list of `Chem`s (0.55.4): see `chemNamed`. */
+export const chemIn = (chems: Chem[], name: string) =>
+  chemNamed(chems, name, (c) => ({ name: c.n, s: c.s, aka: c.aka, f: c.f, cas: c.cas }));
+/** The calculations' list from substances as the app and the snapshots hold them. */
+export const toChems = (
+  list: { name: string; f?: string; M?: number; pur?: number; s?: string; aka?: string[]; cas?: string }[],
+): Chem[] => list.map((c) => ({ n: c.name, f: c.f ?? '', M: c.M ?? 0, pur: c.pur, s: c.s, aka: c.aka, cas: c.cas }));
 /**
  * Perovskite composition: A-site and X-site fractions. With `L` (a bulky spacer cation) and `n`, a layered (2D / quasi-2D) perovskite:
  * Ruddlesden–Popper (monovalent spacer, z = 1) L2A(n−1)PbnX(3n+1), Dion–Jacobson (divalent spacer, z = 2) LA(n−1)PbnX(3n+1).
@@ -75,7 +87,7 @@ export function ions(f: string): Record<string, number> {
 /** Ions of a salt: from its name when the name is a plain ion formula (PEAI, PDAI2, CsBr…), else from its chemical formula. */
 export function saltIons(name: string, chems: Chem[] = SALTS): Record<string, number> {
   if (name.replace(ION_RE, '') === '') return ions(name);
-  return ions(chems.find((c) => c.n === name)?.f ?? name);
+  return ions(chemIn(chems, name)?.f ?? name);
 }
 
 /** Salt amounts (mol per mol Pb) for a composition. Halides go to PbX2 first (Br, Cl, then I); A-site salts take the rest. */
@@ -139,7 +151,7 @@ export interface Row {
 export function solution(c: Comp, chems: Chem[], molarity: number, volumeMl: number): Row[] {
   const nPb = molarity * volumeMl; // mmol
   return Object.entries(plan(c)).map(([salt, mol]) => {
-    const ch = chems.find((z) => z.n === salt);
+    const ch = chemIn(chems, salt);
     const mmol = mol * nPb;
     return { salt, mol, mmol, mg: (mmol * (ch?.M ?? 0)) / ((ch?.pur ?? 100) / 100), known: !!ch };
   });
@@ -315,7 +327,7 @@ export interface SolIn {
 
 /** Full solution preparation: masses (additives bundled into matching compounds), solvent volumes, ion contributions, actual formula/molarity from weighed masses. */
 export function solutionPlan(i: SolIn, chems: Chem[]) {
-  const ch = (n: string) => chems.find((c) => c.n === n),
+  const ch = (n: string) => chemIn(chems, n),
     per = i.mode === 'Perovskite',
     V = i.V,
     nPb = i.M * V;
@@ -344,12 +356,14 @@ export function solutionPlan(i: SolIn, chems: Chem[]) {
             : 0;
     return { ...a, ul, m, mmol: m / (c?.M || 1), stockMg: a.b === 'µL stock/mL' ? (ul * (a.sc ?? 0)) / 1000 : 0 };
   });
+  // an additive of a salt the composition already has is weighed with it: the same name, or the same substance (0.55.4)
+  const same = (a: string, b: string) => a === b || (!!ch(a) && ch(a) === ch(b));
   const rows = main.map((r) => {
-    const ex = ad.filter((a) => a.n === r.s && !a.ul),
+    const ex = ad.filter((a) => same(a.n, r.s) && !a.ul),
       em = ex.reduce((s, a) => s + a.m, 0);
     return { ...r, em, bundled: ex.map((a) => `${a.v} ${a.b}`), mmol: r.n + em / (ch(r.s)?.M || 1), mg: r.m + em };
   });
-  const extra = ad.filter((a) => a.ul || !main.some((r) => r.s === a.n));
+  const extra = ad.filter((a) => a.ul || !main.some((r) => same(r.s, a.n)));
   // solids: everything weighed (salts with bundled additives, weighed additives); their volume counts in the density method
   const solidMg = rows.reduce((a, r) => a + r.mg, 0) + extra.filter((a) => !a.ul).reduce((a, x) => a + x.m, 0);
   const multi = per && i.prep === 'stocks';

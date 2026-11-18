@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useRefresh } from '../lib/trash';
 import { Picker, type PickOption } from './Picker';
+import { chemNamed } from '@psc/core';
 
 /** A container of a substance that is not empty (0.44). */
 export type Bottle = {
@@ -76,7 +77,9 @@ const ROLE_GROUP: Record<string, string> = {
   other: 'Other',
 };
 /** How a substance is shown where space is short (0.54): its short name when it has one. */
-export const chemShort = (chems: Chemical[], name: string) => chems.find((c) => c.name === name)?.s || name;
+export const chemShort = (chems: Chemical[], name: string) => chemFor(chems, name)?.s || name;
+/** The substance a name means (0.55.4): a recipe's PbI2 finds "Lead(II) iodide" by its short name, other names or formula. */
+export const chemFor = (chems: Chemical[], name: string) => chemNamed(chems, name, (c) => c);
 
 /**
  * The choices of a substance picker (0.54): with `roles`, the substances with one of them first, under their heading, then
