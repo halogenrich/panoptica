@@ -9275,6 +9275,131 @@ input[type='color']:focus-visible {
   outline: 2px solid var(--ac);
   outline-offset: 1px;
 }
+/* 0.56: the week, one row per working day; every row shares the time scale over the axis */
+.ph-week {
+  display: grid;
+  gap: 2px;
+}
+.ph-wk-axis,
+.ph-wk-row {
+  display: grid;
+  /* day, bar, and the › that says a row opens its day */
+  grid-template-columns: 52px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 10px;
+}
+.ph-wk-go {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--mut);
+}
+.ph-wk-scale {
+  position: relative;
+  height: 18px;
+  margin: 0 2px;
+}
+.ph-wk-scale span {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+.ph-wk-row {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--sep);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.ph-wk-row:active {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.ph-wk-row:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: -2px;
+}
+.ph-wk-d {
+  display: grid;
+  line-height: 1.2;
+}
+.ph-wk-d b {
+  font-size: 16px;
+  font-weight: 600;
+}
+.ph-wk-d span {
+  font-size: 13px;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+.ph-wk-row.today .ph-wk-d b {
+  color: var(--ac);
+}
+/* the working hours: a plain track, the bookings on it in their equipment's colours */
+.ph-wk-bar {
+  position: relative;
+  display: block;
+  margin: 0 2px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.ph-wk-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.ph-wk-b {
+  position: absolute;
+  min-width: 4px;
+  border-radius: 4px;
+  background: var(--c, var(--ac));
+}
+/* a booking that runs past the scale is pointed at the edge it runs past */
+.ph-wk-b.cut-r {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
+}
+.ph-wk-b.cut-l {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% 100%, 6px 100%, 0 50%);
+}
+.ph-wk-b.cut-l.cut-r {
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0 50%);
+}
+.ph-wk-now {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--fg);
+}
+.ph-wk-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 2px 0 12px;
+}
+.ph-wk-key .ph-eq {
+  font-size: 14px;
+  font-weight: 500;
+}
+.ph-week > .ph-hint {
+  padding-top: 8px;
+}
 
 /* run sheet */
 .ph-batch {

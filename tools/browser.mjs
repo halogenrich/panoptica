@@ -1520,7 +1520,11 @@ try {
         await ph.getByRole('tab', { name: 'My bookings' }).waitFor();
         await shot('schedule');
         await ph.getByRole('tab', { name: 'By equipment' }).click();
-        await ph.getByText('Choose equipment to see its day.').waitFor();
+        // 0.56: By equipment opens on All equipment
+        expect(
+          (await ph.getByRole('combobox', { name: 'Equipment' }).inputValue()) === 'All equipment',
+          'By equipment does not open on All equipment',
+        );
         const eq = (
           await api('GET', `/calendar?from=${new Date().toISOString()}&to=${new Date().toISOString()}`)
         ).j.equipment.find((e) => e.active && e.booked !== false);
@@ -1528,11 +1532,12 @@ try {
         await pick.click();
         await pick.fill(eq.name);
         await pick.press('Enter');
-        // the day as dd/mm/yyyy with its weekday, between ‹ and ›, overlapping neither (0.55.4)
+        // the day as dd/mm/yyyy with its weekday, between ‹ and ›, overlapping neither (0.55.4); the weekday abbreviated (0.56)
         const day = ph.locator('.ph-day');
         // the phone's day (its time zone is UTC, as the context says)
         const dd = (d) => d.toLocaleDateString('en-GB', { timeZone: 'UTC' });
         await day.getByText(dd(new Date())).waitFor();
+        await day.getByText(new Date().toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })).waitFor();
         await day.getByText('Today', { exact: true }).waitFor();
         const [l, m, r] = await Promise.all(
           [ph.getByRole('button', { name: 'Day before' }), day, ph.getByRole('button', { name: 'Day after' })].map(
@@ -1554,6 +1559,96 @@ try {
         await dlg.getByRole('button', { name: 'Cancel' }).click();
         await dlg.waitFor({ state: 'detached' });
       });
+
+      await step(
+        `${device}: Week shows the working days with the bookings on one scale; a day opens All equipment (0.56)`,
+        async () => {
+          // the next working day (Monday to Friday, the default hours) in the phone's time zone (UTC)
+          const t = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+          while ([0, 6].includes(t.getUTCDay())) t.setUTCDate(t.getUTCDate() + 1);
+          const iso = t.toISOString().slice(0, 10),
+            at = (h) => `${iso}T${h}:00.000Z`;
+          const bookable = async () =>
+            (await api('GET', `/calendar?from=${at('00:00')}&to=${at('23:59')}`)).j.equipment.filter(
+              (e) => e.active && e.booked !== false,
+            );
+          // a second piece of equipment, so that two bookings at once take two lanes
+          if ((await bookable()).length < 2)
+            await api('POST', '/equipment', { name: `Hotplate ${engine}`, color: '#eb6834' });
+          const eqs = await bookable();
+          const [a, b = eqs[0]] = eqs;
+          const made = [];
+          // two at once on different equipment (two lanes when there are two), and an evening one past the scale
+          for (const [e, s, z, what] of [
+            [a, '06:00', '07:00', `Week early ${engine}`],
+            [b, '06:30', '07:30', `Week overlap ${engine}`],
+            [a, '17:00', '21:00', `Week evening ${engine}`],
+          ]) {
+            if (b === a && what.includes('overlap')) continue;
+            const r = await api('POST', '/bookings', {
+              equipment_id: e.id,
+              purpose: what,
+              start: at(s),
+              end: at(z),
+              force: true,
+            });
+            expect(r.s === 200, `${what} was not booked: ${r.s} ${JSON.stringify(r.j)}`);
+            made.push(r.j.id);
+          }
+          await bar('Today').click();
+          await bar('Schedule').click();
+          await ph.getByRole('tab', { name: 'Week' }).click();
+          await ph.locator('.ph-week').waitFor();
+          // a Saturday or Sunday today means the working day is in next week
+          if (new Date().getUTCDay() === 6 || new Date().getUTCDay() === 0)
+            await ph.getByRole('button', { name: 'Week after' }).click();
+          const labels = await ph.locator('.ph-wk-row .ph-wk-d b').allInnerTexts();
+          expect(labels.join() === 'Mon,Tue,Wed,Thu,Fri', `the week's rows are ${labels.join(', ')}`);
+          const ddmm = `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+          const row = ph.locator('.ph-wk-row').filter({ hasText: ddmm });
+          await row
+            .locator('.ph-wk-b')
+            .nth(made.length - 1)
+            .waitFor();
+          const blocks = await row
+            .locator('.ph-wk-b')
+            .evaluateAll((l) => l.map((n) => ({ cut: n.className, top: n.style.top, left: parseFloat(n.style.left) })));
+          expect(blocks.length === made.length, `the day shows ${blocks.length} of ${made.length} bookings`);
+          // the scale is the working hours (08–18): the early ones are cut on the left, the evening one on the right
+          expect(
+            blocks.some((x) => x.cut.includes('cut-r') && x.left >= 80),
+            'the evening booking is not cut at 18:00',
+          );
+          expect(blocks.filter((x) => x.cut.includes('cut-l')).length === made.length - 1, 'early bookings not cut');
+          if (made.length === 3)
+            expect(new Set(blocks.map((x) => x.top)).size > 1, 'overlapping bookings share a lane');
+          expect(
+            (await row.getAttribute('aria-label')).includes(`${made.length} bookings`),
+            'the row does not say how many',
+          );
+          await ph.locator('.ph-wk-axis').getByText('08', { exact: true }).waitFor();
+          await fits('the week');
+          await shot('schedule-week');
+          if (process.env.SHOTS) {
+            await ph.emulateMedia({ colorScheme: 'dark' });
+            await shot('schedule-week-dark');
+            await ph.emulateMedia({ colorScheme: 'light' });
+          }
+          await row.click();
+          expect(
+            (await ph.getByRole('tab', { name: 'By equipment' }).getAttribute('aria-selected')) === 'true',
+            'a day does not open By equipment',
+          );
+          await ph
+            .locator('.ph-day')
+            .getByText(`${ddmm}/${iso.slice(0, 4)}`)
+            .waitFor();
+          for (const w of ['early', 'evening']) await ph.getByText(`Week ${w} ${engine}`).waitFor();
+          await fits('All equipment');
+          await shot('schedule-all');
+          for (const id of made) await api('DELETE', `/bookings/${id}`);
+        },
+      );
 
       if (!CORE)
         await step(`${device}: Run sheet opens a batch's layers with their procedure and run data`, async () => {

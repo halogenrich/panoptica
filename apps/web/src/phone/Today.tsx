@@ -30,7 +30,7 @@ export default function Today({
         ) : hero ? (
           <>
             <div className="ph-hero-when">
-              {current ? `Now, until ${hm(current.end)}` : `Next: ${dayIn(new Date(hero.start))}`}
+              {current ? `Now, until ${hm(current.end)}` : `Next: ${dayIn(new Date(hero.start), false)}`}
             </div>
             <BookingRow k={hero} big />
           </>

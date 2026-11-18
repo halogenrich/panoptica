@@ -123,20 +123,21 @@ function range(v: View, d: Date): [Date, Date] {
   const first = monday(new Date(d.getFullYear(), d.getMonth(), 1));
   return [first, addDays(first, 42)];
 }
-function title(v: View, d: Date, short = false) {
-  if (short && v === 'day') return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  if (short && v === 'week') {
-    const [a, b] = range('week', d);
-    return `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} – ${addDays(b, -1).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`;
-  }
-  if (v === 'day')
-    return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+/** dd/mm/yyyy of a local day */
+const dmy = (d: Date) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** The weekday abbreviated (0.56: Richard, "for the calendar it can be abbreviated for days of the week"). */
+const wd = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'short' });
+/**
+ * The title over the grid (0.56): "Wed 18/11/2026", "16/11–22/11/2026" (across a new year "29/12/2026–04/01/2027"),
+ * "November 2026". Short and dd/mm/yyyy, so it fits a narrow window as it is.
+ */
+function title(v: View, d: Date) {
+  if (v === 'day') return `${wd(d)} ${dmy(d)}`;
   if (v === 'month') return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const [a, b] = range('week', d),
     e = addDays(b, -1);
-  return a.getMonth() === e.getMonth()
-    ? `${a.getDate()}–${e.getDate()} ${e.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
-    : `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} – ${e.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  return a.getFullYear() === e.getFullYear() ? `${dmy(a).slice(0, 5)}–${dmy(e)}` : `${dmy(a)}–${dmy(e)}`;
 }
 /** First name, or first and second name when two people in view share the first one. */
 function namer(list: Booking[]) {
@@ -571,7 +572,7 @@ export default function Calendar({
           <button className="iconbtn" aria-label="Next" title="Next (→)" onClick={() => step(1)}>
             ›
           </button>
-          <h2 className="cal-title">{title(view, date, narrow)}</h2>
+          <h2 className="cal-title">{title(view, date)}</h2>
         </div>
         <div className="grow" />
         <Seg
@@ -888,7 +889,7 @@ function TimeGrid({
                   'tg-col-h day' + (sameDay(c.day, today) ? ' today' : '') + (busyCol[cols.indexOf(c)] ? '' : ' slim')
                 }
               >
-                <span className="mut small wd">{c.day.toLocaleDateString('en-GB', { weekday: 'long' })}</span>
+                <span className="mut small wd">{wd(c.day)}</span>
                 <b>{c.day.getDate()}</b>
                 {bdays.get(mdOf(c.day)) && (
                   <span
@@ -1203,7 +1204,7 @@ function Month({
     <div className="month">
       {days.slice(0, 7).map((d) => (
         <div key={'h' + d.getDay()} className="month-h">
-          {d.toLocaleDateString('en-GB', { weekday: 'long' })}
+          {wd(d)}
         </div>
       ))}
       {days.map((d) => {

@@ -14,19 +14,26 @@ export const dmy = (d: Date) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${
 export const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-export const weekday = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'long' });
-/** "Today", "Tomorrow", "Thursday 20/11/2026" */
-export function dayName(d: Date) {
+/** Monday of the week of `d` (the lab's weeks start on Monday, as in the Calendar). */
+export const monday = (d: Date) => addDays(startOfDay(d), -((d.getDay() + 6) % 7));
+/**
+ * The weekday: abbreviated in date labels ("Wed"), the one exception to full words (Richard, 17 Nov, 0.56: "for the calendar
+ * it can be abbreviated for days of the week"); in full inside sentences.
+ */
+export const weekday = (d: Date, long = false) => d.toLocaleDateString('en-GB', { weekday: long ? 'long' : 'short' });
+/** "Today", "Tomorrow", "Thu 20/11/2026" ("Thursday 20/11/2026" with `long`) */
+export function dayName(d: Date, long = false) {
   const t = startOfDay(new Date()),
     diff = Math.round((startOfDay(d).getTime() - t.getTime()) / 864e5);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';
-  return `${weekday(d)} ${dmy(d)}`;
+  return `${weekday(d, long)} ${dmy(d)}`;
 }
 
-/** The same inside a sentence: "today", "tomorrow", "Thursday 20/11/2026". */
-export const dayIn = (d: Date) => dayName(d).replace(/^(Today|Tomorrow|Yesterday)$/, (w) => w.toLowerCase());
+/** The same inside a sentence: "today", "tomorrow", "Thursday 20/11/2026" (in full; `long = false` for a label). */
+export const dayIn = (d: Date, long = true) =>
+  dayName(d, long).replace(/^(Today|Tomorrow|Yesterday)$/, (w) => w.toLowerCase());
 
 export type Cal = Data;
 /** The calendar from `from` for `days` days; read again when bookings change, here or on another screen (live updates). */

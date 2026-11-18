@@ -2,6 +2,12 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.56.0 (2026-11-18)
+
+- **Phone, Schedule › Week**: a third choice beside My bookings and By equipment. Each working day of the lab is a row, with a bar over the working hours and every booking as a block in its equipment's colour, so a busy day shows at a glance. Days the lab is off do not show. Bookings at the same time sit one above the other, and a booking that runs past the working hours is cut at the edge with a point. Use ‹ and › to move by week, or tap the dates to pick one. Tap a day to see its bookings.
+- **Phone, Schedule › By equipment** opens on **All equipment**: the day's bookings across the lab, in order of time, each with its equipment and who booked it. Pick one piece of equipment to see only its bookings.
+- **Weekdays are abbreviated in the Calendar**: "Wed 18/11/2026" on the phone, and Mon, Tue… over the columns of the full app's Week and Month. The Calendar's title now reads "Wed 18/11/2026" for a day and "16/11–22/11/2026" for a week. Sentences, such as a booking's details, still write the day in full.
+
 ## 0.55.4 (2026-11-18)
 
 - **Recipes find substances named in full**: a perovskite's salts are worked out as PbI2, MAI, FAI or CsI, while the inventory may call them "Lead(II) iodide" or "Formamidinium iodide". The recipe now finds the substance by its short name, other names, formula or CAS number, so it no longer says "Not in the inventory" for something in stock, uses that substance's molar mass and purity, and batches take the amounts from its containers. An additive that is the same substance as one of the salts is weighed with it.
