@@ -9393,7 +9393,8 @@ input[type='color']:focus-visible {
   width: 2px;
   margin-left: -1px;
   border-radius: 1px;
-  background: var(--fg);
+  /* the now line is the Calendar's red everywhere (0.60.1, Richard) */
+  background: #dc2626;
 }
 .ph-wk-key {
   display: flex;
@@ -10010,7 +10011,8 @@ input.mono {
   width: calc(var(--u) * 3);
   margin-left: calc(var(--u) * -1.5);
   border-radius: 2px;
-  background: var(--fg);
+  /* the Calendar's red, as everywhere (0.60.1, Richard) */
+  background: #dc2626;
 }
 
 /* screen 2: the best device above, today below (0.60.1, Richard) */
@@ -10251,7 +10253,7 @@ input.mono {
   top: 50%;
   height: calc(var(--u) * 3);
   margin-top: calc(var(--u) * -1.5);
-  background: var(--err);
+  background: #dc2626;
   z-index: 1;
 }
 
