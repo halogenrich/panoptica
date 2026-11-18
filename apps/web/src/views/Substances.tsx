@@ -5,7 +5,7 @@ import { refreshAll, showToast, useRefresh } from '../lib/trash';
 import { Dialog, ROLES, ROLE_LABEL, bottleText, type Chemical } from './common';
 import { Picker } from './Picker';
 import Structure from '../lib/Structure';
-import { formulaOf } from '../lib/structure';
+import { formulaOf } from '../lib/structureLayout';
 
 /**
  * Inventory › Substances (0.44): what the lab's containers are of. A substance is made when its first container is added or

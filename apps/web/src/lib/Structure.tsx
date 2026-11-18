@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { STYLE, structureOf, wid, type Drawing, type Run } from './structure';
+import { STYLE, structureOf, wid, type Drawing, type Run } from './structureLayout';
 
 /** Element colours (0.57): heteroatoms coloured as in ChemDraw's default, set per theme in styles.css (`--el-*`). */
 const EL = new Set(['O', 'N', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B', 'Si', 'Se', 'Li', 'Na', 'K', 'Cs', 'Co']);
