@@ -31,49 +31,102 @@ const asksOutcome = (k: any) =>
     measuring: measuring(JSON.parse(k.eq_steps || '[]')),
   });
 
+/**
+ * Sees every student and the whole lab (0.60): admins, professors ("Professor is the supervisor, they see everything", Richard)
+ * and Lab managers (the permission called Lab overview before 0.60).
+ */
+export const seesAll = (u: { role: string; manager?: boolean; professor?: boolean }) =>
+  u.role === 'admin' || !!u.manager || !!u.professor;
+/** The people who name this person as supervisor or co-supervisor on their account. */
+export const studentsOf = (u: { id: number; name: string }) =>
+  (
+    db
+      .prepare(
+        `SELECT id FROM users WHERE deleted=0 AND id<>? AND (lower(trim(supervisor))=lower(?) OR lower(trim(cosupervisor))=lower(?))`,
+      )
+      .all(u.id, u.name.trim(), u.name.trim()) as { id: number }[]
+  ).map((r) => r.id);
+/** A person's progress page opens for themselves, their supervisors, and whoever sees everything. */
+const mayOpen = (u: any, id: number) => seesAll(u) || id === u.id || studentsOf(u).includes(id);
+
 export function registerDashboard(app: FastifyInstance, auth: (need?: any) => any) {
-  /**
-   * 0.38: everyone has an overview of their own work. Lab overview access (admins, the Lab overview permission) opens the
-   * whole lab or anyone's; a supervisor (named as supervisor or co-supervisor on a student's account) opens their students'.
-   */
-  const lead = (u: any) => u.role === 'admin' || !!u.manager;
-  const studentsOf = (u: any) =>
-    (
-      db
-        .prepare(
-          `SELECT id FROM users WHERE deleted=0 AND id<>? AND (lower(trim(supervisor))=lower(?) OR lower(trim(cosupervisor))=lower(?))`,
-        )
-        .all(u.id, u.name, u.name) as { id: number }[]
-    ).map((r) => r.id);
   /** The people a scope covers, or null for the whole lab; undefined when the viewer may not open it. */
   const scopeIds = (req: any): number[] | null | undefined => {
     const u = req.user,
-      sc = String(req.query.scope ?? (lead(u) ? 'lab' : 'me'));
+      sc = String(req.query.scope ?? 'lab');
     if (sc === 'me') return [u.id];
     if (sc === 'students') return studentsOf(u);
-    if (sc === 'lab') return lead(u) ? null : undefined;
+    // 0.60: everyone opens the lab (the lab screen shows the same); who does not see everything gets shared work and their own
+    if (sc === 'lab') return null;
     const m = sc.match(/^user:(\d+)$/);
-    if (m) return lead(u) || +m[1] === u.id || studentsOf(u).includes(+m[1]) ? [+m[1]] : undefined;
+    if (m) return mayOpen(u, +m[1]) ? [+m[1]] : undefined;
     return undefined;
   };
+  const NO = 'you can open your own progress and your students’';
   const allowed = async (req: any, reply: any) => {
     if (req.routeOptions?.url === '/api/dashboard/person/:id') {
-      const id = +req.params.id,
-        u = req.user;
-      if (!(lead(u) || id === u.id || studentsOf(u).includes(id)))
-        return reply.code(403).send({ error: 'you can open your own overview and your students’' });
+      if (!mayOpen(req.user, +req.params.id)) return reply.code(403).send({ error: NO });
       return;
     }
-    if (scopeIds(req) === undefined)
-      return reply.code(403).send({ error: 'you can open your own overview and your students’' });
+    if (scopeIds(req) === undefined) return reply.code(403).send({ error: NO });
   };
-  /** What the viewer may pick in the overview: themselves, their students, the lab and anyone (with lab overview access). */
+  /** What the viewer may open in the Overview (0.60): the lab, their own progress, Students and Equipment use. */
   app.get('/api/dashboard/scopes', { preHandler: auth() }, async (req: any) => {
     const u = req.user;
-    const people = lead(u)
+    const people = seesAll(u)
       ? db.prepare('SELECT id,name FROM users WHERE deleted=0 AND active=1 ORDER BY name COLLATE NOCASE').all()
       : [];
-    return { lab: lead(u), students: studentsOf(u).length, people };
+    return { lab: true, all: seesAll(u), students: studentsOf(u).length, people };
+  });
+  /**
+   * Students (0.60): the people the viewer may follow, each with what they did in the last 30 days. Admins, professors and Lab
+   * managers see everyone; a supervisor or co-supervisor their own students (named on the student's account).
+   */
+  app.get('/api/dashboard/students', { preHandler: auth() }, async (req: any, reply) => {
+    const u = req.user,
+      all = seesAll(u),
+      mine = studentsOf(u);
+    if (!all && !mine.length) return reply.code(403).send({ error: 'only supervisors, professors and Lab managers' });
+    const users = (
+      db
+        .prepare(
+          'SELECT id,name,username,photo_v AS photoV,last_seen,role,supervisor,cosupervisor FROM users WHERE deleted=0 AND active=1 AND id<>? ORDER BY name COLLATE NOCASE',
+        )
+        .all(u.id) as any[]
+    )
+      .filter((p) => all || mine.includes(p.id))
+      .map((p) => ({ ...p, tags: tagsOf(p.id), mine: mine.includes(p.id) }));
+    const to = new Date(),
+      from = new Date(to.getTime() - 30 * 864e5),
+      ids = new Set(users.map((p) => p.id));
+    const hours: Record<number, number> = {};
+    for (const k of db
+      .prepare('SELECT user_id, start, end FROM bookings WHERE end > ? AND start < ?')
+      .all(iso(from), iso(to)) as { user_id: number; start: string; end: string }[])
+      if (ids.has(k.user_id))
+        hours[k.user_id] =
+          (hours[k.user_id] ?? 0) +
+          (Math.min(new Date(k.end).getTime(), to.getTime()) - Math.max(new Date(k.start).getTime(), from.getTime())) /
+            3.6e6;
+    const m: Record<string, any> = {};
+    for (const x of modules())
+      if (x.overview)
+        m[x.id] = x.overview.period({
+          from,
+          to,
+          unit: 'month',
+          inScope: (id) => ids.has(id),
+          users,
+          viewer: u.id,
+          seeAll: true,
+        }).people;
+    return {
+      people: users.map((p) => ({
+        ...p,
+        hours: hours[p.id] ?? 0,
+        m: Object.fromEntries(Object.entries(m).map(([id, v]) => [id, v[p.id] ?? {}])),
+      })),
+    };
   });
   app.get('/api/dashboard', { preHandler: [auth(), allowed] }, async (req: any, reply) => {
     const from = new Date(String(req.query.from)),
@@ -109,7 +162,10 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
 
     // ---- the modules' numbers
     const m: Record<string, any> = {};
-    for (const x of modules()) if (x.overview) m[x.id] = x.overview.period({ from, to, unit, inScope, users });
+    // the lab as someone who does not see everything sees it: shared work and their own (0.60); a person or students: all of it
+    const seeAll = ids !== null || seesAll(req.user);
+    for (const x of modules())
+      if (x.overview) m[x.id] = x.overview.period({ from, to, unit, inScope, users, viewer: req.user.id, seeAll });
 
     // ---- people
     const people = users.map((u) => ({
@@ -157,15 +213,17 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
         })),
       waiting: books.filter((k) => !k.outcome && asksOutcome(k) && k.end < iso(new Date())).length,
     };
+    // people, equipment use and setbacks are for those who see everything (Students, Equipment use); the lab's totals for all
+    const lead = seeAll;
     return {
       from: f,
       to: t,
       unit,
       lab: { hours: books.reduce((a, k) => a + hoursOf(k), 0), workHours: wh },
-      people,
+      people: lead ? people : [],
       // the lab's equipment for the lab; only what the people in view used, otherwise
-      equipment: ids === null ? equipment : equipment.filter((e) => e.bookings > 0),
-      digest,
+      equipment: !lead ? [] : ids === null ? equipment : equipment.filter((e) => e.bookings > 0),
+      digest: lead ? digest : { setbacks: [], waiting: 0 },
       m: Object.fromEntries(Object.entries(m).map(([id, { people: _, ...v }]) => [id, v])),
       scope: ids === null ? 'lab' : ids?.length === 1 ? 'one' : 'group',
     };
@@ -175,7 +233,7 @@ export function registerDashboard(app: FastifyInstance, auth: (need?: any) => an
   app.get('/api/dashboard/person/:id', { preHandler: [auth(), allowed] }, async (req: any, reply) => {
     const u = db
       .prepare(
-        'SELECT id,name,username,photo_v AS photoV,last_seen,role,created_at FROM users WHERE id=? AND deleted=0',
+        'SELECT id,name,username,photo_v AS photoV,last_seen,role,created_at,supervisor,cosupervisor FROM users WHERE id=? AND deleted=0',
       )
       .get(+req.params.id) as any;
     if (!u) return reply.code(404).send({ error: 'not found' });

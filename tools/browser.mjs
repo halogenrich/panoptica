@@ -209,8 +209,7 @@ const later = async () => {
 
 console.log(`Browser tests (${BUILT ? 'packaged server' : 'server from source'}${CORE ? ', the core alone' : ''})`);
 try {
-  let username = '',
-    bookDay = ''; // the day of the booking outside a batch
+  let username = '';
   await step('first setup offers to restore the lab from a backup, and says what is wrong (0.53)', async () => {
     await page.goto(base);
     await page.getByRole('button', { name: 'Restore from a backup' }).click();
@@ -454,13 +453,14 @@ try {
     async () => {
       const groups = await page.locator('nav.side .glabel').allTextContents();
       expect(
-        groups.join(',') === (CORE ? 'Lab' : 'Fabrication,Measurements,Recipes,Designs,Lab'),
+        groups.join(',') === (CORE ? 'Overview,Lab' : 'Overview,Fabrication,Measurements,Recipes,Designs,Lab'),
         'side menu groups: ' + groups.join(', '),
       );
       if (CORE) {
         const items = await page.locator('nav.side .navitem').allTextContents();
         expect(
-          items.map((x) => x.trim()).join(',') === 'Overview,Calendar,Inventory,Equipment,Trash',
+          items.map((x) => x.trim()).join(',') ===
+            'Lab,Students,My progress,Equipment use,Lab screen,Calendar,Inventory,Equipment,Trash',
           'core menu: ' + items.join(', '),
         );
         return;
@@ -543,7 +543,6 @@ try {
       .first()
       .fill('Browser test run');
     const day = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
-    bookDay = day;
     await dlg.locator('input[type=date]').fill(day);
     await dlg.locator('input[type=time]').nth(0).fill('10:00');
     await dlg.locator('input[type=time]').nth(1).fill('11:00');
@@ -1029,35 +1028,95 @@ try {
 
   await step(
     CORE
-      ? 'the Overview tells the period from the equipment time'
-      : 'the Overview tells the period with the module’s part and the equipment time',
+      ? 'Overview: the Lab page’s equipment time; Students, Equipment use and Lab screen for an admin (0.60)'
+      : 'Overview: the Lab page’s numbers; My progress exports its slide with the box plot chosen (0.60)',
     async () => {
-      await page.locator('nav.side').getByRole('button', { name: 'Overview', exact: true }).click();
-      // the booking is two days ahead: late in the week that is next week's Overview (Mondays start a week)
-      const later = await page.evaluate((d) => {
-        const monday = (t) => {
-          const x = new Date(t);
-          x.setHours(0, 0, 0, 0);
-          x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-          return x.getTime();
-        };
-        return monday(d + 'T12:00:00') > monday(Date.now());
-      }, bookDay);
-      if (CORE && later) await page.locator('.ov').getByRole('button', { name: 'Next' }).click();
-      if (CORE)
-        await page
-          .locator('.ov-lede')
-          .getByText(/of equipment time booked/)
-          .waitFor();
-      else {
-        await page
-          .locator('.ov-lede')
-          .getByText(/started 1 batch/)
-          .waitFor();
-        await page.locator('.ov-stat').filter({ hasText: 'Best cell' }).waitFor();
+      const shot = async (name) => {
+        if (!process.env.SHOTS) return;
+        await page.screenshot({ path: join(root, 'out', name), fullPage: true });
+      };
+      await nav('Lab');
+      await page.locator('.top h1').getByText('Lab overview', { exact: true }).waitFor();
+      await page.locator('.ov-stat').filter({ hasText: 'Equipment time' }).waitFor();
+      if (!CORE) {
+        await page.locator('.ov-stat').filter({ hasText: 'Typical device' }).waitFor();
+        await page.locator('.ov-best').waitFor();
       }
-      await page.locator('.ov').getByRole('tab', { name: 'Equipment', exact: true }).click();
+      expect(!(await page.locator('.ov-lede').count()), 'the Summary’s sentences are gone');
+      await shot('overview-lab.png');
+      await nav('My progress');
+      await page.locator('.ov-person h2').waitFor();
+      if (!CORE) {
+        await page.locator('.ov-stat').filter({ hasText: 'Best device so far' }).waitFor();
+        await page.getByRole('heading', { name: 'Best device of each batch' }).waitFor();
+        await shot('overview-progress.png');
+        await page.getByRole('button', { name: 'Export for a presentation' }).click();
+        const dlg = page.locator('.pe');
+        await dlg.locator('.pe-preview svg').first().waitFor();
+        // PCE alone by default, then all four; the choice is remembered
+        await dlg.locator('.pe-preview [aria-label="Box plots of pce"]').waitFor();
+        await dlg.getByRole('tab', { name: 'All four' }).click();
+        await dlg.locator('.pe-preview [aria-label="Box plots of jsc, ff, voc, pce"]').waitFor();
+        await shot('overview-export-all.png');
+        await dlg.getByRole('tab', { name: 'Voc' }).click();
+        await dlg.locator('.pe-preview [aria-label="Box plots of voc"]').waitFor();
+        await shot('overview-export-voc.png');
+        await page.getByRole('button', { name: 'Close', exact: true }).click();
+        await page.getByRole('button', { name: 'Export for a presentation' }).click();
+        await page.locator('.pe-preview [aria-label="Box plots of voc"]').waitFor();
+        await page.getByRole('button', { name: 'Close', exact: true }).click();
+      } else await page.locator('.ov-more summary').filter({ hasText: 'Equipment time' }).waitFor();
+      if (!CORE && process.env.SHOTS) {
+        // the imported measurement is dated March: the month that holds it shows the best device with its J–V curve
+        await nav('Lab');
+        await page.locator('.ov').getByRole('tab', { name: 'Month' }).click();
+        const march = page.locator('.cal-title').getByText('March 2026');
+        for (let i = 0; i < 24 && !(await march.count()); i++)
+          await page.getByRole('button', { name: 'Previous month' }).click();
+        await page.locator('.ov-best-fig svg').first().waitFor();
+        await shot('overview-lab-best.png');
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await shot('overview-lab-best-dark.png');
+        await page.setViewportSize({ width: 390, height: 844 });
+        await shot('overview-lab-390.png');
+        await page.evaluate(() => (location.hash = '#/progress'));
+        await page.locator('.ov-person h2').waitFor();
+        await shot('overview-progress-390-dark.png');
+        await page.setViewportSize({ width: 1400, height: 900 });
+        await shot('overview-progress-dark.png');
+        await page.emulateMedia({ colorScheme: 'light' });
+        await page.evaluate(() => localStorage.setItem('psc-ov-unit', 'week'));
+      }
+      // a student who names this admin as supervisor shows under Your students; the card opens their progress
+      const me = (await api('GET', '/me')).j;
+      await api('POST', '/access-requests', {
+        firstNames: 'Grace',
+        surnames: 'Hopper',
+        surname: 'Hopper',
+        email: 'grace@lab.example',
+        birthDate: '2000-01-02',
+        department: 'Physics',
+        supervisor: me.name,
+        photo: 'data:image/png;base64,iVBORw0KGgo=',
+      });
+      const rq = (await api('GET', '/access-requests')).j.find((r) => r.email === 'grace@lab.example');
+      expect(
+        rq && (await api('POST', `/access-requests/${rq.id}/accept`, {})).s === 200,
+        'the student was not accepted',
+      );
+      await nav('Students');
+      const yours = page.locator('.ov-sec').filter({ has: page.locator('.ov-h', { hasText: 'Your students' }) });
+      await yours.locator('.ov-pcard').filter({ hasText: 'Grace Hopper' }).waitFor();
+      await shot('overview-students.png');
+      await yours.locator('.ov-pcard').filter({ hasText: 'Grace Hopper' }).click();
+      await page.locator('.top h1').getByText('Progress', { exact: true }).waitFor();
+      await page.locator('.ov-person h2').getByText('Grace Hopper').waitFor();
+      await page.getByRole('button', { name: '‹ Students' }).click();
+      await yours.waitFor();
+      await nav('Equipment use');
       await page.locator('.eq-use-row').filter({ hasText: 'Spin coater A' }).waitFor();
+      await nav('Lab screen');
+      await page.getByText('Show the lab screen').first().waitFor();
     },
   );
 

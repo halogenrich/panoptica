@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.60.0 (2026-11-18)
+
+- **Overview is a section of the side menu**, with Lab, Students, My progress, Equipment use and Lab screen. Each person sees only what they may.
+- **Lab**, for everyone: a week or a month of the lab's work, with the typical device, batches, equipment time, and the best device with its J–V curve. Admins, professors and Lab managers see all of it; everyone else sees shared work and their own, as on the lab screen.
+- **Students**: a card per person with what they did in the last 30 days, your own students first. Professors (anyone with Private comments), admins and Lab managers see everyone; a supervisor or co-supervisor sees their own students.
+- **My progress**, for everyone: your best device so far, the best device of each batch over time, your batches, measurements and equipment time. Supervisors, professors, admins and Lab managers open it from Students.
+- **Export for a presentation** on My progress: a slide with the best device of each batch over time, the J–V curve of the best device and the box plot of its batch. Choose the box plot on the preview: PCE, Voc, Jsc, FF or all four.
+- **Equipment use**: how busy each piece of equipment was, and the steps postponed or canceled, for admins, professors and Lab managers.
+- **Lab manager**: the permission called Lab overview is renamed. Everyone who had it keeps it.
+- **The Summary is gone**: its opening sentences, efficiency over time and highlights slide. The best device of the period and its lists are on the Lab page.
+
 ## 0.59.0 (2026-11-18)
 
 - **Lab screen**: PANOPTICA on a TV in the lab. An admin turns it on in Admin settings › Lab screen and sets its password; the sign-in screen then offers "Open the lab screen", and the TV stays on it after reloads and power cuts. Names show on it without anyone signing in. A new password, or turning it off, signs every screen out.

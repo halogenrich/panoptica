@@ -51,24 +51,26 @@ export type CoreDash = {
 };
 export type SumProps<M = any> = { m: M; d: CoreDash; who: Who; label: string; open: Open };
 export type PersonProps<M = any> = { m: M; open: Open };
+/** Who a My progress page is about (0.60), for its slide. */
+export type PersonHead = { id: number; name: string; username: string; tags: { name: string }[] };
 
+/**
+ * A module's part of the Overview (0.42; reworked in 0.60): its numbers and body on the Lab page, a person's activity in a few
+ * words on Students, and its part of My progress with that page's slide.
+ */
 export type OverviewPart<M = any, PM = any, P = any> = {
-  /** the opening sentences of the summary */
-  lede(m: M, who: Who, period: string): string;
+  /** the Lab page's numbers for the period */
   stats(m: M): Stat[];
-  /** what one person did in the period, in a few words each (empty: nothing) */
+  /** what one person did in a period, in a few words each (empty: nothing) */
   doing(pm: PM): string[];
   /** they did something in the period (by default: `doing` says something) */
   active?(pm: PM): boolean;
-  /** above the numbers (a new record), below them (charts), and folded at the end */
-  Lead?: FC<SumProps<M>>;
-  Body?: FC<SumProps<M>>;
-  Details?: FC<SumProps<M>>;
-  /** "Export for a presentation" */
-  Export?: FC<SumProps<M> & { onClose: () => void }>;
-  /** one person's page: numbers, charts and lists, and what their slide shows */
+  /** the Lab page under the numbers: the period's best work, its lists */
+  Lab?: FC<SumProps<M>>;
+  /** My progress: numbers, charts and lists */
   Person?: FC<PersonProps<P>>;
-  personSlide?(p: P): { numbers: [string, string][]; body?: (y: number) => ReactNode };
+  /** My progress › Export: the slide of this person's progress (null: nothing to export) */
+  PersonExport?: FC<{ m: P; who: PersonHead; onClose: () => void }>;
 };
 
 /** A block a module's calendar tray hands to the Calendar to drag onto a day and time (0.43). */

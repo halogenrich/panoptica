@@ -106,6 +106,9 @@ export type Period = {
   unit: 'week' | 'month';
   inScope: (userId: number) => boolean;
   users: { id: number; name: string }[];
+  /** who is looking (0.60), and whether they see private work: false for the lab seen by someone who does not see everything */
+  viewer?: number;
+  seeAll?: boolean;
 };
 /** A module's part of the Overview (0.42): its numbers for the period and per person, and its part of one person's page. */
 export type OverviewPart = {

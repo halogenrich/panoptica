@@ -31,7 +31,7 @@ import { registerCalendar } from './calendar.js';
 import { items, licenceStart, moduleNames, modules, skippedModules } from './modules.js';
 import { hasSetupCode, licenceState, noRoom, registerLicence, setupInstall } from './licence.js';
 import { registerEquipment } from './equipment.js';
-import { registerDashboard } from './dashboard.js';
+import { registerDashboard, studentsOf } from './dashboard.js';
 import { registerSecurity, tokenHash, Limiter, weakPassword } from './security.js';
 import { registerAudit, audit, ipOf, verifyAudit } from './audit.js';
 import { oldNodeNotice, registerUpdates } from './updates.js';
@@ -250,6 +250,8 @@ app.get('/api/me', { preHandler: auth() }, async (req: any) => {
     ...x,
     showBirthday: !!x.showBirthday,
     tags: tagsOf(req.user.id),
+    // how many people name them as supervisor (0.60: Overview › Students)
+    supervises: studentsOf(req.user).length,
     // an admin downloads the recovery file before going on: after the first setup, and after a restore that changed the key (0.53)
     ...(req.user.role === 'admin' && recoveryPending() ? { recovery: true } : {}),
   };

@@ -45,7 +45,10 @@ const curvesOf = (ids: number[]) =>
         .all(...ids) as Curve[])
     : [];
 
-function period({ from, to, unit, inScope, users }: Period) {
+function period({ from, to, unit, inScope, users, viewer, seeAll = true }: Period) {
+  // 0.60: the lab seen by someone who does not see everything counts shared work and their own, as the lab screen does
+  const visible = (r: { owner_id: number; visibility: string }) =>
+    seeAll || r.visibility === 'shared' || r.owner_id === viewer;
   const f = iso(from),
     t = iso(to),
     fd = f.slice(0, 10),
@@ -53,10 +56,10 @@ function period({ from, to, unit, inScope, users }: Period) {
   const sets = (
     db
       .prepare(
-        'SELECT s.id,s.owner_id,s.name,s.date,s.created_at,s.system,s.links FROM iv_sets s WHERE s.deleted_at IS NULL AND s.stability_of IS NULL',
+        'SELECT s.id,s.owner_id,s.name,s.date,s.created_at,s.system,s.links,s.visibility FROM iv_sets s WHERE s.deleted_at IS NULL AND s.stability_of IS NULL',
       )
       .all() as any[]
-  ).filter((s) => inScope(s.owner_id));
+  ).filter((s) => inScope(s.owner_id) && visible(s));
   const inP = (s: any) => {
     const d = dayOf(s);
     return d >= fd && d < td;
@@ -66,10 +69,10 @@ function period({ from, to, unit, inScope, users }: Period) {
   const batches = (
     db
       .prepare(
-        'SELECT b.id,b.code,b.name,b.owner_id,b.status,b.created_at,b.updated_at,u.name AS owner FROM batches b JOIN users u ON u.id=b.owner_id WHERE b.deleted_at IS NULL',
+        'SELECT b.id,b.code,b.name,b.owner_id,b.status,b.created_at,b.updated_at,b.visibility,u.name AS owner FROM batches b JOIN users u ON u.id=b.owner_id WHERE b.deleted_at IS NULL',
       )
       .all() as any[]
-  ).filter((b) => inScope(b.owner_id));
+  ).filter((b) => inScope(b.owner_id) && visible(b));
   const started = batches.filter(
     (b) =>
       b.created_at.replace(' ', 'T') >= f.slice(0, 19).replace('Z', '') &&
@@ -158,11 +161,15 @@ function period({ from, to, unit, inScope, users }: Period) {
   };
 }
 
-/** One person's page: their measurements over time (progress) and their batches (all time, newest first). */
+/**
+ * One person's page (My progress, 0.60): their measurements, their batches, and the best device of each batch over time. A device
+ * counts for the batch its sample is linked to; devices linked to no batch count for their measurement, so nothing measured is
+ * left off the chart. `best` is their best device ever, with what the slide needs to find its curves and its batch.
+ */
 function person(uid: number) {
   const sets = db
     .prepare(
-      'SELECT id,name,date,created_at,system FROM iv_sets WHERE owner_id=? AND deleted_at IS NULL AND stability_of IS NULL',
+      'SELECT id,name,date,created_at,system,links FROM iv_sets WHERE owner_id=? AND deleted_at IS NULL AND stability_of IS NULL',
     )
     .all(uid) as any[];
   const dev = devicesOf(curvesOf(sets.map((s) => s.id)));
@@ -184,8 +191,61 @@ function person(uid: number) {
     .prepare(
       'SELECT id,code,name,status,created_at,updated_at FROM batches WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC',
     )
-    .all(uid);
-  return { progress, batches };
+    .all(uid) as { id: number; code: string; name: string; status: string; created_at: string }[];
+  // ---- devices by the batch their sample is linked to (or by measurement)
+  type Top = { pce: number; setId: number; set: string; sample: string; substrate: string; day: string };
+  const groups = new Map<string, { kind: 'batch' | 'set'; id: number; day: string; pces: number[]; top: Top }>();
+  const setOf = new Map(sets.map((s) => [s.id, s]));
+  for (const [k, pce] of dev) {
+    const [sid, sample, substrate] = k.split('|'),
+      s = setOf.get(+sid)!,
+      link = (JSON.parse(s.links || '{}') as Record<string, { kind: string; id: number } | null>)[sample],
+      key = link?.kind === 'batch' ? 'b' + link.id : 's' + s.id,
+      day = dayOf(s),
+      top: Top = { pce, setId: s.id, set: s.name, sample, substrate, day };
+    const g = groups.get(key);
+    if (!g)
+      groups.set(key, {
+        kind: link?.kind === 'batch' ? 'batch' : 'set',
+        id: link?.kind === 'batch' ? link.id : s.id,
+        day,
+        pces: [pce],
+        top,
+      });
+    else {
+      g.pces.push(pce);
+      if (day < g.day) g.day = day;
+      if (pce > g.top.pce) g.top = top;
+    }
+  }
+  const batchName = (id: number) =>
+    (db.prepare('SELECT name, code FROM batches WHERE id=? AND deleted_at IS NULL').get(id) as
+      { name: string; code: string } | undefined) ?? null;
+  const points = [...groups.values()]
+    .map((g) => {
+      const b = g.kind === 'batch' ? batchName(g.id) : null;
+      return {
+        kind: b ? 'batch' : 'set',
+        id: b ? g.id : g.top.setId,
+        name: b ? b.name : g.top.set,
+        day: g.day,
+        devices: g.pces.length,
+        best: Math.max(...g.pces),
+        median: median(g.pces),
+        top: { ...g.top, batchId: b ? g.id : null },
+      };
+    })
+    .sort((a, b) => a.day.localeCompare(b.day) || a.name.localeCompare(b.name));
+  const best = points.reduce<(typeof points)[number] | null>((a, p) => (!a || p.best > a.best ? p : a), null);
+  return {
+    progress,
+    batches: batches.map((b) => {
+      const p = points.find((x) => x.kind === 'batch' && x.id === b.id);
+      return { ...b, best: p?.best ?? null, devices: p?.devices ?? 0 };
+    }),
+    points,
+    best: best ? best.top : null,
+  };
 }
 
 export const devicesOverview: OverviewPart = { period, person };

@@ -33,12 +33,12 @@ Admins make tags; a tag can give permissions:
 
 | Role or permission | Can |
 |---|---|
-| Member | Create and edit their own work; read work others marked **Shared**; book equipment they are trained on; open their own overview (and their students', for supervisors) |
+| Member | Create and edit their own work; read work others marked **Shared**; book equipment they are trained on; open the lab's overview (shared work and their own) and their own progress (and their students', for supervisors) |
 | **Inventory management** | Edit the substances and the inventory |
 | **Equipment management** | Add, arrange and move places and equipment |
 | **Equipment training** | Record who is trained on which equipment |
-| **Lab overview** | Open the lab's overview and anyone's (activity, people's pages, equipment use) |
-| **Private comments** | Read everything, including private work; comment privately to an owner |
+| **Lab manager** | See every student's progress and the lab's equipment use (called Lab overview before 0.60) |
+| **Private comments** | Read everything, including private work; comment privately to an owner; see every student's progress and the lab's equipment use (professors) |
 | Admin | Everything above, plus accounts, backups, the activity log, updates and app settings |
 
 Private work is visible only to its owner, people with Private comments and admins. Deleting an account blocks sign-in at once and keeps the person's work under "username (former)".
@@ -138,7 +138,7 @@ This section describes the facts; the legal assessment belongs to the institutio
 - **Data**: username, names, institutional email, birth date (to confirm a password reset; the birthday shows in the calendar only if the person allows it), department, supervisors, photo, tags, equipment training, last time online, activity log entries (time, action, network address). No sensitive personal data.
 - **Purpose**: running the group's research records (who prepared what, equipment use, responsibility for changes) and protecting them (the activity log).
 - **Minimisation**: no phone or ID numbers; the log stores actions, not content.
-- **Access**: section 3. Each person sees their own overview; supervisors see their students'; people with Lab overview see everyone's.
+- **Access**: section 3. Everyone sees the lab's overview (shared work and their own) and their own progress; supervisors see their students'; admins, professors (Private comments) and Lab managers see everyone's.
 - **Retention**: activity log two years; accounts until deleted by an admin (the work stays under "username (former)"; the photo and preferences are removed). Backups age out as in section 5.
 - **Rights** (access, correction, deletion): a member sees and edits their name and photo in Edit profile; an admin exports a person's activity (Activity log › filter by person › Export CSV) or deletes the account.
 - **Data packages** (for depositing research data): built in the browser from what the person can already see, and downloaded to their computer; the app sends nothing anywhere. A package names the authors typed in its dialog and the owners of its items (display names only, no usernames, addresses or log entries). Depositing it in a repository is the authors' decision and follows the repository's terms.

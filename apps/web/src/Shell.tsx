@@ -12,7 +12,8 @@ import { Bell, Logout, Menu, Search, Trash as TrashIcon } from './Icons';
 import Palette, { type Cmd } from './views/Palette';
 import Inventory from './views/Inventory';
 import Calendar from './views/Calendar';
-import Overview from './views/Overview';
+import AdminScreen from './views/AdminScreen';
+import { EquipmentUse, LabOverview, Progress, Students, seesAll } from './views/Overview';
 import Users from './views/Users';
 import Help from './views/Help';
 import Trash from './views/Trash';
@@ -57,12 +58,18 @@ const CORE: Record<string, Page> = {
   eq: { key: 'eq', label: 'Equipment', render: (p) => <EquipmentPage openId={p.openId} onOpen={p.onOpen} /> },
 };
 const SPECIAL: Record<string, string> = {
-  dash: 'Overview',
+  // the Overview section (0.60); `dash` stays the Lab page's key, so links made before still open it
+  dash: 'Lab overview',
+  students: 'Students',
+  progress: 'My progress',
+  equse: 'Equipment use',
+  labscreen: 'Lab screen',
   users: 'Admin settings',
   trash: 'Trash',
   help: 'Help',
   profile: 'Profile',
 };
+const OVERVIEW_KEYS = new Set(['dash', 'students', 'progress', 'equse', 'labscreen']);
 type MenuGroup = { group: string; tab?: string; pages: Page[]; bottom?: boolean };
 /** The side menu from the core and the installed modules, in the modules' order; phone tabs are the groups that ask for one. */
 function menuOf(mods: typeof MODULES): MenuGroup[] {
@@ -105,6 +112,14 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
     KEYS = new Set(Object.keys(LABEL)),
     TABS = menu0.filter((g) => g.tab).map((g) => ({ key: g.group, label: g.tab!, items: g.pages.map((x) => x.key) })),
     parts = mods.filter((m) => m.overview).map((m) => ({ ...m.overview!, id: m.id }));
+  /** The Overview section (0.60): what this person may open in it. */
+  const overview = [
+    { key: 'dash', label: 'Lab' },
+    ...(seesAll(me) || (me.supervises ?? 0) > 0 ? [{ key: 'students', label: 'Students' }] : []),
+    { key: 'progress', label: 'My progress' },
+    ...(seesAll(me) ? [{ key: 'equse', label: 'Equipment use' }] : []),
+    ...(me.role === 'admin' ? [{ key: 'labscreen', label: 'Lab screen' }] : []),
+  ];
   // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
   const start = (() => {
     const r = parseRoute();
@@ -118,7 +133,7 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
       return { view: 'users', id: null };
     }
     if (!r || !KEYS.has(r.view)) return null;
-    if (r.view === 'dash' && !(me.role === 'admin' || me.professor || me.manager)) return null;
+    if (!overview.some((x) => x.key === r.view) && OVERVIEW_KEYS.has(r.view)) return null;
     if (r.view === 'users' && me.role !== 'admin') return null;
     return r;
   })();
@@ -153,7 +168,6 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
-  const seesOverview = true; // 0.38: everyone has an overview of their own work
   // the page's address follows the page (open items add their id themselves, lib/route.ts)
   useEffect(() => {
     if (parseRoute()?.view !== view) pushRoute(view);
@@ -221,18 +235,41 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
   const cmds: Cmd[] = [
     ...menu0.flatMap((g) => g.pages).map((x) => ({ id: x.key, label: x.label, hint: 'Go to', run: () => go(x.key) })),
     ...(me.role === 'admin' ? [{ id: 'users', label: 'Admin settings', hint: 'Go to', run: () => go('users') }] : []),
-    ...(me.role === 'admin' || me.professor || me.manager
-      ? [{ id: 'dash', label: 'Overview', hint: 'Go to', run: () => go('dash') }]
-      : []),
+    ...overview.map((x) => ({
+      id: x.key,
+      label: x.key === 'dash' ? 'Lab overview' : x.label,
+      hint: 'Go to',
+      run: () => go(x.key),
+    })),
     { id: 'trash', label: 'Trash', hint: 'Go to', run: () => go('trash') },
     { id: 'help', label: 'Help', hint: 'Go to', run: () => go('help') },
     { id: 'profile', label: 'Edit profile', hint: 'Go to', run: () => go('profile') },
     { id: 'out', label: 'Sign out', run: onLogout },
   ];
+  // someone else's progress belongs under Students, not My progress
+  const other = view === 'progress' && !!ids.progress && ids.progress !== me.id;
+  const ovOn = (k: string) => (other ? k === 'students' : view === k);
   const page = () => {
     switch (view) {
       case 'dash':
-        return <Overview open={go} parts={parts} />;
+        return <LabOverview open={go} parts={parts} />;
+      case 'students':
+        return <Students parts={parts} onOpen={(id) => go('progress', id, { from: 'students' })} />;
+      case 'progress': {
+        const id = ids.progress ?? me.id;
+        return (
+          <Progress
+            id={id}
+            parts={parts}
+            open={go}
+            onBack={id !== me.id && overview.some((x) => x.key === 'students') ? () => go('students') : undefined}
+          />
+        );
+      }
+      case 'equse':
+        return <EquipmentUse />;
+      case 'labscreen':
+        return <AdminScreen />;
       case 'users':
         return <Users meId={me.id} />;
       case 'help':
@@ -257,7 +294,7 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
         <div className="brand">
           <Wordmark lab={lab?.name} size="s" />
         </div>
-        <h1>{LABEL[view]}</h1>
+        <h1>{other ? 'Progress' : LABEL[view]}</h1>
         {prefs.news ? (
           <NewsTicker
             name={me.name.replace(/^(Prof\.?|Dr\.?)\s+/i, '').split(/\s+/)[0]}
@@ -296,13 +333,14 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
         </button>
       </header>
       <nav className="side">
-        {seesOverview && (
-          <div>
-            <button className={'navitem' + (view === 'dash' ? ' on' : '')} onClick={() => go('dash')}>
-              Overview
+        <div>
+          <div className="glabel">Overview</div>
+          {overview.map((x) => (
+            <button key={x.key} className={'navitem' + (ovOn(x.key) ? ' on' : '')} onClick={() => go(x.key)}>
+              {x.label}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
         {menu0.map((g) => (
           <div key={g.group || 'main'} style={g.bottom ? { marginTop: 'auto' } : undefined}>
             {g.group && <div className="glabel">{g.group}</div>}
@@ -447,11 +485,14 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
             >
               <Search size={16} /> Search
             </button>
-            {seesOverview && (
-              <button className={'navitem' + (view === 'dash' ? ' on' : '')} onClick={() => go('dash')}>
-                Overview
-              </button>
-            )}
+            <div>
+              <div className="glabel">Overview</div>
+              {overview.map((x) => (
+                <button key={x.key} className={'navitem' + (ovOn(x.key) ? ' on' : '')} onClick={() => go(x.key)}>
+                  {x.label}
+                </button>
+              ))}
+            </div>
             {menu0.map((g) => (
               <div key={g.group || 'main'}>
                 {g.group && <div className="glabel">{g.group}</div>}

@@ -838,12 +838,17 @@ if (DEV) {
     'with O₂ and H₂O in ppm it is done',
   );
 
-  // overviews: everyone has their own; the Lab overview permission opens the lab
+  // overviews (0.60): everyone opens the lab and their own progress; Lab manager (the old Lab overview) opens everyone's
   const per = 'from=2026-01-05T00:00:00.000Z&to=2026-01-12T00:00:00.000Z&unit=week';
-  ok((await asAna('GET', '/api/dashboard/scopes')).j.lab === false, 'a member sees no lab scope');
+  const sc0 = (await asAna('GET', '/api/dashboard/scopes')).j;
+  ok(sc0.lab === true && sc0.all === false, 'a member opens the lab, but does not see everyone');
   const mine = await asAna('GET', `/api/dashboard?${per}&scope=me`);
   ok(mine.s === 200 && mine.j.scope === 'one', 'a member opens their own overview');
-  ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 403, 'but not the lab’s');
+  const theirLab = await asAna('GET', `/api/dashboard?${per}&scope=lab`);
+  ok(
+    theirLab.s === 200 && theirLab.j.people.length === 0 && theirLab.j.equipment.length === 0,
+    'and the lab’s, without the people and the equipment use',
+  );
   ok((await asAna('GET', '/api/dashboard/person/1')).s === 403, 'nor someone else’s page');
   const labView = (await call('GET', `/api/dashboard?${per}&scope=lab`)).j;
   ok(labView.scope === 'lab', 'an admin opens the lab');
@@ -852,8 +857,11 @@ if (DEV) {
     'the overview has the core’s numbers and the Electronic Devices part (for the period and each person)',
   );
   const tag = await call('POST', '/api/tags', { name: 'Smoke overview', perms: ['overview'] });
-  ok((await call('PUT', `/api/users/${anaId}/tags`, { tags: [tag.j.id] })).s === 200, 'a tag with Lab overview given');
-  ok((await asAna('GET', `/api/dashboard?${per}&scope=lab`)).s === 200, 'then the member opens the lab overview');
+  ok((await call('PUT', `/api/users/${anaId}/tags`, { tags: [tag.j.id] })).s === 200, 'a tag with Lab manager given');
+  ok(
+    (await asAna('GET', `/api/dashboard?${per}&scope=lab`)).j.equipment.length > 0,
+    'then the member sees the lab’s equipment use',
+  );
   await call('PUT', `/api/users/${anaId}/tags`, { tags: [] });
 }
 
@@ -2125,6 +2133,121 @@ console.log('The lab screen (0.59)');
   await call('PUT', '/api/screen/settings', { on: false });
   ok((await asTv('GET', '/api/screen')).s === 401, 'and so does turning it off');
   db.prepare("DELETE FROM bookings WHERE purpose='smoke'").run();
+}
+
+console.log('The Overview section (0.60)');
+{
+  const asAna = async (method, path, body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: { cookie: anaCookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  const anaId = db.prepare("SELECT id FROM users WHERE username='anas'").get().id,
+    anaName = db.prepare('SELECT name FROM users WHERE id=?').get(anaId).name,
+    adminId = (await call('GET', '/api/me')).j.id;
+  ok((await asAna('GET', '/api/dashboard/students')).s === 403, 'a student does not open Students');
+  ok((await asAna('GET', '/api/me')).j.supervises === 0, 'nobody names the member as supervisor');
+  // the admin's account names the member as co-supervisor: the member follows that one person
+  db.prepare('UPDATE users SET cosupervisor=? WHERE id=?').run(` ${anaName.toUpperCase()} `, adminId);
+  ok((await asAna('GET', '/api/me')).j.supervises === 1, 'a co-supervisor named on an account (case and spaces aside)');
+  const st = await asAna('GET', '/api/dashboard/students');
+  ok(
+    st.s === 200 && st.j.people.length === 1 && st.j.people[0].id === adminId && st.j.people[0].mine,
+    'opens Students with their one student',
+  );
+  ok((await asAna('GET', '/api/dashboard/person/' + adminId)).s === 200, 'and that student’s progress');
+  db.prepare("UPDATE users SET cosupervisor='' WHERE id=?").run(adminId);
+  ok((await asAna('GET', '/api/dashboard/person/' + adminId)).s === 403, 'not once the name is gone');
+  const prof = await call('POST', '/api/tags', { name: 'Smoke professor', perms: ['comments'] });
+  await call('PUT', `/api/users/${anaId}/tags`, { tags: [prof.j.id] });
+  const all = await asAna('GET', '/api/dashboard/students');
+  ok(
+    all.s === 200 && all.j.people.some((p) => p.id === adminId) && !all.j.people.some((p) => p.id === anaId),
+    'a professor sees everyone else in Students',
+  );
+  ok(
+    all.j.people.every((p) => typeof p.hours === 'number' && 'supervisor' in p && (!DEV || p.m.devices)),
+    'with their supervisor, equipment hours and what they did in the last 30 days',
+  );
+  ok((await asAna('GET', '/api/dashboard/scopes')).j.all === true, 'and the lab whole');
+  await call('PUT', `/api/users/${anaId}/tags`, { tags: [] });
+  await call('DELETE', '/api/tags/' + prof.j.id);
+  const pg = (await call('GET', '/api/dashboard/person/' + adminId)).j;
+  ok('supervisor' in pg && 'cosupervisor' in pg, 'a progress page names the supervisors');
+  if (DEV) {
+    // a private and a shared measurement this week: a student sees the lab with the shared one only
+    const V = Array.from({ length: 116 }, (_, i) => +(i * 0.01).toFixed(2)),
+      J = V.map((v) => 23 * (1 - Math.exp((v - 1.12) / 0.035))),
+      today = new Date(),
+      ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const curve = (sample, pixel, k = 1) => ({
+      file: `ov_${sample}_${pixel}`,
+      sample,
+      substrate: '1',
+      scan: '01',
+      pixel,
+      dir: 'rev',
+      area: 0.1,
+      pin: 100,
+      V: [...V].reverse(),
+      J: [...J].reverse().map((j) => j * k),
+    });
+    const bid = Number(
+        db
+          .prepare("INSERT INTO batches(owner_id,code,name,visibility,snapshot) VALUES(?,?,?,'shared',?)")
+          .run(adminId, 'OV-1', 'Smoke progress batch', JSON.stringify({ stack: { sl: [] }, resolved: {} }))
+          .lastInsertRowid,
+      ),
+      b = { s: 200, j: { id: bid } };
+    const priv = await call('POST', '/api/iv', {
+      name: 'smoke overview private',
+      date: ymd,
+      system: 'csv',
+      visibility: 'private',
+      curves: [curve('Ov_a', '1', 1.4)],
+    });
+    const shared = await call('POST', '/api/iv', {
+      name: 'smoke overview',
+      date: ymd,
+      system: 'csv',
+      visibility: 'shared',
+      curves: [curve('Ov_b', '1', 1.2), curve('Ov_b', '2', 1.1), curve('Ov_c', '1', 0.8)],
+      links: { Ov_b: { kind: 'batch', id: bid } },
+    });
+    const now = new Date(),
+      mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    const wk = `from=${mon.toISOString()}&to=${new Date(mon.getTime() + 7 * 864e5).toISOString()}&unit=week`;
+    const theirs = (await asAna('GET', `/api/dashboard?${wk}&scope=lab`)).j.m.devices,
+      ours = (await call('GET', `/api/dashboard?${wk}&scope=lab`)).j.m.devices;
+    ok(
+      priv.s === 200 &&
+        shared.s === 200 &&
+        !theirs.top.some((t) => t.setId === priv.j.id) &&
+        theirs.top[0]?.setId === shared.j.id,
+      'a student’s Lab page counts shared measurements only',
+    );
+    ok(ours.top[0]?.setId === priv.j.id, 'while an admin’s counts the private one too');
+    const me = (await call('GET', '/api/dashboard/person/' + adminId)).j.m.devices;
+    const bp = me.points.find((x) => x.kind === 'batch' && x.id === b.j.id),
+      sp = me.points.find((x) => x.kind === 'set' && x.id === priv.j.id);
+    ok(
+      b.s === 200 && bp?.devices === 1 && Math.abs(bp.best - ours.top.find((t) => t.sample === 'Ov_b').pce) < 1e-9,
+      'My progress: a batch’s point is its best linked device',
+    );
+    ok(!!sp && sp.devices === 1, 'a device linked to no batch counts with its measurement');
+    ok(me.best?.setId === priv.j.id && me.best.batchId === null, 'the best device ever, for the slide');
+    ok(
+      me.batches.find((x) => x.id === b.j.id)?.best === bp?.best,
+      'and each batch in the list carries its best device',
+    );
+    await call('DELETE', '/api/iv/' + priv.j.id);
+    await call('DELETE', '/api/iv/' + shared.j.id);
+    db.prepare('DELETE FROM batches WHERE id=?').run(bid);
+  }
 }
 
 console.log('First setup (a fresh install)');
