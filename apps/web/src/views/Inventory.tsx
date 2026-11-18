@@ -1429,6 +1429,7 @@ function Import({
         s: x.s || undefined,
         aka: x.aka,
         f: x.f,
+        smiles: x.smiles || undefined,
         M: x.M ?? undefined,
         d: x.d,
         mp: x.mp,

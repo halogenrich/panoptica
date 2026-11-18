@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { casValid, molarMass, normCas } from './chem';
+import { casValid, molarMass, normCas, isFormula } from './chem';
 
 describe('substances', () => {
   it('works out molar mass from a formula', () => {
@@ -24,5 +24,27 @@ describe('substances', () => {
     expect(casValid('10101-63-0')).toBe(true); // lead(II) iodide
     expect(casValid('67-68-5')).toBe(true); // dimethyl sulfoxide
     expect(casValid('67-68-6')).toBe(false);
+  });
+});
+
+describe('isFormula (0.57): only names that read whole as a formula get subscripts', () => {
+  it('formulas', () => {
+    for (const f of ['PbI2', 'SnO2', 'C60', 'FAPbI3', 'Cs0.05FA0.95PbI3', '(PEA)2PbI4', 'MoO3', 'Pb(SCN)2', 'C70'])
+      expect(isFormula(f), f).toBe(true);
+  });
+  it('names with numbers that are not formulas stay as written', () => {
+    for (const f of [
+      '2PACz',
+      'MeO-2PACz',
+      'PC71BM',
+      'PC61BM',
+      'FK209',
+      'Me-4PACz',
+      'Spiro-OMeTAD',
+      'Li-TFSI',
+      'PbI2 99.99 %',
+    ])
+      expect(isFormula(f), f).toBe(false);
+    for (const f of ['DMF', 'PEAI', 'BCP', '', 'C600', 'Pb(I2', 'Pb)I2(']) expect(isFormula(f), f).toBe(false);
   });
 });

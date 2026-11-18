@@ -21,6 +21,8 @@ export const toChems = (
  */
 export type Comp = {
   A: Record<string, number>;
+  /** B-site metals with their fractions (0.57): Pb, Sn, Ge. Absent or empty = Pb, as every composition before 0.57. */
+  B?: Record<string, number>;
   X: Record<string, number>;
   L?: { ion: string; z: 1 | 2 };
   n?: number;
@@ -59,7 +61,19 @@ export const SPACERS: { ion: string; z: 1 | 2; name: string }[] = [
   { ion: '3AMP', z: 2, name: '3-(aminomethyl)piperidinium' },
   { ion: '4AMP', z: 2, name: '4-(aminomethyl)piperidinium' },
 ];
-const ION_RE = /(PEA|BzA|ThMA|DMA|PDA|BDA|EDA|3AMP|4AMP|BA|OA|EA|Cs|FA|MA|Pb|Br|Cl|I)(\d*)/g;
+const ION_RE = /(PEA|BzA|ThMA|DMA|PDA|BDA|EDA|3AMP|4AMP|BA|OA|EA|Cs|FA|MA|Pb|Sn|Ge|Br|Cl|I)(\d*)/g;
+/** B-site metals (0.57). Bi is left out: Bi³⁺ does not fit ABX₃. */
+export const B_IONS = ['Pb', 'Sn', 'Ge'];
+/** The B-site of a composition: Pb when none is chosen (compositions saved before 0.57). */
+export const bSite = (c: { B?: Record<string, number> }): Record<string, number> => {
+  const on = Object.entries(c.B ?? {}).filter(([k]) => B_IONS.includes(k));
+  return on.length ? Object.fromEntries(on) : { Pb: 1 };
+};
+/** What the molarity counts: "Pb", "Sn"… or "B-site" when it is mixed (0.57). */
+export const bLabel = (c: { B?: Record<string, number> }) => {
+  const k = Object.keys(bSite(c));
+  return k.length === 1 ? k[0] : 'B-site';
+};
 export const is2D = (c: Comp) => !!(c.L?.ion && c.n && Number.isFinite(c.n) && c.n >= 1);
 export type Rect = [number, number, number, number]; // x, y, w, h in mm
 
@@ -67,6 +81,12 @@ export const SALTS: Chem[] = [
   { n: 'PbI2', f: 'PbI2', M: 461.01 },
   { n: 'PbBr2', f: 'PbBr2', M: 367.01 },
   { n: 'PbCl2', f: 'PbCl2', M: 278.1 },
+  { n: 'SnI2', f: 'SnI2', M: 372.52 },
+  { n: 'SnBr2', f: 'SnBr2', M: 278.52 },
+  { n: 'SnCl2', f: 'SnCl2', M: 189.62 },
+  { n: 'GeI2', f: 'GeI2', M: 326.44 },
+  { n: 'GeBr2', f: 'GeBr2', M: 232.45 },
+  { n: 'GeCl2', f: 'GeCl2', M: 143.55 },
   { n: 'CsI', f: 'CsI', M: 259.81 },
   { n: 'CsBr', f: 'CsBr', M: 212.81 },
   { n: 'FAI', f: 'FAI', M: 171.97 },
@@ -90,7 +110,10 @@ export function saltIons(name: string, chems: Chem[] = SALTS): Record<string, nu
   return ions(chemIn(chems, name)?.f ?? name);
 }
 
-/** Salt amounts (mol per mol Pb) for a composition. Halides go to PbX2 first (Br, Cl, then I); A-site salts take the rest. */
+/**
+ * Salt amounts (mol per mol B-site metal) for a composition. Halides go to the BX2 salts first (Br, Cl, then I), each halide
+ * shared among the B-site metals by their fractions (0.57: Pb, Sn, Ge; before, Pb only); A-site salts take the rest.
+ */
 export function plan(c: Comp): Record<string, number> {
   const sa = total(c.A) || 1,
     sx = total(c.X) || 1,
@@ -101,15 +124,24 @@ export function plan(c: Comp): Record<string, number> {
   const h: Record<string, number> = {},
     out: Record<string, number> = {};
   for (const k in c.X) h[k] = (xTot * c.X[k]) / sx;
-  let pb = 1;
+  const bs = bSite(c),
+    sb = total(bs) || 1;
+  let free = 1;
+  const pool: Record<string, number> = {};
   for (const k of ['Br', 'Cl', 'I']) {
-    const m = Math.min((h[k] || 0) / 2, pb);
+    const m = Math.min((h[k] || 0) / 2, free);
     if (m > 1e-12) {
-      out['Pb' + k + '2'] = m;
+      pool[k] = m;
       h[k] -= 2 * m;
-      pb -= m;
+      free -= m;
     }
   }
+  for (const b of B_IONS)
+    if ((bs[b] || 0) > 0)
+      for (const k in pool) {
+        const m = (pool[k] * bs[b]) / sb;
+        if (m > 1e-12) out[b + k + '2'] = m;
+      }
   if (two) {
     // spacer salt: LX (2/n per Pb, RP) or LX2 (1/n per Pb, DJ), iodide first
     const { ion, z } = c.L!;
@@ -147,7 +179,7 @@ export interface Row {
   known: boolean;
 }
 
-/** Masses to weigh for `volumeMl` of solution at `molarity` (mol Pb / L). Purity-corrected. */
+/** Masses to weigh for `volumeMl` of solution at `molarity` (mol B-site metal / L). Purity-corrected. */
 export function solution(c: Comp, chems: Chem[], molarity: number, volumeMl: number): Row[] {
   const nPb = molarity * volumeMl; // mmol
   return Object.entries(plan(c)).map(([salt, mol]) => {
@@ -165,14 +197,17 @@ export function formula(n: Record<string, number>, chems: Chem[] = SALTS): strin
     for (const k in io) t[k] = (t[k] || 0) + io[k] * n[s];
   }
   const A = ['Cs', 'FA', 'MA'],
-    X = ['I', 'Br', 'Cl'];
+    X = ['I', 'Br', 'Cl'],
+    tb = B_IONS.reduce((s, k) => s + (t[k] || 0), 0),
+    B = Object.fromEntries(B_IONS.filter((k) => (t[k] || 0) > 1e-9).map((k) => [k, t[k]]));
   const sp = SPACERS.find((x) => (t[x.ion] || 0) > 1e-9);
-  if (sp && t.Pb > 1e-9) {
-    // layered: n from the spacer per Pb
-    const per = (k: string) => (t[k] || 0) / t.Pb,
+  if (sp && tb > 1e-9) {
+    // layered: n from the spacer per B-site metal
+    const per = (k: string) => (t[k] || 0) / tb,
       nn = sp.z === 1 ? 2 / per(sp.ion) : 1 / per(sp.ion);
     return layered({
       A: Object.fromEntries(A.map((k) => [k, t[k] || 0])),
+      B,
       X: Object.fromEntries(X.map((k) => [k, t[k] || 0])),
       L: sp,
       n: nn,
@@ -181,15 +216,17 @@ export function formula(n: Record<string, number>, chems: Chem[] = SALTS): strin
   const sa = A.reduce((s, k) => s + (t[k] || 0), 0) || 1,
     sx = X.reduce((s, k) => s + (t[k] || 0), 0) || 1;
   const f = (k: string, v: number) => k + (Math.abs(v - 1) < 0.005 ? '' : +v.toFixed(2));
-  const xs = X.filter((k) => t[k] > 1e-9);
+  const xs = X.filter((k) => t[k] > 1e-9),
+    bk = Object.keys(B),
+    b = bk.length > 1 ? '(' + bk.map((k) => f(k, t[k] / tb)).join('') + ')' : (bk[0] ?? 'Pb');
   return (
     A.filter((k) => t[k] > 1e-9)
       .map((k) => f(k, t[k] / sa))
-      .join('') + (xs.length === 1 ? 'Pb' + xs[0] + '3' : 'Pb(' + xs.map((k) => f(k, t[k] / sx)).join('') + ')3')
+      .join('') + (xs.length === 1 ? b + xs[0] + '3' : b + '(' + xs.map((k) => f(k, t[k] / sx)).join('') + ')3')
   );
 }
 
-/** Formula of a layered perovskite, e.g. (PEA)2PbI4, (BA)2(MA)2Pb3I10, (PDA)(Cs0.05FA0.95)4Pb5I16. */
+/** Formula of a layered perovskite, e.g. (PEA)2PbI4, (BA)2(MA)2Pb3I10, (PDA)(Cs0.05FA0.95)4Pb5I16, (PEA)2(FA)(Pb0.5Sn0.5)2I7. */
 export function layered(c: Comp): string {
   const r = (v: number) => +v.toFixed(2),
     cnt = (v: number) => (Math.abs(v - 1) < 0.005 ? '' : String(r(v)));
@@ -204,8 +241,7 @@ export function layered(c: Comp): string {
   return (
     `(${c.L!.ion})${cnt(m.s)}` +
     part(c.A, ['Cs', 'FA', 'MA'], m.a) +
-    'Pb' +
-    cnt(m.pb) +
+    part(bSite(c), B_IONS, m.pb) +
     part(c.X, ['I', 'Br', 'Cl'], m.x)
   );
 }
@@ -402,7 +438,7 @@ export function solutionPlan(i: SolIn, chems: Chem[]) {
     act[r.s] = w !== undefined && w !== '' ? (r.n * +w) / (expected || 1) : r.n;
   }
   const ct = per
-    ? [...SPACERS.map((x) => x.ion), 'Cs', 'FA', 'MA', 'Pb', 'I', 'Br', 'Cl']
+    ? [...SPACERS.map((x) => x.ion), 'Cs', 'FA', 'MA', ...B_IONS, 'I', 'Br', 'Cl']
         .map((k) => {
           const from = main
             .map((r) => [r.s, r.mol * (saltIons(r.s, chems)[k] || 0)] as [string, number])
@@ -422,10 +458,16 @@ export function solutionPlan(i: SolIn, chems: Chem[]) {
     target: per
       ? is2D(i.comp)
         ? layered(i.comp)
-        : formula(Object.fromEntries(main.map((r) => [r.s, r.n])), chems)
+        : // from the amounts per B-site (0.57), not the mmol: with no molarity yet the formula still reads
+          formula(Object.fromEntries(main.map((r) => [r.s, r.mol])), chems)
       : '',
     actual: per ? formula(act, chems) : '',
-    actualM: per ? Object.entries(act).reduce((s, [k, v]) => s + v * (saltIons(k, chems)['Pb'] || 0), 0) / (V || 1) : 0,
+    actualM: per
+      ? Object.entries(act).reduce((s, [k, v]) => {
+          const io = saltIons(k, chems);
+          return s + v * B_IONS.reduce((a, b) => a + (io[b] || 0), 0);
+        }, 0) / (V || 1)
+      : 0,
   };
 }
 

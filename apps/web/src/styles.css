@@ -4064,9 +4064,13 @@ tr.clickable.on td {
   margin: 0;
   font-size: 18px;
   flex: 1;
+  /* a long IUPAC name breaks inside its words rather than widen the dialog past a phone (0.57) */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
@@ -4093,6 +4097,8 @@ tr.clickable.on td {
 }
 .box-form {
   display: grid;
+  /* one column no wider than the dialog: a row of buttons or a long word wraps instead of widening it (0.57) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 .box-form fieldset {
@@ -9497,4 +9503,89 @@ input[type='color']:focus-visible {
 }
 .life-none {
   padding: 40px 0;
+}
+
+/* ============ structures from SMILES (0.57) ============ */
+:root {
+  --el-o: #d0343f;
+  --el-n: #2f5fd0;
+  --el-s: #a87900;
+  --el-p: #d06a0a;
+  --el-hal: #2e8b3d;
+  --el-br: #a5352a;
+  --el-i: #7a3db3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --el-o: #ff6b6b;
+    --el-n: #7aa2ff;
+    --el-s: #e6c34a;
+    --el-p: #ffa04d;
+    --el-hal: #62cf72;
+    --el-br: #ec8a72;
+    --el-i: #bb93ff;
+  }
+}
+:root[data-theme='dark'] {
+  --el-o: #ff6b6b;
+  --el-n: #7aa2ff;
+  --el-s: #e6c34a;
+  --el-p: #ffa04d;
+  --el-hal: #62cf72;
+  --el-br: #ec8a72;
+  --el-i: #bb93ff;
+}
+.mol2d {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  color: var(--fg);
+  font-family: inherit;
+}
+.mol2d .el {
+  fill: currentColor;
+}
+.mol2d .el-O {
+  fill: var(--el-o);
+}
+.mol2d .el-N {
+  fill: var(--el-n);
+}
+.mol2d .el-S,
+.mol2d .el-Se {
+  fill: var(--el-s);
+}
+.mol2d .el-P {
+  fill: var(--el-p);
+}
+.mol2d .el-F,
+.mol2d .el-Cl {
+  fill: var(--el-hal);
+}
+.mol2d .el-Br {
+  fill: var(--el-br);
+}
+.mol2d .el-I {
+  fill: var(--el-i);
+}
+/* the substance's structure at the top of its page: centred, no frame of its own */
+.mol-fig {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 16px;
+  padding: 8px 0 4px;
+}
+.mol-fig:empty {
+  display: none;
+}
+input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* the solute's structure under a layer's solution in the stack builder (0.57) */
+.mol-card {
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }

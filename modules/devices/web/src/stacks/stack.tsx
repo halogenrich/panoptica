@@ -4,6 +4,7 @@ import { api } from '@web/api';
 import { PrefCtx } from '@web/ctx';
 import { PresetSheet } from '../lib/Library';
 import { Modal, usePrint } from '@web/lib/ui';
+import Structure from '@web/lib/Structure';
 import { DragHandle, useReorder } from '@web/views/common';
 import { KINDS } from '../recipes';
 import { Section } from '../recipes/shared';
@@ -14,6 +15,7 @@ import {
   presetName,
   slotKey,
   slotMaterial,
+  slotStructures,
   slotReady,
   slotsFor,
   substrateOfPreset,
@@ -343,6 +345,12 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
                       ctx={ctx}
                       onNew={() => newIn('s1', (a) => up({ a }))}
                     />
+                    {slotStructures(slot, ctx).map((x) => (
+                      <figure key={x.name} className="mol-card">
+                        <Structure smiles={x.smiles} bond={24} maxH={260} label={x.name} />
+                        <figcaption className="small mut">{x.name}</figcaption>
+                      </figure>
+                    ))}
                   </Section>
                   <Section title="Spin program">
                     <Picker

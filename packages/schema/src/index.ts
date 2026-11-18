@@ -164,6 +164,8 @@ export const SubstanceIn = z.object({
   /** other names search finds (0.54) */
   aka: z.array(z.string().trim().max(160)).max(20).optional(),
   f: z.string().trim().max(60).optional(),
+  /** the structure as SMILES (0.57), drawn on the substance page */
+  smiles: z.string().trim().max(2000).optional(),
   M: z.number().nonnegative().optional(),
   d: opt,
   mp: opt,

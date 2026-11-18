@@ -7,6 +7,7 @@ import {
   type StackLayerIn,
   type SubstrateGeom,
 } from '@psc/devices';
+import { chemFor } from '@web/views/common';
 import type { Ctx, Rec } from '../recipes/types';
 import type { ViewSlab } from './Viewer3D';
 import type { Appearance } from './appearance';
@@ -92,6 +93,17 @@ export function slotMaterial(s: Slot, ctx: Ctx) {
   if (s.m === 'Metal evap') return d.met ?? 'Metal';
   if (s.m === 'Spin') return d.mode === 'Perovskite' ? p!.name : d.sol || p!.name;
   return s.n;
+}
+
+/**
+ * Structures to show on a spin-coated layer's step (0.57): the solute of a solution that is not a perovskite (the SAM,
+ * the transport material), when its substance has a SMILES. Never on paper.
+ */
+export function slotStructures(s: Slot, ctx: Ctx): { name: string; smiles: string }[] {
+  const d = get(ctx, s.a)?.data;
+  if (s.m !== 'Spin' || !d || d.mode === 'Perovskite' || !d.sol) return [];
+  const c = chemFor(ctx.chems, d.sol);
+  return c?.smiles ? [{ name: c.s || c.name, smiles: c.smiles }] : [];
 }
 
 /** The substrate and mask the stack uses: from the substrate prep and metal recipes, falling back to the earlier fixed geometry. */

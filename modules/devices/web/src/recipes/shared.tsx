@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import { isFormula } from '@psc/core';
 
 /** Inside a batch, write-in cells become inputs bound to the batch record; on paper they are blank lines. */
 export const MeasCtx = createContext<{
@@ -57,5 +58,8 @@ export const Section = ({ title, children }: { title: string; children: ReactNod
 export const Formula = ({ f }: { f: string }) => (
   <>{f.split(/((?<=[A-Za-z)\]])\d+(?:\.\d+)?)/).map((p, i) => (i % 2 ? <sub key={i}>{p}</sub> : p))}</>
 ); // digits after a letter or ")": (4AMP) keeps its 4
+
+/** A substance's name as written, with subscripts when it reads whole as a formula (0.57): PbI₂, C₆₀; 2PACz stays as is. */
+export const Chem = ({ n }: { n: string }) => (isFormula(n) ? <Formula f={n} /> : <>{n}</>);
 
 export const fix = (n: number, d = 2) => (isFinite(n) ? +n.toFixed(d) : 0).toString();

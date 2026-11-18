@@ -361,7 +361,9 @@ const layerName = (slot: any, a: any, _b: any): string => {
       const sp = ['RP', 'DJ'].includes(a.dim)
         ? (SPACERS.find((x) => x.ion === a.L && fits(x)) ?? SPACERS.find(fits))
         : undefined;
-      return sp ? layered({ A: a.A, X: a.X, L: sp, n: Math.max(1, a.n || 1) }) : formula(plan({ A: a.A, X: a.X }));
+      return sp
+        ? layered({ A: a.A, B: a.B, X: a.X, L: sp, n: Math.max(1, a.n || 1) })
+        : formula(plan({ A: a.A, B: a.B, X: a.X }));
     }
     case 'Organic evap':
       return a?.mat || slot.n;

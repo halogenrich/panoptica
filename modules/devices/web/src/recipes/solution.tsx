@@ -1,5 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import {
+  B_IONS,
+  bLabel,
+  bSite,
   layeredAmounts,
   nFromAmounts,
   soluteOf as solute,
@@ -31,7 +34,7 @@ import { api } from '@web/api';
 import { MeCtx } from '@web/ctx';
 import { refreshAll } from '@web/lib/trash';
 import { Seg } from '@web/lib/ui';
-import { Formula, Section, T, fix, withBlank } from './shared';
+import { Chem, Formula, Section, T, fix, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
 
 type Mode = SolMode;
@@ -91,19 +94,21 @@ function SubIn({ v, on, label }: { v: number; on: (n: number) => void; label: st
   );
 }
 
-type CompD = Pick<D, 'A' | 'X' | 'dim' | 'L' | 'n' | 's'>;
+type CompD = Pick<D, 'A' | 'B' | 'X' | 'dim' | 'L' | 'n' | 's'>;
 const r2 = (v: number) => String(+v.toFixed(2));
 /** Dimensionality by n (Ossila, What are 2D perovskites): 1 = 2D, below 5 quasi-2D, 5 and up often called quasi-3D. */
 const dimName = (n: number) => (n <= 1.0001 ? 'pure 2D' : n < 5 ? 'quasi-2D' : 'quasi-3D');
 
 /**
  * The perovskite formula itself is the editor: ion chips choose the sites, subscripts are typed into the formula.
- * Layered perovskites: (L)2A(n−1)PbnX(3n+1) (Ruddlesden–Popper) or (L)A(n−1)PbnX(3n+1) (Dion–Jacobson); n is the subscript of Pb.
+ * Layered perovskites: (L)2A(n−1)BnX(3n+1) (Ruddlesden–Popper) or (L)A(n−1)BnX(3n+1) (Dion–Jacobson); n is the subscript of
+ * the B-site (0.57: Pb, Sn, Ge, mixed with fractions; before, Pb only).
  */
 function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void }) {
-  const { A, X } = d;
-  const toggle = (site: 'A' | 'X', k: string) => {
-    const s = site === 'A' ? A : X,
+  const { A, X } = d,
+    B = bSite(d);
+  const toggle = (site: 'A' | 'B' | 'X', k: string) => {
+    const s = site === 'A' ? A : site === 'B' ? B : X,
       n = { ...s };
     if (k in n) {
       if (Object.keys(n).length > 1) delete n[k];
@@ -113,9 +118,12 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
     set({ [site]: n });
   };
   const a = A_IONS.filter((k) => k in A),
+    b = B_IONS.filter((k) => k in B),
     x = X_IONS.filter((k) => k in X),
     sa = sum(A),
-    sx = sum(X);
+    sb = sum(B),
+    sx = sum(X),
+    bl = b.length === 1 ? b[0] : 'B';
   const norm = (s: Record<string, number>) => {
     const t = sum(s) || 1;
     return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, +(v / t).toFixed(4)]));
@@ -195,6 +203,21 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
           </div>
         )}
         <div>
+          <span className="site-label">B-site</span>
+          <div className="chips">
+            {B_IONS.map((k) => (
+              <button
+                key={k}
+                className={'chip' + (k in B ? ' on' : '')}
+                aria-pressed={k in B}
+                onClick={() => toggle('B', k)}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
           <span className="site-label">X-site</span>
           <div className="chips">
             {X_IONS.map((k) => (
@@ -241,7 +264,19 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
             ) : (
               <span className="fx-term">{a[0]}</span>
             ))}
-          <span className="fx-term">Pb{two && m && <SubIn v={rd(m.pb)} label="n, Pb amount" on={setPb} />}</span>
+          <span className="fx-term">
+            {b.length > 1 && '('}
+            {b.map((k) => (
+              <span key={k} className="fx-term">
+                {k}
+                {b.length > 1 && (
+                  <SubIn v={B[k]} label={`${k} fraction on the B-site`} on={(v) => set({ B: { ...B, [k]: v } })} />
+                )}
+              </span>
+            ))}
+            {b.length > 1 && ')'}
+            {two && m && <SubIn v={rd(m.pb)} label={`n, ${bl === 'B' ? 'B-site' : bl} amount`} on={setPb} />}
+          </span>
           {x.length > 1 ? (
             <span className="fx-term">
               (
@@ -266,12 +301,12 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
       {two && m && (
         <p className="small mut">
           {d.dim === 'RP'
-            ? 'Ruddlesden–Popper (L)₂Aₙ₋₁PbₙX₃ₙ₊₁: two monovalent spacers per layer.'
-            : 'Dion–Jacobson (L)Aₙ₋₁PbₙX₃ₙ₊₁: one divalent spacer per layer.'}{' '}
-          Type the {sp.ion} and A-cation amounts (or Pb): their ratio sets n, and Pb and the halide follow.{' '}
-          <b>n = {r2(n)}</b>, {dimName(n)} · {sp.ion} : A = {r2(m.s)} : {r2(m.a)} ({r2((100 * m.s) / (m.s + m.a || 1))}{' '}
-          % {sp.ion} among the organic cations). Per Pb:{' '}
-          {d.dim === 'RP' ? `${r2(2 / n)} ${sp.ion}X` : `${r2(1 / n)} ${sp.ion}X₂`}, {r2((n - 1) / n)} AX, 1 PbX₂.
+            ? `Ruddlesden–Popper (L)₂Aₙ₋₁${bl}ₙX₃ₙ₊₁: two monovalent spacers per layer.`
+            : `Dion–Jacobson (L)Aₙ₋₁${bl}ₙX₃ₙ₊₁: one divalent spacer per layer.`}{' '}
+          Type the {sp.ion} and A-cation amounts (or {bl === 'B' ? 'the B-site' : bl}): their ratio sets n, and{' '}
+          {bl === 'B' ? 'the B-site' : bl} and the halide follow. <b>n = {r2(n)}</b>, {dimName(n)} · {sp.ion} : A ={' '}
+          {r2(m.s)} : {r2(m.a)} ({r2((100 * m.s) / (m.s + m.a || 1))} % {sp.ion} among the organic cations). Per {bl}:{' '}
+          {d.dim === 'RP' ? `${r2(2 / n)} ${sp.ion}X` : `${r2(1 / n)} ${sp.ion}X₂`}, {r2((n - 1) / n)} AX, 1 {bl}X₂.
           {Math.abs(m.s - m.s0) > 1e-9 && (
             <>
               {' '}
@@ -282,7 +317,7 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
           )}
         </p>
       )}
-      {((showA && a.length > 1) || x.length > 1) && (
+      {((showA && a.length > 1) || b.length > 1 || x.length > 1) && (
         <div className="fx-sums">
           {showA && a.length > 1 && (
             <span className={off(sa) ? 'warn-text' : 'ok'}>
@@ -292,6 +327,22 @@ function Composition({ d, set }: { d: CompD; set: (p: Partial<CompD>) => void })
                   {' '}
                   · scaled to 1 in the calculation{' '}
                   <button className="link" onClick={() => set({ A: norm(A) })}>
+                    Make it 1
+                  </button>
+                </>
+              ) : (
+                ' ✓'
+              )}
+            </span>
+          )}
+          {b.length > 1 && (
+            <span className={off(sb) ? 'warn-text' : 'ok'}>
+              B-site {+sb.toFixed(4)}
+              {off(sb) ? (
+                <>
+                  {' '}
+                  · scaled to 1 in the calculation{' '}
+                  <button className="link" onClick={() => set({ B: norm(B) })}>
                     Make it 1
                   </button>
                 </>
@@ -485,7 +536,9 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             {d.prep === 'one' ? (
               <>
                 <label className="row">
-                  <span>Molarity (mol Pb / L of {d.meth === 'density' ? 'solution' : 'solvent'})</span>
+                  <span>
+                    Molarity (mol {bLabel(d)} / L of {d.meth === 'density' ? 'solution' : 'solvent'})
+                  </span>
                   <Num v={d.M} on={(M) => set({ M })} />
                 </label>
                 <label className="row">
@@ -496,7 +549,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             ) : (
               <>
                 <label className="row">
-                  <span>Molarity of the mixed solution (mol Pb / L)</span>
+                  <span>Molarity of the mixed solution (mol {bLabel(d)} / L)</span>
                   <Num v={d.M} on={(M) => set({ M })} />
                 </label>
                 <label className="row">
@@ -644,7 +697,11 @@ function Bottle({ ctx, name, ok, edit }: { ctx: Ctx; name: string; ok: boolean; 
 function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
   const r = plan(d, ctx),
     // short names wherever a substance has one (0.54); the full name on hover
-    sn = (n: string) => <span title={n}>{chemShort(ctx.chems, n)}</span>;
+    sn = (n: string) => (
+      <span title={n}>
+        <Chem n={chemShort(ctx.chems, n)} />
+      </span>
+    );
   const rows = [
     ...r.rows.map((a) => [
       <>
@@ -750,11 +807,16 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
         </p>
         {r.ct.length > 0 && (
           <T
-            h={['Ion', 'Total / Pb', 'From salts']}
+            h={['Ion', `Total / ${bLabel(d)}`, 'From salts']}
             rows={r.ct.map((c) => [
               c.ion,
               c.total.toFixed(3),
-              c.from.map((f) => `${f[0]} ${f[1].toFixed(3)}`).join(' + '),
+              c.from.map((f, i) => (
+                <span key={f[0]}>
+                  {i > 0 && ' + '}
+                  <Chem n={f[0]} /> {f[1].toFixed(3)}
+                </span>
+              )),
             ])}
           />
         )}
@@ -776,7 +838,15 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
   return (
     <>
       <p className="headline">
-        {d.mode === 'Perovskite' ? <Formula f={headline(d, ctx)} /> : headline(d, ctx)}{' '}
+        {d.mode === 'Perovskite' ? (
+          <Formula f={headline(d, ctx)} />
+        ) : solute(d, ctx) ? (
+          <>
+            {sn(solute(d, ctx))} {d.c} {d.u}
+          </>
+        ) : (
+          headline(d, ctx)
+        )}{' '}
         <span className="mut">
           · {d.mode === 'Perovskite' ? `${d.M} M · ` : ''}
           {d.V} mL
@@ -784,11 +854,16 @@ function Output({ d, ctx, blanks }: { d: D; ctx: Ctx; blanks?: boolean }) {
       </p>
       {r.ct.length > 0 && (
         <T
-          h={['Ion', 'Total / Pb', 'From salts']}
+          h={['Ion', `Total / ${bLabel(d)}`, 'From salts']}
           rows={r.ct.map((c) => [
             c.ion,
             c.total.toFixed(3),
-            c.from.map((f) => `${f[0]} ${f[1].toFixed(3)}`).join(' + '),
+            c.from.map((f, i) => (
+              <span key={f[0]}>
+                {i > 0 && ' + '}
+                <Chem n={f[0]} /> {f[1].toFixed(3)}
+              </span>
+            )),
           ])}
         />
       )}

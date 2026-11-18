@@ -13,6 +13,7 @@ const iso = z
 /** Selected ions with their subscript fractions, e.g. { A: { FA: 0.85, Cs: 0.15 }, X: { I: 1 } } */
 export const Composition = z.object({
   A: z.record(z.string(), z.number().nonnegative()),
+  B: z.record(z.string(), z.number().nonnegative()).optional(),
   X: z.record(z.string(), z.number().nonnegative()),
 });
 

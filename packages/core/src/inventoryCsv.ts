@@ -16,6 +16,8 @@ export type ImportRow = {
   s: string;
   aka: string[];
   f: string;
+  /** the structure (0.57, the template's SMILES column) */
+  smiles: string;
   M: number | null;
   d: number | null;
   mp: number | null;
@@ -65,6 +67,7 @@ const HEADERS: [Field, string[]][] = [
   ['s', ['short name', 'abbreviation', 'acronym', 'sigla', 'nome curto']],
   ['aka', ['other names', 'synonyms', 'outros nomes', 'sinônimos', 'sinonimos']],
   ['f', ['empirical formula', 'formula', 'molecular formula', 'fórmula', 'formula molecular']],
+  ['smiles', ['smiles', 'canonical smiles', 'isomeric smiles']],
   ['M', ['mw', 'molar mass', 'molecular weight', 'massa molar']],
   ['d', ['density', 'densidade']],
   ['mp', ['melting point', 'mp', 'ponto de fusão']],
@@ -274,6 +277,7 @@ export function readInventoryRows(all: string[][]): ImportResult {
         .map((x) => x.trim())
         .filter(Boolean),
       f,
+      smiles: g('smiles').trim(),
       M,
       d: num(g('d')),
       mp: num(g('mp')),
@@ -309,6 +313,7 @@ export function readInventoryRows(all: string[][]): ImportResult {
         s: r.s,
         aka: r.aka,
         f: r.f,
+        smiles: r.smiles,
         M: r.M,
         d: r.d,
         mp: r.mp,
@@ -327,6 +332,7 @@ export function readInventoryRows(all: string[][]): ImportResult {
     s.s ||= r.s;
     s.aka = [...new Set([...s.aka, ...r.aka])];
     s.f ||= r.f;
+    s.smiles ||= r.smiles;
     s.M ??= r.M;
     s.d ??= r.d;
     s.mp ??= r.mp;
@@ -381,6 +387,11 @@ export const INVENTORY_TEMPLATE: { header: string; note: string; example: string
     example: '10101-63-0',
   },
   { header: 'Formula', note: 'Gives the molar mass (PbI2, CH3NH3I, CuSO4·5H2O).', example: 'PbI2' },
+  {
+    header: 'SMILES',
+    note: 'The structure, drawn on the substance page. From ChemDraw: Edit › Copy As › SMILES. Common compounds get one from their CAS number.',
+    example: '',
+  },
   { header: 'Amount left', note: 'A number: what the container holds now. 0 for an empty one.', example: 4.5 },
   { header: 'Size', note: 'A number: what the container holds when full.', example: 5 },
   { header: 'Unit', note: 'g, mg, kg, mL, L or µL. For both amounts.', example: 'g' },

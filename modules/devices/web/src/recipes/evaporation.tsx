@@ -15,7 +15,7 @@ import { COLORS, DesignSvg, metalColor, type Layer } from '../designs/DesignSvg'
 import { ChemPicker, Num, chemShort } from '@web/views/common';
 import { Picker } from '@web/views/Picker';
 import { SubstrateImg, mmss } from './parts';
-import { Bl, Formula, Section, T, withBlank } from './shared';
+import { Bl, Chem, Formula, Section, T, withBlank } from './shared';
 import type { Ctx, Kind } from './types';
 import Molecule from './Molecule';
 import { moleculeFor } from './molecules';
@@ -83,7 +83,9 @@ function OrgOutput({ d, ctx, blanks }: { d: O; ctx: Ctx; blanks?: boolean }) {
   return (
     <>
       <p className="headline">
-        <span title={d.mat}>{chemShort(ctx.chems, d.mat)}</span>{' '}
+        <span title={d.mat}>
+          <Chem n={chemShort(ctx.chems, d.mat)} />
+        </span>{' '}
         <span className="mut">
           · {d.th} nm at {d.rate} {ru(d.u)}
         </span>
@@ -402,7 +404,14 @@ function MetOutput({ d, ctx, blanks }: { d: M; ctx: Ctx; blanks?: boolean }) {
   return (
     <>
       <p className="headline">
-        {d.met ? <span title={d.met}>{chemShort(ctx.chems, d.met)}</span> : 'No metal yet'} · {m.final} nm{' '}
+        {d.met ? (
+          <span title={d.met}>
+            <Chem n={chemShort(ctx.chems, d.met)} />
+          </span>
+        ) : (
+          'No metal yet'
+        )}{' '}
+        · {m.final} nm{' '}
         <span className="mut">
           · {(m.final / 100).toFixed(3)} kÅ on controller · start at {d.p0} % · {mmss(m.total)}
         </span>

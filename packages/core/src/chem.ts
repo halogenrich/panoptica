@@ -111,3 +111,23 @@ export const GHS: Record<string, string> = {
   GHS08: 'Health hazard',
   GHS09: 'Environment',
 };
+
+/** Cations the lab writes as letters in formulas (FAPbI3, (PEA)2PbI4): read as one unit, like an element. */
+const CATIONS = ['FA', 'MA', 'GA', 'PEA', 'BA', 'OA', 'BzA', 'EA', 'DMA', 'PDA', 'BDA', 'EDA', 'ThMA', '3AMP', '4AMP'];
+const UNIT = [...CATIONS, ...Object.keys(W)].sort((a, b) => b.length - a.length).join('|');
+const FORMULA_RE = new RegExp(`^(?:(?:${UNIT})(?:\\d{1,2}(?:\\.\\d+)?)?|\\(|\\)(?:\\d{1,2}(?:\\.\\d+)?)?)+$`);
+/**
+ * Whether a name reads whole as a formula (0.57), so its counts can be written as subscripts: element symbols and the lab's
+ * cations, parentheses, counts of at most two digits (decimals allowed, as in Cs0.05FA0.95PbI3). PbI2, SnO2, C60, FAPbI3 and
+ * (PEA)2PbI4 do; 2PACz, MeO-2PACz, PC71BM and FK209 do not, so they stay as written.
+ */
+export function isFormula(name: string): boolean {
+  const s = (name ?? '').trim();
+  if (!s || !/\d/.test(s) || /^\d/.test(s)) return false;
+  let depth = 0;
+  for (const c of s) {
+    depth += c === '(' ? 1 : c === ')' ? -1 : 0;
+    if (depth < 0) return false;
+  }
+  return depth === 0 && FORMULA_RE.test(s);
+}

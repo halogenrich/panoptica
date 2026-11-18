@@ -3,7 +3,7 @@ import { spinDefaults, spinPlan, spinUses, type Dispense, type SpinD, type SpinS
 import { ChemPicker, Check, DragHandle, Num, RemoveRow, chemShort, useReorder } from '@web/views/common';
 import { Picker } from '@web/views/Picker';
 import { Seg } from '@web/lib/ui';
-import { Section, T } from './shared';
+import { Chem, Formula, Section, T } from './shared';
 import type { Ctx, Kind } from './types';
 
 const st = (t: number, rpm: number, final = false): SpinStep => ({ t, rpm, n2: false, final });
@@ -344,7 +344,7 @@ function Output({ d, ctx }: { d: D; ctx: Ctx; blanks?: boolean }) {
       </p>
       {!r.finalOk && d.steps.length > 0 && <p className="err">Flag exactly one final step.</p>}
       <T
-        h={['#', 'Time', 'rpm', 'N2', '', 'Remaining (s)']}
+        h={['#', 'Time', 'rpm', <Formula key="n2" f="N2" />, '', 'Remaining (s)']}
         rows={r.rows.map((x, i) => [
           i + 1,
           `${x.t} s`,
@@ -358,7 +358,8 @@ function Output({ d, ctx }: { d: D; ctx: Ctx; blanks?: boolean }) {
         <ol>
           {r.events.map((e, i) => (
             <li key={i}>
-              {e.when === 'before' ? 'Before spin' : `At ${e.at} s remaining`}: {e.v} µL {srcText(e.src, ctx)}
+              {e.when === 'before' ? 'Before spin' : `At ${e.at} s remaining`}: {e.v} µL{' '}
+              <Chem n={srcText(e.src, ctx)} />
               {e.filter ? ', 0.22 µm filtered' : ''}
               {e.over && <span className="err"> · exceeds total time</span>}
             </li>
@@ -368,9 +369,12 @@ function Output({ d, ctx }: { d: D; ctx: Ctx; blanks?: boolean }) {
       {Object.keys(r.vol).length > 0 && (
         <p>
           Volume needed for {d.N} substrates (+{d.ov} %):{' '}
-          {Object.entries(r.vol)
-            .map(([k, v]) => `${srcText(k, ctx)} ${v.toFixed(2)} mL`)
-            .join(' · ')}
+          {Object.entries(r.vol).map(([k, v], i) => (
+            <span key={k}>
+              {i > 0 && ' · '}
+              <Chem n={srcText(k, ctx)} /> {v.toFixed(2)} mL
+            </span>
+          ))}
         </p>
       )}
       {d.an && (

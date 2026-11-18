@@ -31,6 +31,8 @@ export type Substance = {
   s: string;
   aka: string[];
   f: string;
+  /** the structure as SMILES (0.57) */
+  smiles: string;
   M: number;
   d: number | null;
   mp: number | null;
@@ -60,6 +62,7 @@ const parse = (r: { id: number; name: string; cas: string; data: string }) => {
     s: (d.s ?? '') as string,
     aka: (Array.isArray(d.aka) ? d.aka : []) as string[],
     f: d.f ?? '',
+    smiles: (d.smiles ?? '') as string,
     M: d.M ?? 0,
     d: d.d ?? null,
     mp: d.mp ?? null,
@@ -157,6 +160,7 @@ export function substanceFor(
         s: s.s || extra.s || '',
         aka: [...new Set([...s.aka, ...(extra.aka ?? [])])],
         f: s.f || extra.f || '',
+        smiles: s.smiles || extra.smiles || '',
         M: s.M || extra.M || (extra.f ? (molarMass(extra.f) ?? 0) : 0),
         d: s.d ?? extra.d ?? null,
         mp: s.mp ?? extra.mp ?? null,
@@ -180,6 +184,7 @@ export function substanceFor(
       s: extra.s ?? '',
       aka: extra.aka ?? [],
       f: extra.f ?? '',
+      smiles: extra.smiles ?? '',
       M: extra.M || (extra.f ? (molarMass(extra.f) ?? 0) : 0),
       d: extra.d ?? null,
       mp: extra.mp ?? null,
@@ -372,6 +377,7 @@ export function registerChemicals(app: FastifyInstance, auth: (need?: any) => an
       s: y.s || x.s,
       aka: names,
       f: y.f || x.f,
+      smiles: y.smiles || x.smiles,
       M: y.M || x.M,
       d: y.d ?? x.d,
       mp: y.mp ?? x.mp,

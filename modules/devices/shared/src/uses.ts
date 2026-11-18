@@ -40,6 +40,7 @@ export const spacerOf = (d: { dim: SolDim; L: string }) =>
   spacersFor(d.dim).find((x) => x.ion === d.L) ?? spacersFor(d.dim)[0];
 export const solComp = (d: {
   A: Record<string, number>;
+  B?: Record<string, number>;
   X: Record<string, number>;
   dim: SolDim;
   L: string;
@@ -47,12 +48,21 @@ export const solComp = (d: {
   s?: number;
 }): Comp =>
   d.dim === '3D'
-    ? { A: d.A, X: d.X }
-    : { A: d.A, X: d.X, L: { ion: spacerOf(d).ion, z: d.dim === 'DJ' ? 2 : 1 }, n: Math.max(1, d.n || 1), s: d.s };
+    ? { A: d.A, B: d.B, X: d.X }
+    : {
+        A: d.A,
+        B: d.B,
+        X: d.X,
+        L: { ion: spacerOf(d).ion, z: d.dim === 'DJ' ? 2 : 1 },
+        n: Math.max(1, d.n || 1),
+        s: d.s,
+      };
 export const solutionDefaults = () => ({
   mode: 'Perovskite' as SolMode,
-  A: {} as Record<string, number>,
-  X: {} as Record<string, number>,
+  // a new composition starts as FAPbI3 (0.57); recipes saved before keep what they had (an older one with no B-site is Pb)
+  A: { FA: 1 } as Record<string, number>,
+  B: { Pb: 1 } as Record<string, number>,
+  X: { I: 1 } as Record<string, number>,
   M: 0,
   V: 0,
   meth: 'solvent' as 'solvent' | 'density',

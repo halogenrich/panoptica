@@ -1401,6 +1401,120 @@ try {
       },
     );
 
+  if (!CORE)
+    await step(
+      'a new composition starts as FAPbI3 with a B-site; SMILES structures on the substance and the SAM layer; formulas with subscripts (0.57)',
+      async () => {
+        // MeO-2PACz by its CAS number: the reference list gives its short name and its SMILES
+        await api('POST', '/inventory/containers', {
+          name: '[2-(3,6-Dimethoxy-9H-carbazol-9-yl)ethyl]phosphonic acid',
+          cas: '2377770-18-6',
+          amount: 1,
+          size: 1,
+          unit: 'g',
+        });
+        const sam = (await api('GET', '/chemicals')).j.find((x) => x.cas === '2377770-18-6');
+        expect(sam?.s === 'MeO-2PACz' && /P\(=O\)/.test(sam.smiles), 'the reference list gave no SMILES');
+        // its page draws the structure: the ring nitrogen, the phosphorus and its oxygens labelled, inside the dialog
+        await nav('Inventory');
+        await page.getByRole('tab', { name: 'Substances', exact: true }).click();
+        await page.locator('tr', { hasText: 'MeO-2PACz' }).first().click();
+        const dlg = page.getByRole('dialog', { name: sam.name });
+        const svg = dlg.locator('svg.mol2d');
+        await svg.waitFor();
+        const labels = await svg.locator('text').allTextContents();
+        expect(
+          ['N', 'P', 'O'].every((l) => labels.includes(l)) && labels.includes('H'),
+          'the structure has not its labels: ' + labels.join(' '),
+        );
+        const [b, d] = [await svg.boundingBox(), await dlg.boundingBox()];
+        expect(b.width > 120 && b.x >= d.x && b.x + b.width <= d.x + d.width, 'the structure does not fit the dialog');
+        if (process.env.SHOTS) {
+          await dlg.screenshot({ path: join(root, 'out', 'substance-structure.png') });
+          await page.emulateMedia({ colorScheme: 'dark' });
+          await page.waitForTimeout(600);
+          await dlg.screenshot({ path: join(root, 'out', 'substance-structure-dark.png') });
+          await page.emulateMedia({ colorScheme: 'light' });
+        }
+        // on a phone's width a long IUPAC name wraps, and nothing makes the dialog wider than the screen
+        const vp = page.viewportSize();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(300);
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'substance-structure-390.png') });
+        expect(
+          await page.evaluate(() => document.querySelector('.dialog').scrollWidth <= innerWidth),
+          'the substance dialog is wider than the phone',
+        );
+        await page.setViewportSize(vp);
+        // with no formula yet, the one the SMILES holds is offered; the molar mass follows from it
+        await dlg.getByRole('button', { name: 'Use C16H18NO5P from the SMILES' }).click();
+        expect(
+          (await dlg.getByRole('textbox', { name: 'Formula' }).inputValue()) === 'C16H18NO5P',
+          'the formula from the SMILES was not filled in',
+        );
+        await dlg.getByRole('button', { name: /Use 335\.\d\d g\/mol/ }).waitFor();
+        // a SMILES that cannot be read says so and draws nothing
+        await dlg.getByRole('textbox', { name: 'SMILES' }).fill('C1CC(');
+        await dlg.getByText('This SMILES cannot be read').waitFor();
+        await dlg.getByRole('button', { name: 'Close' }).click();
+        // the HTL / SAM layer's step in the stack builder shows the solute's structure
+        const sol = await api('POST', '/presets', {
+          segment: 's1',
+          name: 'Browser SAM',
+          visibility: 'shared',
+          data: { mode: 'HTL', sol: sam.name, c: 1, u: 'mg/mL', V: 1, sv: [{ n: 'Ethanol', p: 1 }], ad: [] },
+        });
+        const stk = await api('POST', '/presets', {
+          segment: 'stk',
+          name: 'Browser SAM stack',
+          visibility: 'shared',
+          data: {
+            arch: 'p-i-n',
+            sl: [
+              { id: 'a', n: 'Substrate', m: 'Substrate', a: '', b: '', t: '' },
+              { id: 'b', n: 'HTL / SAM', m: 'Spin', a: String(sol.j.id), b: '', t: '' },
+            ],
+          },
+        });
+        await page.goto(`${base}/#/stk/${stk.j.id}`);
+        await page.getByRole('button', { name: 'Edit', exact: true }).click();
+        await page
+          .getByRole('button', { name: /HTL \/ SAM/ })
+          .first()
+          .click();
+        await page.locator('.mol-card svg.mol2d').waitFor();
+        expect((await page.locator('.mol-card figcaption').textContent()) === 'MeO-2PACz', 'not the SAM by short name');
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'stack-sam.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        // a new solution starts as FAPbI3; Sn for Pb gives FASnI3, with subscripts in the output
+        await page.goto(`${base}/#/s1`);
+        await page.getByRole('button', { name: 'New solution' }).first().click();
+        for (const k of ['FA', 'Pb', 'I'])
+          expect(
+            (await page.getByRole('button', { name: k, exact: true }).getAttribute('aria-pressed')) === 'true',
+            `${k} is not chosen in a new composition`,
+          );
+        await page.getByRole('button', { name: 'Sn', exact: true }).click();
+        await page.getByRole('textbox', { name: 'Sn fraction on the B-site' }).fill('0.4');
+        await page.getByRole('textbox', { name: 'Pb fraction on the B-site' }).fill('0.6');
+        await page.locator('.headline').first().filter({ hasText: 'FA(Pb0.6Sn0.4)I3' }).waitFor();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'solution-pb-sn.png') });
+        await page.getByRole('button', { name: 'Pb', exact: true }).click();
+        expect(
+          (await page.getByRole('button', { name: 'Pb', exact: true }).getAttribute('aria-pressed')) === 'false',
+          'Pb is still chosen',
+        );
+        const head = page.locator('.headline').first();
+        await head.filter({ hasText: 'FASnI3' }).waitFor();
+        expect((await head.locator('sub').first().textContent()) === '3', 'the formula has no subscript');
+        await page.locator('td', { hasText: /^SnI2/ }).locator('sub').first().waitFor();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'solution-tin.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await page.getByRole('button', { name: 'Discard', exact: true }).click(); // leaving a changed recipe asks first
+        await page.getByRole('button', { name: 'Sn', exact: true }).waitFor({ state: 'detached' });
+      },
+    );
+
   await step(
     CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
     async () => {
