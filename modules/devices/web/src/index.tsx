@@ -23,7 +23,7 @@ const Soon = ({ title, text }: { title: string; text: string }) => (
     </section>
   </>
 );
-const recipe = (key: 's0' | 's1' | 's2' | 's3' | 's4' | 'sub' | 'mask', label: string): Page => ({
+const recipe = (key: 's0' | 's1' | 's2' | 's3' | 's4' | 'sub' | 'mask' | 'arch', label: string): Page => ({
   key,
   label,
   render: (p) => <Library kind={KINDS[key]} openId={p.openId} />,
@@ -86,9 +86,20 @@ const devices: WebModule = {
         },
       ],
     },
-    { group: 'Designs', pages: [recipe('sub', 'Substrates'), recipe('mask', 'Metal masks')] },
+    {
+      group: 'Designs',
+      pages: [recipe('sub', 'Substrates'), recipe('mask', 'Metal masks'), recipe('arch', 'Architectures')],
+    },
   ],
   overview: devicesOverview,
+  // the lab's designs are made and changed by admins and people with this permission (0.58)
+  perms: [
+    {
+      key: 'designs',
+      label: 'Edit designs',
+      note: 'Makes and changes substrate designs, metal masks and architectures; everyone uses them',
+    },
+  ],
   calendarTray: { param: 'schedule', Tray },
   afterOutcome: { batch: RunCapture },
   Overlay: PackageOverlay,

@@ -49,7 +49,7 @@ export type Chemical = {
   pur: number;
   brand: string;
 };
-export const ROLES = ['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'other'];
+export const ROLES = ['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'cleaning', 'other'];
 /** How a role is written in lists and filters. */
 export const ROLE_LABEL: Record<string, string> = {
   salt: 'Salt',
@@ -59,6 +59,7 @@ export const ROLE_LABEL: Record<string, string> = {
   additive: 'Additive',
   organic: 'Organic',
   metal: 'Metal',
+  cleaning: 'Cleaning',
   other: 'Other',
 };
 /** A bottle in a few words: "Sigma-Aldrich, lot X, 99.99 %". */
@@ -76,6 +77,7 @@ const ROLE_GROUP: Record<string, string> = {
   additive: 'Additives',
   organic: 'Organic',
   metal: 'Metals',
+  cleaning: 'Cleaning',
   other: 'Other',
 };
 /** How a substance is shown where space is short (0.54): its short name when it has one. */

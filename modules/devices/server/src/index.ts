@@ -271,6 +271,7 @@ const PAGE: Record<string, string> = {
   stk: 'Stacks',
   sub: 'Substrates',
   mask: 'Metal masks',
+  arch: 'Architectures',
   s0: 'Substrate preparation',
   s1: 'Solutions',
   s2: 'Spin coating',
@@ -281,6 +282,7 @@ const ONE: Record<string, string> = {
   stk: 'Stack',
   sub: 'Substrate',
   mask: 'Metal mask',
+  arch: 'Architecture',
   s0: 'Substrate preparation',
   s1: 'Solution',
   s2: 'Spin program',
@@ -373,6 +375,8 @@ const ITEMS: ItemKind[] = [
 const MEASURES = new Set(['jv', 'lifetime']);
 addModule({
   id: 'devices',
+  // a tag can let people make and change the lab's designs (0.58)
+  perms: ['designs'],
   name: 'Electronic Devices',
   migrations: MIGRATIONS,
   subjects: [batchSubject],

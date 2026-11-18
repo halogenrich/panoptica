@@ -14,6 +14,7 @@ import {
   type Variant,
 } from '@psc/devices';
 import { api } from '@web/api';
+import { polOf } from '../stacks/model';
 
 export type Dir = 'fwd' | 'rev';
 export interface Curve {
@@ -384,7 +385,8 @@ export function deviceInfo(l: Link): Promise<DeviceInfo | null> {
           const snap = await batchSnap(l),
             st = snap?.stack;
           return {
-            arch: st?.arch ?? '',
+            // the figure states p-i-n or n-i-p (0.58: from the architecture, whatever it is called)
+            arch: polOf(st ?? {}) || st?.arch || '',
             layers: (st?.sl ?? []).map((s: any, i: number) => {
               const n = layerName(s, snap!.resolved?.[i]?.a?.data, snap!.resolved?.[i]?.b?.data);
               return s.add?.length ? `${n} + ${s.add.join(' + ')}` : n;
@@ -401,7 +403,7 @@ export function deviceInfo(l: Link): Promise<DeviceInfo | null> {
         const layers = await Promise.all(
           (st?.sl ?? []).map(async (s: any) => layerName(s, await get(s.a), await get(s.b))),
         );
-        return { arch: st?.arch ?? '', layers };
+        return { arch: polOf(st ?? {}) || st?.arch || '', layers };
       })().catch(() => null),
     );
   return infoCache.get(k)!;

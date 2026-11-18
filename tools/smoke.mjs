@@ -1915,6 +1915,83 @@ console.log('Structures from SMILES (0.57)');
   ok(imp?.smiles === 'OP(=O)(O)CCn1c2ccccc2c2ccccc21', 'the SMILES column of an import is kept');
 }
 
+console.log('Cleaning role, Edit designs, architectures (0.58)');
+{
+  const add = (b) => call('POST', '/api/inventory/containers', { amount: 1, size: 1, unit: 'L', ...b });
+  const chemOf = (box) => db.prepare('SELECT chem_id FROM containers WHERE id=?').get(box).chem_id;
+  const ipa = chemOf((await add({ name: 'Smoke 2-propanol', cas: '67-63-0' })).j.id);
+  const roles = (await call('GET', '/api/chemicals')).j.find((c) => c.id === ipa).roles;
+  ok(
+    roles.includes('solvent') && roles.includes('cleaning'),
+    'IPA from the reference list is a solvent and a cleaning substance',
+  );
+  ok(
+    (await call('POST', '/api/tags', { name: 'Smoke flying', perms: ['flying'] })).s === 400,
+    'a tag cannot give a permission that does not exist',
+  );
+  const tag = await call('POST', '/api/tags', { name: 'Smoke designs', perms: ['designs'] });
+  ok(
+    CORE ? tag.s === 400 : tag.s === 200,
+    CORE ? 'without Electronic Devices there is no designs permission' : 'a tag can give Edit designs',
+  );
+  if (!CORE) {
+    const anaId = db.prepare("SELECT id FROM users WHERE username='anas'").get().id;
+    const asAna = async (method, path, body) => {
+      const r = await fetch(base + path, {
+        method,
+        headers: { cookie: anaCookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { s: r.status, j: await r.json().catch(() => null) };
+    };
+    const archs = (await call('GET', '/api/presets?segment=arch')).j;
+    const pin = archs.find((a) => a.name === 'p-i-n'),
+      nip = archs.find((a) => a.name === 'n-i-p');
+    ok(
+      pin?.data.pol === 'p-i-n' &&
+        pin.data.layers.map((l) => l.n).join('/') ===
+          'Substrate/HTL / SAM/Perovskite/Passivation/ETL (C60)/BCP/Metal contact' &&
+        nip?.data.pol === 'n-i-p' &&
+        nip.data.layers.length === 5 &&
+        pin.visibility === 'shared',
+      'every lab starts with the p-i-n and n-i-p architectures, shared',
+    );
+    const arch = { segment: 'arch', name: 'Smoke tandem', visibility: 'private', data: { pol: 'n-i-p', layers: [] } };
+    ok((await asAna('POST', '/api/presets', arch)).s === 403, 'a member without Edit designs cannot make one');
+    ok(
+      (await asAna('PUT', '/api/presets/' + pin.id, { ...arch, name: 'p-i-n' })).s === 403 &&
+        (await asAna('DELETE', '/api/presets/' + pin.id)).s === 403,
+      'nor change or remove one',
+    );
+    ok((await asAna('GET', '/api/presets/' + pin.id)).s === 200, 'but opens it');
+    const mine = await call('POST', '/api/presets', { ...arch, segment: 'sub', data: { w: 25, h: 25, ito: [] } });
+    ok(
+      db.prepare('SELECT visibility FROM presets WHERE id=?').get(mine.j.id).visibility === 'shared',
+      'a design saved as private is the lab’s all the same',
+    );
+    await call('PUT', `/api/users/${anaId}/tags`, { tags: [tag.j.id] });
+    ok((await asAna('GET', '/api/me')).j.grants?.includes('designs'), 'the tag’s permission reaches the person');
+    const made = await asAna('POST', '/api/presets', arch);
+    ok(made.s === 200, 'with Edit designs a member makes an architecture');
+    const ed = await asAna('PUT', '/api/presets/' + pin.id, {
+      segment: 'arch',
+      name: 'p-i-n',
+      visibility: 'shared',
+      data: { ...pin.data, layers: [...pin.data.layers, { n: 'Capping', m: 'Spin' }] },
+    });
+    ok(ed.s === 200 && ed.j.forked === false, 'and changes the admin’s in place: designs are the lab’s');
+    ok((await asAna('DELETE', '/api/presets/' + made.j.id)).s === 200, 'and moves one to the trash');
+    await call('PUT', `/api/users/${anaId}/tags`, { tags: [] });
+    await call('PUT', '/api/presets/' + pin.id, {
+      segment: 'arch',
+      name: 'p-i-n',
+      visibility: 'shared',
+      data: pin.data,
+    });
+  }
+  if (tag.s === 200) await call('DELETE', '/api/tags/' + tag.j.id);
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),
@@ -1987,6 +2064,18 @@ console.log('First setup (a fresh install)');
     (await j('POST', '/api/access-requests', { ...askBody, email: 'ana@sub.lab.example' })).status === 200,
     'subdomains count',
   );
+  if (!CORE) {
+    const sid = (st.headers.get('set-cookie') ?? '').split(';')[0];
+    const archs = await (await fetch(base2 + '/api/presets?segment=arch', { headers: { cookie: sid } })).json();
+    ok(
+      archs
+        .map((a) => a.name)
+        .sort()
+        .join() === 'n-i-p,p-i-n' &&
+        (await (await fetch(base2 + '/api/presets', { headers: { cookie: sid } })).json()).length === 2,
+      'a new install has the p-i-n and n-i-p architectures once its first admin exists, and no other design or recipe (0.58)',
+    );
+  }
   s2.kill();
 }
 

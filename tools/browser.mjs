@@ -1515,6 +1515,80 @@ try {
       },
     );
 
+  if (!CORE)
+    await step(
+      'sonication lists cleaning substances and solutions; architectures under Designs set a new stack’s layers (0.58)',
+      async () => {
+        await api('POST', '/inventory/containers', { name: 'Acetone', cas: '67-64-1', amount: 1, size: 1, unit: 'L' });
+        await api('POST', '/presets', {
+          segment: 's1',
+          name: 'Browser soap solution',
+          visibility: 'shared',
+          data: { mode: 'Custom', cln: true, sol: 'Acetone', c: 2, u: 'mg/mL', V: 100, sv: [], ad: [] },
+        });
+        // a new substrate preparation: its sonication step offers the lab's cleaning substances, then its cleaning solutions
+        await page.goto(`${base}/#/s0`);
+        await page.getByRole('button', { name: 'New substrate preparation' }).first().click();
+        await page.getByRole('button', { name: '+ Add step' }).first().click();
+        const box = page.getByRole('combobox', { name: 'Sonication, step 1' });
+        await box.click();
+        const list = page.getByRole('listbox', { name: 'Sonication, step 1' });
+        const heads = await list.locator('.picker-head').allTextContents();
+        expect(
+          heads[0] === 'Cleaning' && heads[1] === 'Cleaning solutions',
+          'sonication does not list cleaning first: ' + heads.join(', '),
+        );
+        await list.getByRole('option', { name: /Browser soap solution/ }).click();
+        await page.locator('.pane.out li', { hasText: 'Browser soap solution, 10 min' }).waitFor();
+        if (process.env.SHOTS) {
+          await page.screenshot({ path: join(root, 'out', 'substrate-cleaning.png') });
+          const vp = page.viewportSize();
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: join(root, 'out', 'substrate-cleaning-390.png') });
+          await page.setViewportSize(vp);
+        }
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await page.getByRole('button', { name: 'Discard', exact: true }).click();
+        // Designs › Architectures: p-i-n and n-i-p come with the lab, and can be changed
+        await nav('Architectures');
+        await page.locator('.pcard', { hasText: 'n-i-p' }).first().waitFor();
+        await page.locator('.pcard-name', { hasText: /^p-i-n$/ }).click();
+        await page.getByRole('button', { name: 'Edit', exact: true }).click();
+        expect(
+          (await page.getByRole('textbox', { name: 'Layer 1 name' }).inputValue()) === 'Metal contact',
+          'the layers are not listed top first',
+        );
+        if (process.env.SHOTS) {
+          await page.screenshot({ path: join(root, 'out', 'architecture-edit.png') });
+          await page.emulateMedia({ colorScheme: 'dark' });
+          await page.waitForTimeout(400);
+          await page.screenshot({ path: join(root, 'out', 'architecture-edit-dark.png') });
+          await page.emulateMedia({ colorScheme: 'light' });
+          const vp = page.viewportSize();
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: join(root, 'out', 'architecture-edit-390.png') });
+          await page.setViewportSize(vp);
+        }
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'architecture-view.png') });
+        await page.getByRole('button', { name: 'Close' }).click();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'architectures.png') });
+        // a new stack starts from one of them
+        await nav('Stacks');
+        await page.getByRole('button', { name: 'New stack' }).first().click();
+        await page.locator('button.arch', { hasText: 'n-i-p' }).click();
+        await page.locator('.steps .step', { hasText: 'HTL' }).waitFor();
+        expect((await page.locator('.steps .step').count()) === 7, 'n-i-p did not set five layers');
+        await page.locator('.steps .step', { hasText: 'Architecture' }).click();
+        await page.locator('button.arch.on', { hasText: 'n-i-p' }).waitFor();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'stack-architectures.png') });
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await page.getByRole('button', { name: 'Discard', exact: true }).click();
+      },
+    );
+
   await step(
     CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
     async () => {
@@ -1677,9 +1751,16 @@ try {
       await step(
         `${device}: Week shows the working days with the bookings on one scale; a day opens All equipment (0.56)`,
         async () => {
-          // the next working day (Monday to Friday, the default hours) in the phone's time zone (UTC)
+          // the next working day after today (Monday to Friday, the default hours) in the phone's time zone (UTC): today's
+          // early hours may have passed already, and bookings start from now on (0.58: the test failed after 06:00 UTC)
           const t = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
-          while ([0, 6].includes(t.getUTCDay())) t.setUTCDate(t.getUTCDate() + 1);
+          do t.setUTCDate(t.getUTCDate() + 1);
+          while ([0, 6].includes(t.getUTCDay()));
+          const monday = (d) => {
+            const m = new Date(d);
+            m.setUTCDate(m.getUTCDate() - ((m.getUTCDay() + 6) % 7));
+            return m.toISOString().slice(0, 10);
+          };
           const iso = t.toISOString().slice(0, 10),
             at = (h) => `${iso}T${h}:00.000Z`;
           const bookable = async () =>
@@ -1713,9 +1794,8 @@ try {
           await bar('Schedule').click();
           await ph.getByRole('tab', { name: 'Week' }).click();
           await ph.locator('.ph-week').waitFor();
-          // a Saturday or Sunday today means the working day is in next week
-          if (new Date().getUTCDay() === 6 || new Date().getUTCDay() === 0)
-            await ph.getByRole('button', { name: 'Week after' }).click();
+          // a Friday, Saturday or Sunday today means that working day is in next week
+          if (monday(t) !== monday(new Date())) await ph.getByRole('button', { name: 'Week after' }).click();
           const labels = await ph.locator('.ph-wk-row .ph-wk-d b').allInnerTexts();
           expect(labels.join() === 'Mon,Tue,Wed,Thu,Fri', `the week's rows are ${labels.join(', ')}`);
           const ddmm = `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;

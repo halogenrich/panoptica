@@ -4,10 +4,45 @@ import { DesignSvg } from '../designs/DesignSvg';
 import { itoArea, subLayers, type SubD } from '../designs/substrate';
 import { Section } from './shared';
 import type { Ctx, Kind } from './types';
-import { Picker } from '@web/views/Picker';
+import { Picker, type PickOption } from '@web/views/Picker';
+import { chemFor, chemOptions } from '@web/views/common';
 
-const SOLV = ['Soap', 'Ultrapure Water', 'Acetone', 'Isopropanol'],
-  SURF = ['N2 dry', 'UV-ozone', 'O2 plasma'];
+// what is not a liquid stays a fixed list; what the substrates are sonicated in comes from the lab (0.58)
+const SURF = ['N2 dry', 'UV-ozone', 'O2 plasma'];
+
+/** Custom solutions marked as cleaning solutions (0.58): the lab's own soap solution, for example. */
+const cleaningSolutions = (ctx: Ctx) =>
+  ctx.all.filter((p) => p.segment === 's1' && p.data?.mode === 'Custom' && p.data?.cln).map((p) => p.name);
+
+/**
+ * What sonication can use (0.58): substances with the Cleaning role (in stock first), then cleaning solutions, then every
+ * other substance (nothing hidden: a role never set does not keep a substance out).
+ */
+export function cleaningOptions(ctx: Ctx): PickOption[] {
+  const subs = chemOptions(ctx.chems, ['cleaning']),
+    sols = cleaningSolutions(ctx).filter((n) => !subs.some((o) => o.value === n));
+  const cut = subs.findIndex((o) => o.group === 'Other substances');
+  const at = cut < 0 ? subs.length : cut;
+  return [
+    ...subs.slice(0, at),
+    ...sols.map((n) => ({ value: n, label: n, group: 'Cleaning solutions' })),
+    ...subs.slice(at),
+  ];
+}
+
+/**
+ * A step's name linked to what it means (0.58): a cleaning solution by its name, else the inventory's substance (name, short
+ * name, other names, formula, CAS), else the name as written. Steps saved before keep their names ("Isopropanol").
+ */
+const linked = (s: string, ctx: Ctx) =>
+  cleaningSolutions(ctx).includes(s) ? undefined : ctx.chems.length ? chemFor(ctx.chems, s) : undefined;
+/** The substance's name, for the picker to find the option a stored step means. */
+const asOption = (s: string, ctx: Ctx) => linked(s, ctx)?.name ?? s;
+/** How a step is written in outputs: the substance's short name when it has one, as everywhere since 0.54.1. */
+export const stepName = (s: string, ctx: Ctx) => {
+  const c = linked(s, ctx);
+  return c ? c.s || c.name : s;
+};
 const sortSf = (l: Step[]) => [...l].sort((a, b) => +(b.s === 'N2 dry') - +(a.s === 'N2 dry')); // N2 dry always first
 const defaults = () => ({
   subId: '',
@@ -64,7 +99,13 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
           options={subs.map((s) => ({ value: String(s.id), label: s.name }))}
         />
       </Section>
-      <StepList title="Sonication" list={d.steps} options={SOLV} onChange={(steps) => set({ steps })} />
+      <StepList
+        title="Sonication"
+        list={d.steps}
+        pick={cleaningOptions(ctx)}
+        shown={(x) => asOption(x, ctx)}
+        onChange={(steps) => set({ steps })}
+      />
       <StepList
         title="Surface treatment"
         list={sortSf(d.sf)}
@@ -75,7 +116,7 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
   );
 }
 
-function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
+function Output({ d, ctx }: { d: D; ctx: Ctx; blanks?: boolean }) {
   const s = sub(d),
     S = SUBSTRATES[s];
   return (
@@ -100,7 +141,7 @@ function Output({ d }: { d: D; ctx: Ctx; blanks?: boolean }) {
           <ol>
             {d.steps.map((x, i) => (
               <li key={i}>
-                {x.s}, {x.m} min
+                {stepName(x.s, ctx)}, {x.m} min
               </li>
             ))}
           </ol>
@@ -129,17 +170,22 @@ export const substratePrep: Kind<D> = {
   Output,
   Visual: ({ d }) => <Glass d={d} small />,
   summary: (d) => `${subLabel(d)} · ${d.steps.length} sonication steps · ${sum(d.steps) + sum(d.sf)} min`,
-  describe: (d) => ({
+  describe: (d, ctx) => ({
     Substrate: subLabel(d),
     // one step per line, in order, as on the printed sheet
-    Sonication: d.steps.map((x) => `${x.s}, ${x.m} min`).join('\n'),
+    Sonication: d.steps.map((x) => `${stepName(x.s, ctx)}, ${x.m} min`).join('\n'),
     'Surface treatment':
       sortSf(d.sf)
         .map((x) => `${x.s}, ${x.m} min`)
         .join('\n') || 'none',
   }),
-  runFields: (d) => [
-    ...d.steps.map((x, i) => ({ key: 'son:' + i, label: `${x.s} sonication`, expected: `${x.m} min`, unit: 'min' })),
+  runFields: (d, ctx) => [
+    ...d.steps.map((x, i) => ({
+      key: 'son:' + i,
+      label: `${stepName(x.s, ctx)} sonication`,
+      expected: `${x.m} min`,
+      unit: 'min',
+    })),
     ...sortSf(d.sf).map((x, i) => ({ key: 'sf:' + i, label: x.s, expected: `${x.m} min`, unit: 'min' })),
     { key: 'n', label: 'Substrates cleaned' },
   ],

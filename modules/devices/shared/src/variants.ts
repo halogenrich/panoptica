@@ -7,7 +7,7 @@
 export type Frozen = { name: string; data: unknown } | null;
 export type SnapSlot = { n: string; m: string; a: string; b: string; th?: number };
 export type Snap = {
-  stack: { arch: string; sl: SnapSlot[] };
+  stack: { arch: string; pol?: string; sl: SnapSlot[] };
   resolved: Record<number, { a?: Frozen; b?: Frozen }>;
   [k: string]: unknown;
 };

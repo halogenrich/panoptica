@@ -559,6 +559,28 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       }
     },
   },
+  {
+    id: 44,
+    owner: 'core',
+    name: 'the cleaning role: acetone, IPA, ethanol and water from the reference list (0.58)',
+    up: (db) => {
+      // only added: substrate cleaning lists the substances with this role, and no role someone set is taken away
+      for (const c of db.prepare("SELECT id, cas, data FROM chemicals WHERE cas<>''").all() as {
+        id: number;
+        cas: string;
+        data: string;
+      }[]) {
+        if (!chemRef(c.cas)?.roles.includes('cleaning')) continue;
+        const d = JSON.parse(c.data || '{}');
+        const roles: string[] = Array.isArray(d.roles) ? d.roles : d.role && d.role !== 'other' ? [d.role] : [];
+        if (roles.includes('cleaning')) continue;
+        db.prepare('UPDATE chemicals SET data=? WHERE id=?').run(
+          JSON.stringify({ ...d, roles: [...roles, 'cleaning'] }),
+          c.id,
+        );
+      }
+    },
+  },
 ];
 
 /**

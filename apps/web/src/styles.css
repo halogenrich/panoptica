@@ -2257,6 +2257,7 @@ table.list td {
 }
 .arch {
   text-align: left;
+  align-content: start; /* 0.58: a shorter architecture's layers keep their spacing beside a taller one */
   border: 1px solid var(--sep);
   border-radius: var(--r-lg);
   background: var(--card);
@@ -9588,4 +9589,80 @@ input.mono {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+
+/* Architectures (0.58): the layer rows of the editor, the stack drawn in the output and on the card */
+.row.arch-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 210px) auto;
+  column-gap: 8px;
+}
+.row.arch-row > input:not([type='checkbox']),
+.row.arch-row > select {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  text-align: left;
+}
+/* a sonication step (0.58): handle, number, searchable picker, minutes, remove, on one line */
+.row.step-row.pick {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  column-gap: 8px;
+}
+.row.step-row.pick > .picker {
+  width: 100%;
+  max-width: 380px;
+}
+.arch-out {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-width: 420px;
+  border: 1px solid var(--sep);
+  border-radius: var(--r-lg);
+}
+.arch-out li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--sep);
+}
+.arch-out li:first-child {
+  border-top: none;
+}
+.arch-out li.sub {
+  border-top-width: 3px;
+}
+.arch-art rect {
+  stroke: var(--card);
+  stroke-width: 1;
+}
+.arch-art-film {
+  fill: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+.arch-art-metal {
+  fill: color-mix(in srgb, var(--fg) 55%, transparent);
+}
+.arch-art-sub {
+  fill: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+@media (max-width: 520px) {
+  .row.arch-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+  .row.arch-row > select,
+  .arch-row > span.mut {
+    grid-column: 2;
+  }
+  .row.step-row.pick {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    row-gap: 6px;
+  }
+  .row.step-row.pick > .inline {
+    grid-column: 3;
+    justify-content: flex-end;
+  }
 }

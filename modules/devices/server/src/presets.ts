@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { lockedByCode } from './batchlock.js';
 import { retakeForBatch } from './takes.js';
 import { PresetIn, RunIn } from '@psc/devices/schema';
+import { DESIGN_SEGMENTS } from '@psc/devices';
 import { notifyFork } from './notices.js';
 import { canSee, db } from '@psc/server/api';
 
@@ -81,6 +82,60 @@ function family(id: number) {
   return out.filter((r) => !r.gone); // trashed versions keep the tree connected but are not listed
 }
 
+/** Designs belong to the lab (0.58): admins and people with the designs permission make, change and remove them. */
+const isDesign = (segment: string) => DESIGN_SEGMENTS.includes(segment);
+export const canDesign = (u: { role: string; grants?: string[] }) =>
+  u.role === 'admin' || !!u.grants?.includes('designs');
+const NEEDS_DESIGNS = { error: 'only admins and people with Edit designs can change designs' };
+
+/**
+ * The two usual architectures (0.58), given to every lab once, as its first entries, which it can then change or remove.
+ * Generic, not a lab's data. A design needs an owner: the first admin, so a new install gets them once first setup has
+ * made one (checked again whenever presets are listed until then).
+ */
+export const STARTER_ARCHS: { name: string; pol: string; layers: [string, string][] }[] = [
+  {
+    name: 'p-i-n',
+    pol: 'p-i-n',
+    layers: [
+      ['Substrate', 'Substrate'],
+      ['HTL / SAM', 'Spin'],
+      ['Perovskite', 'Spin'],
+      ['Passivation', 'Spin'],
+      ['ETL (C60)', 'Organic evap'],
+      ['BCP', 'Organic evap'],
+      ['Metal contact', 'Metal evap'],
+    ],
+  },
+  {
+    name: 'n-i-p',
+    pol: 'n-i-p',
+    layers: [
+      ['Substrate', 'Substrate'],
+      ['ETL', 'Spin'],
+      ['Perovskite', 'Spin'],
+      ['HTL', 'Spin'],
+      ['Metal contact', 'Metal evap'],
+    ],
+  },
+];
+let archsGiven = false;
+export function giveStarterArchs() {
+  if (archsGiven) return;
+  if (db.prepare("SELECT value FROM meta WHERE key='archs_given'").get()) {
+    archsGiven = true;
+    return;
+  }
+  const admin = db.prepare("SELECT id FROM users WHERE role='admin' AND deleted=0 ORDER BY id LIMIT 1").get() as
+    { id: number } | undefined;
+  if (!admin) return;
+  const add = db.prepare("INSERT INTO presets(owner_id,segment,name,visibility,data) VALUES(?,'arch',?,'shared',?)");
+  for (const a of STARTER_ARCHS)
+    add.run(admin.id, a.name, JSON.stringify({ pol: a.pol, layers: a.layers.map(([n, m]) => ({ n, m })) }));
+  db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('archs_given','1')").run();
+  archsGiven = true;
+}
+
 const nextName = (name: string, fam: Row[]) => {
   const base = name.replace(/ v\d+$/, '');
   const n = Math.max(1, ...fam.map((r) => (r.name.startsWith(base + ' v') ? +r.name.slice(base.length + 2) || 1 : 1)));
@@ -92,7 +147,9 @@ export function registerPresets(
   auth: (admin?: boolean) => any,
   bad: (reply: any, p: any) => any,
 ) {
+  giveStarterArchs();
   app.get('/api/presets', { preHandler: auth() }, async (req: any) => {
+    giveStarterArchs();
     const use = usageMap();
     const rows = db
       .prepare(
@@ -145,6 +202,10 @@ export function registerPresets(
   app.post('/api/presets', { preHandler: auth() }, async (req: any, reply) => {
     const p = PresetIn.safeParse(req.body);
     if (!p.success) return bad(reply, p);
+    if (isDesign(p.data.segment)) {
+      if (!canDesign(req.user)) return reply.code(403).send(NEEDS_DESIGNS);
+      p.data.visibility = 'shared';
+    }
     const r = db
       .prepare('INSERT INTO presets(owner_id,segment,name,visibility,data,parent_id) VALUES(?,?,?,?,?,?)')
       .run(
@@ -166,6 +227,11 @@ export function registerPresets(
     const id = +req.params.id,
       r = db.prepare(SELECT + ' WHERE p.id=? AND p.deleted_at IS NULL').get(id) as Row | undefined;
     if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
+    const design = isDesign(r.segment);
+    if (design) {
+      if (!canDesign(req.user)) return reply.code(403).send(NEEDS_DESIGNS);
+      p.data.visibility = 'shared';
+    }
     const u = usageMap()(id),
       reasons: string[] = [];
     if (u.stacks.length) reasons.push(`used in ${u.stacks.length} stack${u.stacks.length > 1 ? 's' : ''}`);
@@ -174,7 +240,8 @@ export function registerPresets(
       reasons.push(
         `used by ${u.presets.length} other design${u.presets.length > 1 ? 's' : ''} or recipe${u.presets.length > 1 ? 's' : ''}`,
       );
-    if (r.owner_id !== req.user.id) reasons.push(`owned by ${r.owner}`);
+    // a design is the lab's: whoever may change it changes it in place, unless something uses it
+    if (r.owner_id !== req.user.id && !design) reasons.push(`owned by ${r.owner}`);
     if (!reasons.length) {
       db.prepare('UPDATE presets SET name=?,visibility=?,data=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(
         p.data.name,
@@ -194,11 +261,11 @@ export function registerPresets(
 
   app.delete('/api/presets/:id', { preHandler: auth() }, async (req: any, reply) => {
     const id = +req.params.id,
-      r = db.prepare('SELECT owner_id,parent_id FROM presets WHERE id=? AND deleted_at IS NULL').get(id) as
-        { owner_id: number; parent_id: number | null } | undefined;
+      r = db.prepare('SELECT owner_id,parent_id,segment FROM presets WHERE id=? AND deleted_at IS NULL').get(id) as
+        { owner_id: number; parent_id: number | null; segment: string } | undefined;
     if (!r) return reply.code(404).send({ error: 'not found' });
-    if (r.owner_id !== req.user.id && req.user.role !== 'admin')
-      return reply.code(403).send({ error: 'not your preset' });
+    if (isDesign(r.segment) ? !canDesign(req.user) : r.owner_id !== req.user.id && req.user.role !== 'admin')
+      return reply.code(403).send(isDesign(r.segment) ? NEEDS_DESIGNS : { error: 'not your preset' });
     const u = usageMap()(id);
     if (u.stacks.length || u.presets.length)
       return reply

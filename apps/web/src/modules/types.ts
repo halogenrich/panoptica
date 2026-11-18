@@ -116,6 +116,8 @@ export type PhoneTab = { key: string; label: string; Icon: FC<{ size?: number }>
 export type WebModule = {
   id: string;
   groups: Group[];
+  /** permissions a tag can give besides the core's (0.58), shown in the tag's window */
+  perms?: { key: string; label: string; note: string }[];
   overview?: OverviewPart;
   /** a tray under the Calendar, when the Calendar is opened with `extra[param]` (Electronic Devices: a batch to schedule) */
   calendarTray?: { param: string; Tray: FC<TrayProps> };

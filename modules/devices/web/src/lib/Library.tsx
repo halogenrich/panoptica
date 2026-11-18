@@ -1,9 +1,9 @@
 import { useItemRoute } from '@web/lib/route';
 import CopyLink from '@web/lib/CopyLink';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { toChems, type Chem } from '@psc/devices';
+import { DESIGN_SEGMENTS, toChems, type Chem } from '@psc/devices';
 import { api } from '@web/api';
-import { PrefCtx } from '@web/ctx';
+import { MeCtx, PrefCtx } from '@web/ctx';
 import { useChems } from '@web/views/common';
 import { norm, oneLine, type Ctx, type Design, type Kind, type Rec, type RunField } from '../recipes/types';
 import { RunInput, fmtRun, runError } from './RunInputs';
@@ -66,6 +66,18 @@ export function useRecipeCtx(openBatch?: (id: number) => void): Ctx {
   );
 }
 
+/**
+ * Designs (0.58: substrates, metal masks, architectures) are the lab's: everyone sees and uses them, admins and people with the
+ * Edit designs permission make, change and remove them. They are never private.
+ */
+export const isDesign = (k: Kind) => DESIGN_SEGMENTS.includes(k.segment);
+export function useCanDesign() {
+  const { me } = useContext(MeCtx);
+  return me.role === 'admin' || !!me.grants?.includes('designs');
+}
+/** Who can change a design, said where the buttons would be. */
+const DESIGN_NOTE = 'Admins and people with Edit designs change designs.';
+
 export default function Library({
   kind,
   openId,
@@ -77,6 +89,7 @@ export default function Library({
 }) {
   const ctx = useRecipeCtx(onOpenBatch),
     { prefs } = useContext(PrefCtx),
+    canDesign = useCanDesign(),
     toast = useToast();
   const [rows, setRows] = useState<Row[] | null>(null),
     [scope, setScope] = useState<'all' | 'mine' | 'shared'>('all'),
@@ -101,21 +114,26 @@ export default function Library({
       (scope === 'all' || (scope === 'mine' ? r.mine : r.visibility === 'shared')) &&
       r.name.toLowerCase().includes(q.toLowerCase()),
   );
-  const create = () => setOpen({ draft: { name: '', visibility: prefs.vis, data: kind.defaults() } });
+  const design = isDesign(kind),
+    canMake = !design || canDesign;
+  const create = () =>
+    setOpen({ draft: { name: '', visibility: design ? 'shared' : prefs.vis, data: kind.defaults() } });
 
   return (
     <>
       <div className="lib-bar">
-        <Seg
-          value={scope}
-          opts={[
-            ['all', 'All'],
-            ['mine', 'Mine'],
-            ['shared', 'Shared'],
-          ]}
-          on={setScope}
-          small
-        />
+        {!design && (
+          <Seg
+            value={scope}
+            opts={[
+              ['all', 'All'],
+              ['mine', 'Mine'],
+              ['shared', 'Shared'],
+            ]}
+            on={setScope}
+            small
+          />
+        )}
         <input
           className="lib-search"
           type="search"
@@ -125,9 +143,11 @@ export default function Library({
         />
         <div className="grow" />
         <LayoutToggle v={layout} on={setLayout} />
-        <button className="btn" onClick={create}>
-          New {kind.noun}
-        </button>
+        {canMake && (
+          <button className="btn" onClick={create}>
+            New {kind.noun}
+          </button>
+        )}
       </div>
 
       {rows === null ? (
@@ -140,11 +160,19 @@ export default function Library({
         rows.length === 0 ? (
           <Empty
             title={`No ${kind.title.toLowerCase()} yet`}
-            text={`Create your first ${kind.noun}. It is saved as a reusable preset.`}
+            text={
+              !canMake
+                ? DESIGN_NOTE
+                : design
+                  ? `Create the lab’s first ${kind.noun}. Everyone can use it.`
+                  : `Create your first ${kind.noun}. It is saved as a reusable preset.`
+            }
             action={
-              <button className="btn" onClick={create}>
-                New {kind.noun}
-              </button>
+              canMake ? (
+                <button className="btn" onClick={create}>
+                  New {kind.noun}
+                </button>
+              ) : undefined
             }
           />
         ) : (
@@ -164,7 +192,7 @@ export default function Library({
                   <div className="pcard-sum">{kind.summary(d, ctx)}</div>
                   <div className="pcard-meta">
                     <span>{r.mine ? 'You' : r.owner}</span>
-                    {r.visibility === 'shared' && <Badge>Shared</Badge>}
+                    {r.visibility === 'shared' && !design && <Badge>Shared</Badge>}
                     {r.used > 0 && <Badge tone="ac">In use</Badge>}
                     {r.parent_id && <Badge>Version</Badge>}
                   </div>
@@ -194,7 +222,8 @@ export default function Library({
                   <td className="mut">{kind.summary(norm(kind, r.data), ctx)}</td>
                   <td>{r.mine ? 'You' : r.owner}</td>
                   <td>
-                    {r.visibility === 'shared' && <Badge>Shared</Badge>} {r.used > 0 && <Badge tone="ac">In use</Badge>}
+                    {r.visibility === 'shared' && !design && <Badge>Shared</Badge>}{' '}
+                    {r.used > 0 && <Badge tone="ac">In use</Badge>}
                   </td>
                   <td className="mut">{fmtDate(r.updated_at)}</td>
                 </tr>
@@ -244,6 +273,9 @@ export function PresetSheet({
 }) {
   const isNew = !('id' in open);
   useItemRoute(kind.segment, 'id' in open ? open.id : null);
+  const design = isDesign(kind),
+    canDesign = useCanDesign(),
+    canChange = !design || canDesign;
   const [det, setDet] = useState<Detail | null>(null),
     [err, setErr] = useState('');
   const [mode, setMode] = useState<'view' | 'edit'>(isNew ? 'edit' : 'view');
@@ -290,7 +322,8 @@ export function PresetSheet({
   };
   const usage = det?.usage,
     uses = usage ? usage.stacks.length + usage.batches.length + (usage.presets?.length ?? 0) : 0,
-    forks = !isNew && det !== null && (uses > 0 || !det.mine);
+    // a design is the lab's: someone else's is changed in place by whoever may change designs (0.58)
+    forks = !isNew && det !== null && (uses > 0 || (!det.mine && !design));
 
   /** Saves the draft; `name` comes from the "Name and save" box when the title was left empty. */
   const save = async (name?: string) => {
@@ -381,15 +414,17 @@ export function PresetSheet({
             autoFocus={isNew}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
-          <Seg
-            value={draft.visibility}
-            opts={[
-              ['private', 'Private'],
-              ['shared', 'Shared'],
-            ]}
-            on={(v) => setDraft({ ...draft, visibility: v })}
-            small
-          />
+          {!design && (
+            <Seg
+              value={draft.visibility}
+              opts={[
+                ['private', 'Private'],
+                ['shared', 'Shared'],
+              ]}
+              on={(v) => setDraft({ ...draft, visibility: v })}
+              small
+            />
+          )}
         </header>
         {forks && (
           <div className="notice">
@@ -515,7 +550,7 @@ export function PresetSheet({
             <span>
               {p.mine ? 'You' : p.owner} · updated {fmtDate(p.updated_at)}
             </span>
-            {p.visibility === 'shared' && <Badge>Shared</Badge>}
+            {p.visibility === 'shared' && !design && <Badge>Shared</Badge>}
             {uses > 0 && <Badge tone="ac">In use</Badge>}
           </div>
         </div>
@@ -523,17 +558,23 @@ export function PresetSheet({
         <div className="head-actions">
           {kind.viewActions?.({ id: p.id, name: p.name, d, ctx })}
           <CopyLink view={kind.segment} id={p.id} what={`“${p.name}”`} />
-          <button className="link" onClick={dup}>
-            Duplicate
-          </button>
-          {(p.mine || false) && (
-            <button className="link" onClick={del}>
-              Move to trash
-            </button>
+          {canChange ? (
+            <>
+              <button className="link" onClick={dup}>
+                Duplicate
+              </button>
+              {(design || p.mine) && (
+                <button className="link" onClick={del}>
+                  Move to trash
+                </button>
+              )}
+              <button className="btn" onClick={edit}>
+                Edit
+              </button>
+            </>
+          ) : (
+            <span className="mut small">{DESIGN_NOTE}</span>
           )}
-          <button className="btn" onClick={edit}>
-            Edit
-          </button>
         </div>
         <button className="iconbtn head-close" aria-label="Close" onClick={onClose}>
           ✕
@@ -543,15 +584,8 @@ export function PresetSheet({
         <Seg
           value={tab}
           opts={[
-            [
-              'recipe',
-              kind.segment === 'stk'
-                ? 'Stack'
-                : kind.segment === 'sub' || kind.segment === 'mask'
-                  ? 'Design'
-                  : 'Recipe',
-            ],
-            ['runs', 'Run data'],
+            ['recipe', kind.segment === 'stk' ? 'Stack' : design ? 'Design' : 'Recipe'],
+            ...(kind.noRuns ? [] : [['runs', 'Run data'] as ['runs', string]]),
             ['history', 'History'],
             ['comments', <CommentsLabel key="c" id={p.id} />],
           ]}

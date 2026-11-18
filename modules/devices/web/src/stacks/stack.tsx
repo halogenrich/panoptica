@@ -2,7 +2,8 @@ import { Suspense, lazy, useContext, useMemo, useState } from 'react';
 import { newId } from '@psc/devices';
 import { api } from '@web/api';
 import { PrefCtx } from '@web/ctx';
-import { PresetSheet } from '../lib/Library';
+import { PresetSheet, useCanDesign } from '../lib/Library';
+import { archNorm } from '../designs/architecture';
 import { Modal, usePrint } from '@web/lib/ui';
 import Structure from '@web/lib/Structure';
 import { DragHandle, useReorder } from '@web/views/common';
@@ -11,13 +12,12 @@ import { Section } from '../recipes/shared';
 import { norm, type Ctx, type Kind, type Rec } from '../recipes/types';
 import {
   METHODS,
-  TEMPLATES,
   presetName,
   slotKey,
   slotMaterial,
   slotStructures,
   slotReady,
-  slotsFor,
+  slotsFrom,
   substrateOfPreset,
   viewSlabs,
   geometryOf,
@@ -194,15 +194,22 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
     const s = substrateOfPreset(p);
     return g.subId && s && s !== g.subId ? 'Made for a different substrate' : null;
   };
-  const chooseArch = (a: string) => {
+  // the lab's architectures (0.58): p-i-n and n-i-p first, in that order as before, then by name
+  const first = (n: string) => ['p-i-n', 'n-i-p'].indexOf(n) + 1 || 3;
+  const archs = ctx.all
+    .filter((p) => p.segment === 'arch')
+    .sort((a, b) => first(a.name) - first(b.name) || a.name.localeCompare(b.name));
+  const canDesign = useCanDesign();
+  const chooseArch = (a: Rec) => {
     if (
       st.arch &&
-      st.arch !== a &&
+      st.arch !== a.name &&
       st.sl.some(slotReady) &&
       !window.confirm('Changing the architecture replaces the layer list. Continue?')
     )
       return;
-    if (st.arch !== a) set({ arch: a, sl: slotsFor(a) });
+    const ad = archNorm(a.data);
+    if (st.arch !== a.name) set({ arch: a.name, pol: ad.pol, sl: slotsFrom(ad.layers) });
     setPlaced(0);
     setStep(1);
   };
@@ -277,18 +284,51 @@ function Editor({ d: raw, set, ctx }: { d: StackD; set: (p: Partial<StackD>) => 
         <div className="stack-form">
           {step === 0 && (
             <Section title="Architecture">
-              <div className="arch-grid">
-                {Object.keys(TEMPLATES).map((a) => (
-                  <button key={a} className={'arch' + (st.arch === a ? ' on' : '')} onClick={() => chooseArch(a)}>
-                    <h3>{a}</h3>
-                    <ol>
-                      {[...TEMPLATES[a]].reverse().map(([l]) => (
-                        <li key={l}>{l}</li>
-                      ))}
-                    </ol>
-                  </button>
-                ))}
-              </div>
+              {archs.length ? (
+                <div className="arch-grid">
+                  {archs.map((a) => {
+                    const ad = archNorm(a.data);
+                    return (
+                      <button
+                        key={a.id}
+                        className={'arch' + (st.arch === a.name ? ' on' : '')}
+                        onClick={() => chooseArch(a)}
+                      >
+                        <h3>
+                          {a.name}
+                          {a.name !== ad.pol && <span className="mut small"> · {ad.pol}</span>}
+                        </h3>
+                        <ol>
+                          {[...ad.layers].reverse().map((l, k) => (
+                            <li key={k}>{l.n || 'Unnamed layer'}</li>
+                          ))}
+                        </ol>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mut">
+                  {canDesign
+                    ? 'No architectures yet. Make one to set the layers a stack starts with.'
+                    : 'No architectures yet. Admins and people with Edit designs make them.'}
+                </p>
+              )}
+              {canDesign && (
+                <button
+                  className="link add"
+                  onClick={() =>
+                    // the new one is not in the list yet: read it, then start from it
+                    newIn('arch', (id) =>
+                      api<Rec>('/presets/' + id)
+                        .then(chooseArch)
+                        .catch(() => {}),
+                    )
+                  }
+                >
+                  New architecture
+                </button>
+              )}
               <p className="small mut">
                 Layers are listed top to bottom. You can rename, skip or add layers in the next steps.
               </p>
@@ -606,7 +646,7 @@ function StartBatch({ id, name, d, ctx }: { id: number; name: string; d: StackD;
     api<{ id: number }>('/batches', 'POST', {
       name: bname.trim(),
       visibility: prefs.vis ?? 'shared',
-      stack: { arch: d.arch, sl: d.sl, thumb: d.thumb },
+      stack: { arch: d.arch, pol: d.pol, sl: d.sl, thumb: d.thumb },
       source: id || undefined,
     })
       .then((r) => {

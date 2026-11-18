@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.58.0 (2026-11-18)
+
+- **Cleaning role**: substances can have the Cleaning role, beside solvent, salt and the others. Acetone, IPA, ethanol and water get it from their CAS number, including those already in the inventory.
+- **Cleaning solutions**: a Custom solution can be marked as a cleaning solution, such as the lab's own soap solution.
+- **Substrate preparation lists what the lab cleans with**: each sonication step is chosen from the substances with the Cleaning role (in stock first), then the cleaning solutions; any other name can still be typed. Surface treatment (N₂ dry, UV-ozone, O₂ plasma) is unchanged. Recipes made before keep their steps, and a step that names a substance in the inventory shows its short name, such as IPA for Isopropanol.
+- **Edit designs**: a new permission a tag can give. Admins and people with it make, change and remove substrate designs, metal masks and architectures. Everyone else opens them and uses them in recipes and stacks. Designs belong to the lab: there are no private designs, and those saved as private are now visible to everyone.
+- **Architectures, under Designs**: each has a name, a type (p-i-n or n-i-p) and its layers in order, each with its method, reordered by dragging. Picking one when making a stack sets the stack's layers. Every lab starts with p-i-n and n-i-p, which can be changed like any other. Stacks and batches made before are unchanged.
+- **J–V figures** state p-i-n or n-i-p from the stack's architecture, whatever the architecture is called.
+
 ## 0.57.0 (2026-11-18)
 
 - **B-site in the composition**: Pb, Sn and Ge chips beside the A-site and X-site, with fractions for a mixed B-site, such as FA(Pb<sub>0.5</sub>Sn<sub>0.5</sub>)I<sub>3</sub>. The salts follow (SnI₂, SnBr₂, GeI₂…), each halide shared among the B-site salts by their fractions, and the molarity counts the B-site metals together. Layered perovskites work the same way. Recipes made before keep Pb.
