@@ -385,15 +385,28 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
                     on={(v) => set({ theme: v })}
                   />
                 </div>
-                <button
-                  className="btn secondary"
-                  onClick={() => {
-                    setPop('');
-                    setInvite(true);
-                  }}
-                >
-                  Invite a phone (QR code)
-                </button>
+                {/* 0.55.4: on a phone that chose the full app, the way back is here, in reach; a phone needs no invitation */}
+                {onPhone ? (
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setPop('');
+                      onPhone();
+                    }}
+                  >
+                    Phone layout
+                  </button>
+                ) : (
+                  <button
+                    className="btn secondary"
+                    onClick={() => {
+                      setPop('');
+                      setInvite(true);
+                    }}
+                  >
+                    Invite a phone (QR code)
+                  </button>
+                )}
                 {me.role === 'admin' && (
                   <button className="btn" onClick={() => go('users')}>
                     Admin settings

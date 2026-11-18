@@ -67,6 +67,9 @@ const frozenChems = () =>
     name: c.name,
     // short name (0.54.1): run sheets and outputs show it
     s: c.s,
+    // other names and CAS (0.55.4): a worked-out name (PbI2) finds its substance by them
+    aka: c.aka,
+    cas: c.cas,
     role: c.role,
     roles: c.roles,
     f: c.f,

@@ -1331,6 +1331,76 @@ try {
       await page.waitForFunction(() => !document.body.classList.contains('print-mode'));
     });
 
+  if (!CORE)
+    await step(
+      'a recipe finds full-named substances by short name; additives on one line; C60 keeps its drawing (0.55.4)',
+      async () => {
+        // the inventory names them in full; the reference list gives them PbI2, FAI and C60 by their CAS numbers
+        for (const [name, cas] of [
+          ['Lead(II) iodide', '10101-63-0'],
+          ['Formamidinium iodide', '879643-71-7'],
+          ['Fullerene C60', '99685-96-8'],
+        ])
+          await api('POST', '/inventory/containers', { name, cas, amount: 5, size: 5, unit: 'g' });
+        const sol = await api('POST', '/presets', {
+          segment: 's1',
+          name: 'Browser full names',
+          visibility: 'shared',
+          data: {
+            mode: 'Perovskite',
+            A: { FA: 1 },
+            X: { I: 1 },
+            M: 1.2,
+            V: 1,
+            sv: [{ n: 'N,N-Dimethylformamide', p: 1 }],
+            ad: [
+              { n: 'Lead(II) iodide', b: 'mol%', v: 5 },
+              { n: 'MACl', b: 'mol%', v: 15 },
+            ],
+          },
+        });
+        await page.goto(`${base}/#/s1/${sol.j.id}`);
+        await page.getByText('FAI', { exact: true }).first().waitFor();
+        expect(
+          (await page.getByText('Not in the inventory: add a container of it').count()) === 0,
+          'a salt in stock under its full name is said not to be in the inventory',
+        );
+        await page.getByRole('button', { name: 'Edit', exact: true }).click();
+        // each additive on one line: handle, substance, amount, unit and ✕ share a row
+        const row = page.locator('.listrow').filter({ has: page.getByRole('combobox', { name: 'Additive 2' }) });
+        const tops = await row.evaluate((r) =>
+          [...r.children]
+            .filter((c) => !c.classList.contains('listrow-more'))
+            .map((c) => {
+              const b = c.getBoundingClientRect();
+              return b.top + b.height / 2;
+            }),
+        );
+        expect(Math.max(...tops) - Math.min(...tops) < 6, 'an additive row is on more than one line');
+        if (process.env.SHOTS) {
+          await page.screenshot({ path: join(root, 'out', 'solution-full-names.png'), fullPage: true });
+          await page.emulateMedia({ colorScheme: 'dark' });
+          await page.waitForTimeout(600); // the colours fade over
+          await page.screenshot({ path: join(root, 'out', 'solution-full-names-dark.png'), fullPage: true });
+          await page.emulateMedia({ colorScheme: 'light' });
+        }
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        // the evaporation recipe of "Fullerene C60" draws C60
+        const org = await api('POST', '/presets', {
+          segment: 's3',
+          name: 'Browser C60',
+          visibility: 'shared',
+          data: { mat: 'Fullerene C60', th: 22, rate: 0.1, u: 'Å/s' },
+        });
+        expect(org.s === 200, 'organic recipe not made: ' + JSON.stringify(org.j));
+        await page.goto(`${base}/#/s3/${org.j.id}`);
+        await page.locator('svg.molecule').first().waitFor();
+        if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', 'organic-c60.png') });
+        await page.keyboard.press('Escape');
+        await page.waitForURL(/#\/s3$/);
+      },
+    );
+
   await step(
     CORE ? 'consumption has nothing to add up without a module' : 'consumption says where its amounts come from',
     async () => {
@@ -1358,11 +1428,22 @@ try {
     ph.setDefaultTimeout(10_000);
     ph.on('pageerror', (e) => errors.push(`${device}: ${e.message}`));
     const bar = (name) => ph.locator('nav.ph-bar').getByRole('button', { name, exact: true });
-    const fits = async (what) =>
-      expect(
-        await ph.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
-        `${what} is wider than the phone (${device})`,
-      );
+    // on failure it names what reaches past the screen's edge, as CI's WebKit cannot be run here
+    const fits = async (what) => {
+      const r = await ph.evaluate(() => ({
+        ok: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        w: `${document.documentElement.scrollWidth} > ${window.innerWidth}`,
+        past: [...document.querySelectorAll('body *')]
+          .filter((n) => n.getBoundingClientRect().right > window.innerWidth + 1)
+          .slice(0, 6)
+          .map(
+            (n) =>
+              `${n.tagName.toLowerCase()}.${[...n.classList].join('.')} ${Math.round(n.getBoundingClientRect().right)}`,
+          )
+          .join(', '),
+      }));
+      expect(r.ok, `${what} is wider than the phone (${device}): ${r.w}; ${r.past}`);
+    };
     const shot = async (name) => {
       if (!process.env.SHOTS) return;
       await ph.waitForTimeout(300);
@@ -1447,6 +1528,24 @@ try {
         await pick.click();
         await pick.fill(eq.name);
         await pick.press('Enter');
+        // the day as dd/mm/yyyy with its weekday, between ‹ and ›, overlapping neither (0.55.4)
+        const day = ph.locator('.ph-day');
+        // the phone's day (its time zone is UTC, as the context says)
+        const dd = (d) => d.toLocaleDateString('en-GB', { timeZone: 'UTC' });
+        await day.getByText(dd(new Date())).waitFor();
+        await day.getByText('Today', { exact: true }).waitFor();
+        const [l, m, r] = await Promise.all(
+          [ph.getByRole('button', { name: 'Day before' }), day, ph.getByRole('button', { name: 'Day after' })].map(
+            (x) => x.boundingBox(),
+          ),
+        );
+        expect(l.x + l.width <= m.x && m.x + m.width <= r.x, 'the day overlaps its arrows');
+        await fits('the day');
+        await shot('schedule-day');
+        await ph.getByRole('button', { name: 'Day after' }).click();
+        await day.getByText(dd(new Date(Date.now() + 864e5))).waitFor();
+        await day.getByText('Tomorrow', { exact: true }).waitFor();
+        await ph.getByRole('button', { name: 'Day before' }).click();
         await ph.getByRole('button', { name: `Book ${eq.name}` }).click();
         const dlg = ph.getByRole('dialog', { name: 'New booking' });
         await dlg.waitFor();
@@ -1477,6 +1576,18 @@ try {
         await ph.locator('.tabbar').waitFor();
         await ph.getByRole('button', { name: 'Menu' }).click();
         await ph.getByRole('button', { name: 'Phone layout' }).click();
+        await ph.locator('nav.ph-bar').waitFor();
+        // 0.55.4: in the full app on a phone, the profile's "Invite a phone" is "Phone layout"
+        await ph.getByRole('button', { name: 'Account' }).click();
+        await ph.getByRole('button', { name: 'Open the full app' }).click();
+        await ph.locator('.tabbar').waitFor();
+        await ph.getByRole('button', { name: 'Profile' }).click();
+        expect(
+          (await ph.getByRole('button', { name: 'Invite a phone (QR code)' }).count()) === 0,
+          'a phone is asked to invite a phone',
+        );
+        await shot('full-app-profile');
+        await ph.getByRole('button', { name: 'Phone layout', exact: true }).click();
         await ph.locator('nav.ph-bar').waitFor();
         if (process.env.SHOTS) {
           await ph.emulateMedia({ colorScheme: 'dark' });

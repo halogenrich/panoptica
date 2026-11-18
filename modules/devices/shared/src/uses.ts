@@ -1,5 +1,7 @@
 import {
   SPACERS,
+  chemIn,
+  toChems,
   solutionPlan,
   spinPlan,
   type Additive,
@@ -20,6 +22,14 @@ import {
 export type ChemUse = { name: string; mg?: number; ul?: number; box?: number | null; run?: boolean };
 /** The chemical table as recipes read it: names and roles (which solutes a mode offers), and the molar data. */
 export type ChemCtx = { chems: { name: string; role: string; roles?: string[] }[]; cl: Chem[] };
+/**
+ * Uses under the inventory's names (0.55.4): a salt worked out as PbI2 is taken from "Lead(II) iodide" when that is the
+ * substance the name means (short name, other name, formula), so its containers are found. Empty uses are dropped.
+ */
+const named = (out: ChemUse[], ctx: ChemCtx) =>
+  out
+    .filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0))
+    .map((u) => ({ ...u, name: chemIn(ctx.cl, u.name)?.n ?? u.name }));
 
 // ------------------------------------------------------------------ solutions
 export type SolMode = 'Perovskite' | 'ETL' | 'HTL' | 'Custom';
@@ -111,7 +121,7 @@ export function solutionUses(d: SolutionD, ctx: ChemCtx): ChemUse[] {
   const stockUl = r.stocks ? r.stocks.list.reduce((t, x) => t + x.make * 1000, 0) : 0,
     sp = d.sv.reduce((t, x) => t + x.p, 0) || 1;
   for (const v of r.solv) out.push({ name: v.n, ul: v.ul + (stockUl * (d.sv.find((x) => x.n === v.n)?.p ?? 0)) / sp });
-  return out.filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0));
+  return named(out, ctx);
 }
 
 /** A run-data value as a number, or null when it was left empty or is not one ("12,5" reads as 12.5). */
@@ -151,7 +161,7 @@ export function solutionRunUses(d: SolutionD, ctx: ChemCtx, values: Record<strin
       inStocks = (stockUl * (d.sv.find((x) => x.n === v.n)?.p ?? 0)) / sp;
     out.push(w === null ? { name: v.n, ul: v.ul + inStocks } : { name: v.n, ul: w + inStocks, run: true });
   }
-  return out.filter((u) => u.name && ((u.mg ?? 0) > 0 || (u.ul ?? 0) > 0));
+  return named(out, ctx);
 }
 
 // ------------------------------------------------------------------ spin coating
@@ -203,7 +213,17 @@ export function spinRunUses(d: SpinD, values: Record<string, string>): ChemUse[]
 export type UseSnapshot = {
   stack: { sl: { m: string; a?: string; b?: string }[] };
   resolved: Record<number, { a?: { data: unknown } | null; b?: { data: unknown } | null } | undefined>;
-  chems: { name: string; role: string; f: string; M: number; pur?: number; bottle?: { id: number } | null }[];
+  chems: {
+    name: string;
+    role: string;
+    f: string;
+    M: number;
+    pur?: number;
+    s?: string;
+    aka?: string[];
+    cas?: string;
+    bottle?: { id: number } | null;
+  }[];
 };
 /**
  * Reagents a batch took, from its frozen recipes: each solution prepared once (salts, additives, solvents) and the solvents
@@ -214,7 +234,7 @@ export type UseSnapshot = {
 export function snapshotUses(s: UseSnapshot, runs: Record<string, Record<string, string>> = {}): ChemUse[] {
   const ctx: ChemCtx = {
       chems: s.chems,
-      cl: s.chems.map((c) => ({ n: c.name, f: c.f, M: c.M, pur: c.pur })),
+      cl: toChems(s.chems),
     },
     out: ChemUse[] = [];
   s.stack.sl.forEach((sl, i) => {

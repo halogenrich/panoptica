@@ -66,3 +66,29 @@ describe('amounts from run data (0.45.1)', () => {
     expect(run.find((x) => x.name === 'CB')).toMatchObject({ ul: 500, run: true });
   });
 });
+
+describe('worked-out names find the inventory’s substances (0.55.4)', () => {
+  // the inventory names its substances in full; the composition works out PbI2 and FAI
+  const inv: ChemCtx = {
+    chems: [
+      { name: 'Lead(II) iodide', role: 'salt' },
+      { name: 'Formamidinium iodide', role: 'salt' },
+    ],
+    cl: [
+      { n: 'Lead(II) iodide', f: 'I2Pb', M: 461.01, cas: '10101-63-0' },
+      { n: 'Formamidinium iodide', f: 'CH5IN2', M: 171.97, s: 'FAI' },
+    ],
+  };
+  it('the masses are those of the inventory’s substances, and the uses carry their names', () => {
+    const u = solutionUses(fapbi3, inv);
+    expect(u.find((x) => x.name === 'Lead(II) iodide')?.mg).toBeCloseTo(461.01, 1);
+    expect(u.find((x) => x.name === 'Formamidinium iodide')?.mg).toBeCloseTo(171.97, 1);
+    expect(u.some((x) => x.name === 'PbI2' || x.name === 'FAI')).toBe(false);
+  });
+  it('an additive of the same substance as a salt is weighed with it', () => {
+    const d = { ...fapbi3, ad: [{ n: 'Lead(II) iodide', b: 'mol%' as const, v: 5 }] };
+    const u = solutionUses(d, inv).filter((x) => x.name === 'Lead(II) iodide');
+    expect(u).toHaveLength(1);
+    expect(u[0].mg).toBeCloseTo(461.01 * 1.05, 1);
+  });
+});

@@ -2,6 +2,14 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.55.4 (2026-11-18)
+
+- **Recipes find substances named in full**: a perovskite's salts are worked out as PbI2, MAI, FAI or CsI, while the inventory may call them "Lead(II) iodide" or "Formamidinium iodide". The recipe now finds the substance by its short name, other names, formula or CAS number, so it no longer says "Not in the inventory" for something in stock, uses that substance's molar mass and purity, and batches take the amounts from its containers. An additive that is the same substance as one of the salts is weighed with it.
+- **Additives and solvents on one line**: each row of a solution recipe is the handle, the substance, the amount, the unit and the ✕, side by side. With "µL stock/mL", the stock's concentration goes on a line below.
+- **C60's structure is back** in the organic evaporation recipe and on its card, also when the substance is called "Fullerene C60".
+- **Phone, Schedule › By equipment**: the day reads as "Wednesday 18/11/2026", with Today or Tomorrow under it, and no longer runs into the › button. Tap it to pick another day. The equipment box takes the full width.
+- **Phone, full app**: the profile's "Invite a phone" becomes **Phone layout**, so the way back to the phone layout is one tap away.
+
 ## 0.55.3 (2026-11-17)
 
 - **Backward-first measurements are read correctly**: the measurement software names its two sweeps by order ("Pixel 1" first, "Pixel 1 Reverse" second), so with the backward sweep measured first the names were the wrong way round. PANOPTICA now takes each sweep's direction from its voltages: a sweep that falls is backward, one that rises is forward. This applies to every import, lifetime runs included. When the names and the voltages disagree, the import says so once.

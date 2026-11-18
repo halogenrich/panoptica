@@ -1,4 +1,4 @@
-import { composition, normCas } from './chem';
+import { casValid, composition, normCas } from './chem';
 
 /**
  * Finding and naming substances (0.54): short names (DMF, MeO-2PACz), other names, a search that ranks what was typed, the
@@ -220,4 +220,42 @@ export function withRef<T extends { s?: string; aka?: string[]; roles?: string[]
     aka,
     roles: [...new Set([...(d.roles ?? []), ...r.roles.filter((x) => x !== 'other')])],
   };
+}
+
+/** What a substance is known by, for finding the one a name means (0.55.4). */
+export type Known = { name: string; s?: string; aka?: string[]; f?: string; cas?: string };
+
+/**
+ * The substance a name means (0.55.4). Recipes work out names such as PbI2, MAI or FAI from a composition, while the inventory
+ * may hold "Lead(II) iodide" with PbI2 as its short name; matching on the name alone said "Not in the inventory" for a
+ * substance in stock. In order: the same name; then, with case, accents and punctuation ignored, the name, the short name,
+ * an other name; the CAS number (typed as the name, or the reference list's compound with that short name); the formula
+ * as written; the same atoms (PbI2 and I2Pb). The last two count only when one substance alone matches.
+ */
+export function chemNamed<T>(list: T[], name: string, of: (x: T) => Known): T | undefined {
+  if (!name) return undefined;
+  const k = list.map(of),
+    exact = k.findIndex((x) => x.name === name);
+  if (exact >= 0) return list[exact];
+  const fn = fold(name);
+  if (!fn) return undefined;
+  const first = (p: (x: Known) => boolean) => {
+    const i = k.findIndex(p);
+    return i >= 0 ? list[i] : undefined;
+  };
+  const only = (p: (x: Known) => boolean) => {
+    const hits = list.filter((_, i) => p(k[i]));
+    return hits.length === 1 ? hits[0] : undefined;
+  };
+  const cas = normCas(name),
+    refCas = CHEM_REF.find((r) => fold(r.s) === fn)?.cas;
+  return (
+    first((x) => fold(x.name) === fn) ??
+    first((x) => !!x.s && fold(x.s) === fn) ??
+    first((x) => (x.aka ?? []).some((a) => fold(a) === fn)) ??
+    (casValid(name) ? first((x) => !!x.cas && normCas(x.cas) === cas) : undefined) ??
+    (refCas ? first((x) => !!x.cas && normCas(x.cas) === refCas) : undefined) ??
+    only((x) => !!x.f && fold(x.f) === fn) ??
+    only((x) => !!x.f && sameFormula(x.f, name))
+  );
 }

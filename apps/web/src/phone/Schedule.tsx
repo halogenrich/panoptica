@@ -3,7 +3,7 @@ import type { PhoneProps } from '../modules/types';
 import { Seg } from '../lib/ui';
 import { Picker } from '../views/Picker';
 import { BookingForm, type Booking, type Draft } from '../views/Calendar';
-import { BookingRow, addDays, dayIn, dayName, isoDay, startOfDay, useCal } from './parts';
+import { BookingRow, addDays, dayIn, dayName, dmy, isoDay, startOfDay, useCal, weekday } from './parts';
 
 /**
  * Schedule on the phone (0.55): my bookings for the next 14 days, or one equipment's day; book a slot. The booking form is
@@ -72,10 +72,16 @@ export default function Schedule({ me, view }: PhoneProps) {
             <button className="btn secondary" aria-label="Day before" onClick={() => setDay(addDays(day, -1))}>
               ‹
             </button>
-            <label className="ph-field grow">
-              <span>{dayName(day)}</span>
+            {/* 0.55.4: our own text (dd/mm/yyyy, full weekday) over a transparent date field. Safari drew the field
+                at its own width, past the › button, and in its own format ("18 Nov 2026"). */}
+            <label className="ph-day">
+              <b>
+                <span>{weekday(day)}</span> <span>{dmy(day)}</span>
+              </b>
+              {/^(Today|Tomorrow|Yesterday)$/.test(dayName(day)) && <span>{dayName(day)}</span>}
               <input
                 type="date"
+                aria-label="Day"
                 value={isoDay(day)}
                 onChange={(e) => e.target.value && setDay(startOfDay(new Date(e.target.value + 'T00:00')))}
               />

@@ -1202,6 +1202,38 @@ if (DEV) {
   );
 }
 
+if (DEV) {
+  console.log('A salt worked out as PbI2 is taken from the substance named in full (0.55.4)');
+  // no CAS number here: a later section uses PbI2's; the short name is set below
+  const pb = await call('POST', '/api/inventory/containers', {
+    name: 'Lead(II) iodide',
+    amount: 10,
+    size: 10,
+    unit: 'g',
+  });
+  const left = () => db.prepare('SELECT amount FROM containers WHERE id=?').get(pb.j.id).amount;
+  // its short name, and its molar mass so the recipe has a mass to take
+  db.prepare(
+    "UPDATE chemicals SET data=json_set(data, '$.s', 'PbI2', '$.M', 461.01) WHERE id=(SELECT chem_id FROM containers WHERE id=?)",
+  ).run(pb.j.id);
+  const sol = await call('POST', '/api/presets', {
+    segment: 's1',
+    name: 'Smoke PbI2 by its short name',
+    visibility: 'shared',
+    data: { mode: 'Perovskite', A: { Cs: 1 }, X: { I: 1 }, M: 1, V: 1, sv: [] },
+  });
+  const b = await call('POST', '/api/batches', {
+    name: 'Smoke full names',
+    visibility: 'shared',
+    stack: { arch: 'n-i-p', sl: [{ n: 'Perovskite', m: 'Spin', a: String(sol.j.id), b: '', t: '' }] },
+  });
+  await call('PATCH', '/api/batches/' + b.j.id, { status: 'running' });
+  const took = (await call('GET', '/api/inventory/draws/batch/' + b.j.id)).j.find(
+    (x) => x.substance === 'Lead(II) iodide',
+  );
+  ok(took?.container_id === pb.j.id && left() < 10, 'the batch takes its PbI2 from the "Lead(II) iodide" container');
+}
+
 console.log('Database changes in order (0.40)');
 {
   // the core's list and each module's (0.43): one sequence 1, 2, 3… with no gaps or repeats, each change recorded once here

@@ -14,6 +14,7 @@ export const dmy = (d: Date) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${
 export const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+export const weekday = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'long' });
 /** "Today", "Tomorrow", "Thursday 20/11/2026" */
 export function dayName(d: Date) {
   const t = startOfDay(new Date()),
@@ -21,7 +22,7 @@ export function dayName(d: Date) {
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';
-  return `${d.toLocaleDateString('en-GB', { weekday: 'long' })} ${dmy(d)}`;
+  return `${weekday(d)} ${dmy(d)}`;
 }
 
 /** The same inside a sentence: "today", "tomorrow", "Thursday 20/11/2026". */
