@@ -6088,7 +6088,8 @@ body.dragging-block * {
 }
 .ov-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 0.60: the Lab page has four numbers; they share one row when there is room */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 12px;
 }
 .ov-stat {
@@ -10156,4 +10157,47 @@ input.mono {
 }
 .screen-limits input {
   width: 110px;
+}
+
+/* ---- Overview (0.60): the Lab page's best device, the slide's box plot choice */
+.ov-best-b {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 20px;
+  align-items: start;
+}
+.ov-best-t {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  justify-items: start;
+}
+.ov-best-v {
+  font-size: 40px;
+  line-height: 1.1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ov-best-m {
+  font-variant-numeric: tabular-nums;
+}
+.ov-best-fig {
+  max-width: 560px;
+  width: 100%;
+}
+.ov-best-fig svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 720px) {
+  .ov-best-b {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pe-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
 }

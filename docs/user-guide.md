@@ -116,13 +116,19 @@ A batch freezes the stack, its recipes and the substances (with the container ea
 
 ## Overview
 
-**Overview** (top of the side menu) shows a **Week** or a **Month**; ‹ › move between periods. Everyone has an overview of their own work. The picker next to Week and Month changes whose it is: **Mine**; **My students**, for anyone named as supervisor or co-supervisor on a student's account; and, with the **Lab overview** permission (or as an admin), **The lab** and any person.
+**Overview** is the first section of the side menu. Each person sees what they may:
 
-- **Summary**: the period in one sentence, a new lab record if there was one, three numbers (best cell, typical cell = median, batches), postponed or canceled steps if any, efficiency over time (hover for values, or **Show numbers**) and who was active. **Details** at the bottom opens the best cells, the batches started or finished, and the measurements.
-- **People** (the lab or your students): a card per person with what they did in the period. Open a person for their page: best cell so far, progress measurement by measurement, recent batches and measurements; equipment time and setbacks are folded below.
-- **Equipment**: booked hours per equipment and how busy it was (share of weekday working hours, 08:00–18:00), with who booked it.
+| Page | Who sees it | What it shows |
+| --- | --- | --- |
+| **Lab** | Everyone | A week or a month (‹ › move between periods): the typical device (median), batches and equipment time; the period's best device with its J–V curve; folded below, the best devices, the batches started or finished and the measurements. Admins, professors and Lab managers see all the lab's work; everyone else sees shared work and their own. |
+| **Students** | Admins, professors, Lab managers, and anyone named as supervisor or co-supervisor on a student's account | A card per person with what they did in the last 30 days, your own students first. Open a card for their progress. |
+| **My progress** | Everyone, for themselves; and from Students | Best device so far, devices measured, batches; the best device of each batch over time (hover for values, or **Show numbers**); their batches and recent measurements; equipment time and postponed or canceled steps, folded below. |
+| **Equipment use** | Admins, professors and Lab managers | Booked hours per equipment and how busy it was (share of the lab's working hours), who booked it, and the steps postponed or canceled. **Export slide** gives a 16:9 slide. |
+| **Lab screen** | Admins | The lab screen's settings, as in Admin settings › Lab screen. |
 
-**Export for a presentation** (Summary) shows a preview of a 16:9 slide with efficiency over time, the J–V curve of the period's best cell and the box plots (Jsc, FF, Voc, PCE) of that cell's batch, with the lab logo. Download the full slide, or each figure on its own to build your own slide, as PNG (PowerPoint, Google Slides) or SVG (sharp at any size, editable). The highlights slide (record, batches, best cells in words) is there too. People and Equipment have **Export slide** for their own 16:9 slide. A cell counts with its best working pixel.
+A professor is anyone whose tags give **Private comments**. A device counts with its best working pixel; on My progress it counts for the batch its sample is linked to, or for its measurement when it is linked to none.
+
+**Export for a presentation** (My progress) shows a preview of a 16:9 slide with the person's best device of each batch over time, the J–V curve of their best device and the box plot of that device's batch (all its linked measurements, by variant), with the lab logo. Choose the box plot above the preview: **PCE**, **Voc**, **Jsc**, **FF** or **All four**; the choice is remembered in this browser. Download the full slide, or each figure on its own to build your own slide, as PNG (PowerPoint, Google Slides) or SVG (sharp at any size, editable).
 
 ## Comparing pixels
 
@@ -198,7 +204,7 @@ Each person's **Details** (Admin settings › Users) also lists the equipment th
 
 **Edit profile** (in the menu under your photo, next to your name): photo (click the photo to choose a picture, then drag and zoom to crop), display name, default visibility of new presets (Shared unless you change it), theme, password and the phone invite.
 
-Admins make tags in **Admin settings → Tags** (a new install has none): a list of tags; click one for its name, colour, what it gives and who has it, or **New tag**. A tag that gives nothing is a label that only describes people (Master's, PhD, Visitor, a research topic). A tag can give any of: **Private comments** (sees every preset, batch and measurement, can tick **Private, only for …** to comment only to the owner, and those comments come first, highlighted), **Lab overview** (the lab's overview and anyone's), **Inventory management** (edits the substances and the inventory), **Equipment management** (adds and arranges places and equipment) and **Equipment training** (records who is trained on which equipment).
+Admins make tags in **Admin settings → Tags** (a new install has none): a list of tags; click one for its name, colour, what it gives and who has it, or **New tag**. A tag that gives nothing is a label that only describes people (Master's, PhD, Visitor, a research topic). A tag can give any of: **Private comments** (sees every preset, batch and measurement, can tick **Private, only for …** to comment only to the owner, and those comments come first, highlighted), **Lab manager** (every student's progress and the lab's equipment use; called Lab overview before 0.60), **Inventory management** (edits the substances and the inventory), **Equipment management** (adds and arranges places and equipment) and **Equipment training** (records who is trained on which equipment).
 
 Hold **Shift** while opening **Edit profile** to see the **Funny settings** (all off until you turn them on): a red eye next to search while the Professor is online, and breaking news from the lab's alternative universe in the top bar, one headline at a time with a pause between them (admins set the pause for everyone, 30 s by default). With both on, the news also covers the Professor while they are online, and opens at once with a red, shaking border when they arrive.
 

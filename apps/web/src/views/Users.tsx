@@ -41,7 +41,11 @@ export const PERMS: { key: string; label: string; note: string }[] = [
     label: 'Private comments',
     note: 'Sees every stack and batch and comments privately to its owner; these comments come first',
   },
-  { key: 'overview', label: 'Lab overview', note: 'Opens the lab’s overview and anyone’s, students included' },
+  {
+    key: 'overview',
+    label: 'Lab manager',
+    note: 'Sees every student’s progress and the lab’s equipment use',
+  },
   { key: 'inventory', label: 'Inventory management', note: 'Edits the inventory' },
   {
     key: 'equipment',

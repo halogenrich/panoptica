@@ -36,6 +36,8 @@ export type Me = {
   visitorUntil?: string | null;
   firstNames?: string;
   surnames?: string;
+  /** how many people name them as supervisor or co-supervisor (0.60: Overview › Students) */
+  supervises?: number;
   /** 0.53: an admin who must download the recovery file before going on */
   recovery?: boolean;
 };

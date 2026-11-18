@@ -43,6 +43,15 @@ export default function LineChart({
     hi = Math.ceil((Math.max(...vals) + 1) / 5) * 5;
   const X = (i: number) => L + (points.length === 1 ? PW / 2 : (i / (points.length - 1)) * PW),
     Y = (v: number) => T + PH - ((v - lo) / (hi - lo || 1)) * PH;
+  // the end labels: when the two lines end close together (one device: best = median), spread them so they do not overlap
+  const labelY = (k: 'best' | 'median') => {
+    const lb = last('best'),
+      lm = last('median'),
+      y = Y(points[last(k)][k]!);
+    if (lb < 0 || lm < 0 || lb !== lm) return y;
+    const gap = Y(points[lm].median!) - Y(points[lb].best!);
+    return gap >= 14 ? y : k === 'best' ? y - (14 - gap) / 2 : y + (14 - gap) / 2;
+  };
   const yt = Array.from({ length: Math.round((hi - lo) / 5) + 1 }, (_, i) => lo + i * 5).filter(
     (_, i, a) => a.length <= 7 || i % 2 === 0,
   );
@@ -70,11 +79,11 @@ export default function LineChart({
       <div className="inline chart-tools">
         <span className="ov-key">
           <i className="k-best" />
-          Best cell
+          Best device
         </span>
         <span className="ov-key">
           <i className="k-median" />
-          Typical cell
+          Typical device
         </span>
         <div className="grow" />
         <button className="link small" onClick={() => setTable(!table)}>
@@ -86,8 +95,8 @@ export default function LineChart({
           <thead>
             <tr>
               <th>{xLabel}</th>
-              <th>Best cell</th>
-              <th>Typical cell (median)</th>
+              <th>Best device</th>
+              <th>Typical device (median)</th>
               <th>Cells</th>
             </tr>
           </thead>
@@ -149,7 +158,7 @@ export default function LineChart({
               <path d={line(k)} fill="none" />
               {points.map((p, i) => p[k] != null && <circle key={i} cx={X(i)} cy={Y(p[k]!)} r={hover === i ? 5 : 4} />)}
               {last(k) >= 0 && (
-                <text x={X(last(k)) + 10} y={Y(points[last(k)][k]!)} dominantBaseline="central" className="viz-label">
+                <text x={X(last(k)) + 10} y={labelY(k)} dominantBaseline="central" className="viz-label">
                   {k === 'best' ? 'Best' : 'Typical'}
                 </text>
               )}
