@@ -25,6 +25,8 @@ export type Me = {
   equipment?: boolean;
   /** trains people on any equipment */
   training?: boolean;
+  /** every permission the person's tags give, by name (0.58), modules' included (designs) */
+  grants?: string[];
   email?: string;
   birthDate?: string;
   department?: string;

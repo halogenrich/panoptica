@@ -4,6 +4,7 @@ import { organic, metal } from './evaporation';
 import { substratePrep } from './substratePrep';
 import { substrate } from '../designs/substrate';
 import { mask } from '../designs/mask';
+import { architecture } from '../designs/architecture';
 import { stack } from '../stacks/stack';
 import type { Kind } from './types';
 
@@ -15,5 +16,6 @@ export const KINDS: Record<string, Kind> = {
   s4: metal,
   sub: substrate,
   mask,
+  arch: architecture,
   stk: stack,
 };

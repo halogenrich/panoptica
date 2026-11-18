@@ -37,32 +37,24 @@ export interface Slot {
   apGlass?: Appearance;
 }
 export interface StackD {
+  /** the architecture's name, as it was when chosen */
   arch: string;
+  /** p-i-n or n-i-p (0.58) */
+  pol?: string;
   sl: Slot[];
   thumb?: string;
   bid?: string;
 }
 
-export const TEMPLATES: Record<string, [string, Method][]> = {
-  'p-i-n': [
-    ['Substrate', 'Substrate'],
-    ['HTL / SAM', 'Spin'],
-    ['Perovskite', 'Spin'],
-    ['Passivation', 'Spin'],
-    ['ETL (C60)', 'Organic evap'],
-    ['BCP', 'Organic evap'],
-    ['Metal contact', 'Metal evap'],
-  ],
-  'n-i-p': [
-    ['Substrate', 'Substrate'],
-    ['ETL', 'Spin'],
-    ['Perovskite', 'Spin'],
-    ['HTL', 'Spin'],
-    ['Metal contact', 'Metal evap'],
-  ],
-};
-export const slotsFor = (arch: string): Slot[] =>
-  TEMPLATES[arch].map(([n, m]) => ({ id: newId(), n, m, a: '', b: '', t: '' }));
+/**
+ * The layers a stack starts with, from an architecture (0.58: the lab's own, under Designs; p-i-n and n-i-p were fixed here
+ * before). Bottom first, as stacks store them.
+ */
+export const slotsFrom = (layers: { n: string; m: string }[]): Slot[] =>
+  layers.map(({ n, m }) => ({ id: newId(), n: n || 'New layer', m: m as Method, a: '', b: '', t: '' }));
+/** Whether a stack is p-i-n or n-i-p, for J–V figures: from its architecture, or (stacks made before 0.58) its name. */
+export const polOf = (st: { arch?: string; pol?: string }) =>
+  st.pol || (/^(p-i-n|n-i-p)$/.test(st.arch ?? '') ? st.arch! : '');
 export const SEG: Record<Method, string | null> = {
   Substrate: 's0',
   Spin: 's1',

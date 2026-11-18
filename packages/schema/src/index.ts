@@ -149,7 +149,7 @@ export const UserPatch = z.object({
 
 export type Role = z.infer<typeof Role>;
 
-export const ChemRole = z.enum(['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'other']);
+export const ChemRole = z.enum(['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'cleaning', 'other']);
 /**
  * A substance (0.44): what recipes name, made from the containers people add or import. Purity and brand belong to each
  * container, not here. Roles are filters (a salt can also be an additive); `pf` and `army`: controlled by the Federal Police or
@@ -265,7 +265,9 @@ export const ProfileIn = z.object({
     .optional(),
 });
 export const TagKind = z.enum(['label', 'professor', 'manager', 'inventory']);
-export const TagPerm = z.enum(['comments', 'overview', 'inventory', 'equipment', 'training']);
+/** A permission a tag gives: the core's (comments, overview, inventory, equipment, training) or a module's (0.58: designs).
+ * The server checks the name against the installed ones. */
+export const TagPerm = z.string().regex(/^[a-z]{2,24}$/);
 export const TagIn = z.object({
   name: z.string().trim().min(1).max(40),
   color: z
@@ -273,7 +275,7 @@ export const TagIn = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, 'pick a colour')
     .optional(),
   /** what the tag gives (empty: a label) */
-  perms: z.array(TagPerm).max(5).optional(),
+  perms: z.array(TagPerm).max(16).optional(),
 });
 export const UserTagsIn = z.object({ tags: z.array(z.number().int()).max(50) });
 

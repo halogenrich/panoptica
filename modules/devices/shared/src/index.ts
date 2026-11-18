@@ -564,3 +564,4 @@ export * from './stack3d';
 export * from './variants';
 export * from './uses';
 export * from './steps';
+export * from './designs';

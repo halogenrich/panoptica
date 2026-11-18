@@ -63,6 +63,8 @@ export function perms(uid: number) {
     inventory: ps.has('inventory'),
     equipment: ps.has('equipment'),
     training: ps.has('training'),
+    // every permission by name (0.58): a module's own (Electronic Devices: designs) are checked by the module
+    grants: [...ps],
   };
 }
 export const tagsOf = (uid: number) =>

@@ -3,7 +3,7 @@ import { Visibility } from '@psc/schema';
 
 /** What the Electronic Devices module's routes accept (0.43): recipes and stacks, batches and variants, J–V measurements, the
  * batch scheduler, comparisons. */
-export const Segment = z.enum(['s0', 's1', 's2', 's3', 's4', 'stk', 'sub', 'mask']);
+export const Segment = z.enum(['s0', 's1', 's2', 's3', 's4', 'stk', 'sub', 'mask', 'arch']);
 
 const iso = z
   .string()
@@ -53,6 +53,8 @@ export const BatchIn = z.object({
   visibility: Visibility,
   stack: z.object({
     arch: z.string(),
+    /** p-i-n or n-i-p, from the architecture chosen (0.58); stacks made before have it as `arch` */
+    pol: z.string().max(10).optional(),
     bid: z.string().optional(),
     thumb: z.string().max(2_000_000).optional(),
     sl: z.array(

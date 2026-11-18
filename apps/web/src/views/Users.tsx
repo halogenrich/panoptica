@@ -8,6 +8,7 @@ import { NetworkTab } from '../start/Network';
 import AdminInventory from './AdminInventory';
 import Avatar from '../lib/Avatar';
 import { LabCtx, type Tag } from '../ctx';
+import { MODULES } from '../modules/installed';
 import { useContext } from 'react';
 import { fmtDate, fmtDateTime } from '../lib/ui';
 import { HoursFields, LabFields, LookFields, blankLab, hoursOk, labBody, type LabDraft } from '../start/Setup';
@@ -48,9 +49,11 @@ export const PERMS: { key: string; label: string; note: string }[] = [
   },
   { key: 'training', label: 'Equipment training', note: 'Marks people as trained on any equipment' },
 ];
+/** The core's permissions, then the modules' (0.58: Electronic Devices' Edit designs). */
+const allPerms = () => [...PERMS, ...MODULES.flatMap((m) => m.perms ?? [])];
 const permsText = (t: Tag) =>
   (t.perms ?? [])
-    .map((k) => PERMS.find((p) => p.key === k)?.label)
+    .map((k) => allPerms().find((p) => p.key === k)?.label)
     .filter(Boolean)
     .join(', ');
 const KIND_NOTE = { title: (t: Tag) => permsText(t) || undefined };
@@ -664,7 +667,7 @@ function TagSheet({ tag, onClose, onDone }: { tag: Tag | null; onClose: () => vo
           <div className="fld">
             <span>What it gives</span>
             <ul className="perm-list">
-              {PERMS.map((p) => (
+              {allPerms().map((p) => (
                 <li key={p.key}>
                   <label className="inline">
                     <input

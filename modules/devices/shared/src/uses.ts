@@ -84,6 +84,8 @@ export const solutionDefaults = () => ({
   hT: 0,
   hm: 0,
   cool: false,
+  /** a Custom solution used to clean substrates (0.58), such as the lab's own soap solution: substrate cleaning lists it */
+  cln: false,
 });
 export type SolutionD = ReturnType<typeof solutionDefaults>;
 

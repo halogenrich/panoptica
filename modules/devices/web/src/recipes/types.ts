@@ -56,7 +56,7 @@ export interface RunField {
  * Data shapes are unchanged from earlier versions, so existing presets keep working.
  */
 export interface Kind<T = any> {
-  segment: 's0' | 's1' | 's2' | 's3' | 's4' | 'sub' | 'mask' | 'stk';
+  segment: 's0' | 's1' | 's2' | 's3' | 's4' | 'sub' | 'mask' | 'arch' | 'stk';
   title: string; // "Solutions"
   noun: string; // "solution"
   defaults: () => T;
@@ -71,6 +71,8 @@ export interface Kind<T = any> {
   noFactsArt?: boolean;
   /** Output takes the whole view (no key-facts column). */
   wideView?: boolean;
+  /** Nothing is written down after using it (0.58: architectures): no Run data tab. */
+  noRuns?: boolean;
   /** Reagents one preparation takes (for inventory consumption): mass in mg and/or volume in µL, by chemical name. */
   uses?: (d: T, ctx: Ctx) => { name: string; mg?: number; ul?: number }[];
   /** Extra buttons in the view header (e.g. Print, Start batch). */

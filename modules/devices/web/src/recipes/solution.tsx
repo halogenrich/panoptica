@@ -491,6 +491,14 @@ function Editor({ d, set, ctx }: { d: D; set: (p: Partial<D>) => void; ctx: Ctx 
             </button>
           ))}
         </div>
+        {d.mode === 'Custom' && (
+          <>
+            <label className="inline">
+              <Check v={!!d.cln} on={(cln) => set({ cln })} /> Cleaning solution
+            </label>
+            <p className="small mut">Cleaning solutions are listed in substrate preparation, for sonication.</p>
+          </>
+        )}
       </Section>
       {d.mode === 'Perovskite' ? (
         <>
@@ -909,7 +917,7 @@ export const solution: Kind<D> = {
   uses: solutionUses,
   summary: (d, ctx) => `${headline(d, ctx)} · ${d.mode === 'Perovskite' ? d.M + ' M · ' : ''}${d.V} mL`,
   describe: (d, ctx) => ({
-    Type: d.mode,
+    Type: d.mode === 'Custom' && d.cln ? 'Custom, cleaning solution' : d.mode,
     [d.mode === 'Perovskite' ? 'Formula' : 'Solute']: headline(d, ctx),
     ...(d.mode === 'Perovskite'
       ? {

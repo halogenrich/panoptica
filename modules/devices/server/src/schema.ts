@@ -241,6 +241,15 @@ CREATE TABLE IF NOT EXISTS comparisons(
       if (n) mark(d, 'iv_dir_fixed', String(n)); // told in the activity log once the app has started (below)
     },
   },
+  {
+    id: 45,
+    owner: 'devices',
+    name: 'designs belong to the lab (0.58): every substrate design and metal mask is shared',
+    up: (d) => {
+      // everyone uses them in recipes and stacks; only admins and people with the designs permission change them
+      d.exec("UPDATE presets SET visibility='shared' WHERE segment IN ('sub','mask') AND visibility<>'shared'");
+    },
+  },
 ];
 migrate(db, MIGRATIONS);
 // 0.55.3: how many stored curves migration 42 corrected, once, in the activity log

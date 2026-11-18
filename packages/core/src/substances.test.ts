@@ -36,14 +36,21 @@ describe('search (0.54)', () => {
 
 describe('reference list (0.54)', () => {
   it('has valid, unique CAS numbers and known roles', () => {
-    const roles = new Set(['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'other']);
+    const roles = new Set(['salt', 'solvent', 'etl', 'htl', 'additive', 'organic', 'metal', 'cleaning', 'other']);
     for (const r of CHEM_REF) {
       expect(casValid(r.cas), r.cas).toBe(true);
       for (const x of r.roles) expect(roles.has(x), x).toBe(true);
     }
     expect(new Set(CHEM_REF.map((r) => r.cas)).size).toBe(CHEM_REF.length);
     expect(chemRef('0068-12-2')?.s).toBe('DMF');
-    expect(chemRef('64-17-5')?.roles).toEqual(['solvent']);
+    expect(chemRef('64-17-5')?.roles).toEqual(['solvent', 'cleaning']);
+    // 0.58: what substrate cleaning lists
+    expect(CHEM_REF.filter((r) => r.roles.includes('cleaning')).map((r) => r.s)).toEqual([
+      'IPA',
+      'EtOH',
+      'Acetone',
+      'H2O',
+    ]);
   });
 });
 

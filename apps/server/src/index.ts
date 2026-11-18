@@ -20,7 +20,7 @@ import {
   UserTagsIn,
 } from '@psc/schema';
 import { passwordProblem, ageOn } from '@psc/core';
-import { db, tx, perms, tagHas, tagsOf } from './db.js';
+import { db, tx, perms, tagHas, tagsOf, PERMS } from './db.js';
 import { hash, verify as verifyRaw } from './auth.js';
 import { registerSocial, startTrash } from './social.js';
 import { registerInventory } from './inventory.js';
@@ -321,6 +321,9 @@ app.put('/api/fun', { preHandler: auth(true) }, async (req: any, reply) => {
 });
 
 // ---- tags: everyone reads, admin edits ----
+/** A tag gives the core's permissions and those of the installed modules (0.58); any other name is refused. */
+const unknownPerm = (ps: string[] | undefined) =>
+  (ps ?? []).find((x) => !(PERMS as readonly string[]).includes(x) && !modules().some((m) => m.perms?.includes(x)));
 app.get('/api/tags', { preHandler: auth() }, async () =>
   (
     db
@@ -342,6 +345,8 @@ app.get('/api/tags', { preHandler: auth() }, async () =>
 app.post('/api/tags', { preHandler: auth(true) }, async (req: any, reply) => {
   const p = TagIn.safeParse(req.body);
   if (!p.success) return bad(reply, p);
+  if (unknownPerm(p.data.perms))
+    return reply.code(400).send({ error: `unknown permission ${unknownPerm(p.data.perms)}` });
   try {
     const pos = ((db.prepare('SELECT MAX(pos) AS m FROM tags').get() as any).m ?? 0) + 1;
     return {
@@ -356,6 +361,8 @@ app.post('/api/tags', { preHandler: auth(true) }, async (req: any, reply) => {
 app.patch('/api/tags/:id', { preHandler: auth(true) }, async (req: any, reply) => {
   const p = TagIn.partial().safeParse(req.body);
   if (!p.success) return bad(reply, p);
+  if (unknownPerm(p.data.perms))
+    return reply.code(400).send({ error: `unknown permission ${unknownPerm(p.data.perms)}` });
   try {
     if (p.data.name) db.prepare('UPDATE tags SET name=? WHERE id=?').run(p.data.name, +req.params.id);
     if (p.data.color) db.prepare('UPDATE tags SET color=? WHERE id=?').run(p.data.color, +req.params.id);

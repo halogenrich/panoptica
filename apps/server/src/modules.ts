@@ -122,6 +122,8 @@ export type Module = {
   items?: ItemKind[];
   uses?: UseReport;
   overview?: OverviewPart;
+  /** permissions a tag can give besides the core's (0.58: Electronic Devices' "designs"); the module checks them itself */
+  perms?: string[];
   /**
    * The one procedure (`equipment.role`) older parts of a module still read, from what an equipment can do; and the steps for a
    * procedure given by an older client (0.43).
