@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.60.2 (2026-11-18)
+
+- **Lab screen, first screen**: the equipment rows share the panel's height, so every one shows its state (the last one was cut off on the TV with seven pieces of equipment). Two columns past eight.
+- **Second screen**, laid out as the first: on the left, the best device of the week with a larger J–V curve, above Today; on the right, the week's five best devices in two thirds and this month's birthdays in one third (today and the days to come first; two columns past four).
+- **Third screen**: O₂ and H₂O alone, larger. Each line runs through every reading by its time, coming in from the reading before, whether today or the last 7 days shows. A switch above the charts shows which of the two is on; it follows the timer.
+- **The O₂ and H₂O charts** look like the J–V figures: the legend inside the frame at the top right, O₂ solid with round marks and H₂O dashed with square marks (they stay apart when they read the same), the limits dotted. The latest values sit on one line under each name, so the charts line up.
+- **Stacks in 3D**: evaporated metal now coats the edge of the films where it goes down to a scrape area, so a contact pad no longer looks cut in two at the step (in the view and in the card pictures). The card picture also draws the layers bottom to top, as the view does. A card's picture is made when the stack is saved: save a stack again to refresh it.
+- **The bar under the dots** starts again with each screen after the seconds per screen are changed (it kept its old run).
+
 ## 0.60.1 (2026-11-18)
 
 - **People at the same time**: equipment several people use at once, such as two substrate cleaners booked as one, takes that many overlapping bookings. Set it in Lab › Equipment (1 unless set); one more is refused, naming the number.

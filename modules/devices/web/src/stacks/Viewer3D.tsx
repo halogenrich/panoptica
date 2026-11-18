@@ -78,12 +78,15 @@ function slabMesh(s: ViewSlab, W: number, H: number, look: Look) {
     top = s.y0 + s.h;
   mat.userData.base = mat.opacity;
   // parts with their own thickness (evaporated metal) rise to the level of the highest part in the exploded view
-  const level = Math.max(...s.parts.map((p) => p.y0));
+  const level = Math.max(...s.parts.map((p) => p.y0)),
+    t = Math.min(...s.parts.filter((p) => !p.wall).map((p) => p.h ?? Infinity));
   for (const p of s.parts) {
     const mesh = new THREE.Mesh(geometry(p.region, (p.h ?? top - p.y0) * U, W, H), mat);
     mesh.position.y = (p.y0 - s.y0) * U;
     mesh.userData.rest = (p.y0 - s.y0) * U;
     mesh.userData.lift = p.h !== undefined ? (level - p.y0) * U : 0;
+    // the metal coating a step flattens to the metal's thickness as it rises with the rest of the layer
+    if (p.wall && p.h && Number.isFinite(t)) mesh.userData.squash = t / p.h;
     // leader-line targets: the outline of each separate piece (each metal strip or pixel), halfway up its edge
     const ht = (p.h ?? top - p.y0) * U;
     mesh.userData.outlines = p.region
@@ -612,7 +615,11 @@ export default function Viewer3D({
         m.depthWrite = it.op > 0.95 && clear > 0.95 && baseOpacity(m) > 0.98;
         it.mesh.position.y = it.base * U + it.off + explode * GAP * it.ex;
         for (const c of it.mesh.children)
-          if (c.userData.lift) c.position.y = c.userData.rest + c.userData.lift * Math.min(1, explode / 0.02);
+          if (c.userData.lift) {
+            const k = Math.min(1, explode / 0.02);
+            c.position.y = c.userData.rest + c.userData.lift * k;
+            if (c.userData.squash) c.scale.y = 1 + (c.userData.squash - 1) * k;
+          }
         if (it.removing && it.op < 0.02) {
           root.remove(it.mesh);
           dispose(it.mesh);
@@ -847,9 +854,12 @@ export function renderThumb(slabs: ViewSlab[], W: number, H: number, size: [numb
   renderer.shadowMap.enabled = true;
   const scene = new THREE.Scene();
   lights(scene, renderer);
-  const meshes = slabs.map((s) => {
+  const meshes = slabs.map((s, i) => {
     const m = slabMesh(s, W, H, 'realistic');
     m.position.y = s.y0 * U;
+    // drawn bottom to top, as the view draws them seen from above (0.60.2: the picture sorted the parts by their centres, so the
+    // metal on the exposed ITO could come out in front of or behind the films depending on the stack)
+    for (const c of m.children) c.renderOrder = i;
     scene.add(m);
     return m;
   });

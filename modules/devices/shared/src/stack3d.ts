@@ -20,6 +20,8 @@ export interface Part {
   region: Region;
   y0: number;
   h?: number;
+  /** a band of evaporated metal that coats a step up to the metal on the higher level (0.60.2) */
+  wall?: boolean;
 }
 /** y0 = lowest bottom, h = top − y0 (visual mm). */
 export interface Slab3 {
@@ -45,6 +47,15 @@ export const visMm = (nm: number) => Math.max(nm * VIS.perNm, VIS.min);
 type MP = pc.MultiPolygon;
 const EPS = 1e-6;
 const toRegion = (mp: MP): Region => mp.map((poly) => poly.map((ring) => ring.slice(0, -1) as Poly));
+/** The region grown by d on every side (the union of its copies moved by d along the axes and diagonals). */
+const grow = (mp: MP, d: number): MP => {
+  const moved = [-d, 0, d].flatMap((dx) =>
+    [-d, 0, d].map((dy) =>
+      mp.map((poly) => poly.map((ring) => ring.map(([x, y]) => [x + dx, y + dy] as [number, number]))),
+    ),
+  ) as MP[];
+  return pc.union(mp, ...moved);
+};
 const rect = (id: string, [x, y, w, h]: [number, number, number, number]): Shape => ({ id, kind: 'rect', x, y, w, h });
 
 /** Geometry used by earlier versions (fixed sizes with placeholder pixel patterns), as a substrate + mask. */
@@ -119,13 +130,33 @@ export function buildStack(
         l.y0 = Math.max(l.y0, x.top);
       } else levels.push({ y0: x.top, lo: x.top, region: x.region });
     }
-    for (const l of levels) parts.push({ region: toRegion(l.region), y0: l.y0, ...(conformal ? { h } : {}) });
+    // 0.60.2: evaporated metal also coats the step where it goes down from one level to a lower one (the edge of the films at a
+    // scrape area). Without it the metal stopped at the edge and started again at the bottom, so a contact pad looked cut in two.
+    // The coat is a band of the lower part, as wide as the metal is thick, along the higher part's edge, up to its metal top.
+    const walls: { region: MP; y0: number; h: number }[] = [];
+    if (conformal)
+      for (let j = levels.length - 1; j > 0; j--) {
+        const near = grow(levels[j].region, h);
+        for (let i = 0; i < j; i++) {
+          const band = pc.intersection(levels[i].region, near);
+          if (regionArea(band) <= EPS) continue;
+          levels[i].region = pc.difference(levels[i].region, band);
+          walls.push({ region: band, y0: levels[i].y0, h: levels[j].y0 + h - levels[i].y0 });
+        }
+      }
+    for (const l of levels)
+      if (regionArea(l.region) > EPS) parts.push({ region: toRegion(l.region), y0: l.y0, ...(conformal ? { h } : {}) });
+    for (const w of walls) parts.push({ region: toRegion(w.region), y0: w.y0, h: w.h, wall: true });
     const top = base + h;
     cols = cols.flatMap((c) => {
       const rest = pc.difference(c.region, region);
       return regionArea(rest) > EPS ? [{ region: rest, top: c.top }] : [];
     });
-    if (conformal) cols.push(...hits.map((x) => ({ region: x.region, top: x.top + h })));
+    if (conformal)
+      cols.push(
+        ...levels.filter((l) => regionArea(l.region) > EPS).map((l) => ({ region: l.region, top: l.y0 + h })),
+        ...walls.map((w) => ({ region: w.region, top: w.y0 + w.h })),
+      );
     else cols.push({ region: pc.intersection(region, glass), top });
     const y0 = Math.min(...parts.map((p) => p.y0));
     return { parts, y0, h: top - y0 };

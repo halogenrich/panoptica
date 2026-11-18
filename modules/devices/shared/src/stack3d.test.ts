@@ -50,7 +50,13 @@ describe('stack geometry', () => {
     expect(bottoms[bottoms.length - 1]).toBeCloseTo(top(ce.slabs[2]), 9); // elsewhere on top of the film (x 1..2 is covered by film)
     expect(top(metal)).toBeCloseTo(top(ce.slabs[2]) + 0.1, 9);
     // evaporated metal follows the surface: the counter electrode on the ITO is as thick as the metal on top of the stack
-    expect(metal.parts.every((p) => Math.abs((p.h ?? 0) - 0.1) < 1e-9)).toBe(true);
+    expect(metal.parts.filter((p) => !p.wall).every((p) => Math.abs((p.h ?? 0) - 0.1) < 1e-9)).toBe(true);
+    // and coats the edge of the film where it goes down: a band 0.1 wide from the ITO up to the metal's top (0.60.2)
+    const walls = metal.parts.filter((p) => p.wall);
+    expect(walls).toHaveLength(1);
+    expect(walls[0].y0).toBeCloseTo(top(ito2), 9);
+    expect(walls[0].y0 + (walls[0].h ?? 0)).toBeCloseTo(top(metal), 9);
+    expect(area(walls[0].region)).toBeCloseTo(0.1 * 3, 6); // along the film's edge at x = 2, the pad's 3 mm
   });
   it('earlier presets fall back to the placeholder geometry', () => {
     const g = legacyGeometry('1.2 × 1.2 cm');

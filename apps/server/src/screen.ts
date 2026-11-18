@@ -143,11 +143,15 @@ export function screenData(version: string) {
     ...e,
     limits: { o2: s.limits[e.id]?.o2 ?? null, h2o: s.limits[e.id]?.h2o ?? null },
     // the readings people type when they answer a booking on it (0.38), at the booking's end
-    readings: (
-      db
+    // the last reading before the 7 days too (0.60.2, Richard): one continuous line, the window only cuts it
+    readings: [
+      ...(db
+        .prepare("SELECT end, atmo FROM bookings WHERE equipment_id=? AND atmo<>'' AND end<? ORDER BY end DESC LIMIT 1")
+        .all(e.id, since) as { end: string; atmo: string }[]),
+      ...(db
         .prepare("SELECT end, atmo FROM bookings WHERE equipment_id=? AND atmo<>'' AND end>=? AND end<=? ORDER BY end")
-        .all(e.id, since, iso) as { end: string; atmo: string }[]
-    )
+        .all(e.id, since, iso) as { end: string; atmo: string }[]),
+    ]
       .map((r) => {
         try {
           const a = JSON.parse(r.atmo);

@@ -9849,11 +9849,16 @@ input.mono {
   gap: calc(var(--u) * 24);
 }
 .ls-eqs ul {
+  flex: 1;
+  min-height: 0;
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  align-content: start;
+  /* the rows share the panel's height, so none is cut off (0.60.2) */
+  grid-auto-rows: minmax(0, 1fr);
+  max-height: 100%;
+  align-content: stretch;
   overflow: hidden;
 }
 .ls-eqs ul.two {
@@ -9861,9 +9866,11 @@ input.mono {
   column-gap: calc(var(--u) * 32);
 }
 .ls-eq {
+  min-height: 0;
   display: grid;
-  gap: calc(var(--u) * 8);
-  padding: calc(var(--u) * 16) 0;
+  align-content: center;
+  gap: calc(var(--u) * 6);
+  padding: calc(var(--u) * 10) calc(var(--u) * 14);
   border-top: 1px solid var(--sep);
 }
 .ls-eq .ls-eq-name {
@@ -9890,11 +9897,8 @@ input.mono {
 }
 /* in use (0.60.1, Richard): the row in a light shade of the equipment's colour */
 .ls-eq.use {
-  margin: 0 calc(var(--u) * -14);
-  padding-left: calc(var(--u) * 14);
-  padding-right: calc(var(--u) * 14);
-  border-radius: calc(var(--u) * 10);
   border-top-color: transparent;
+  border-radius: calc(var(--u) * 10);
   background: color-mix(in srgb, var(--c) 22%, var(--card));
 }
 .ls-eq.use + .ls-eq {
@@ -10015,15 +10019,83 @@ input.mono {
   background: #dc2626;
 }
 
-/* screen 2: the best device above, today below (0.60.1, Richard) */
+/* screen 2 (0.60.2, Richard): as the first, two columns; best device over today, best devices over birthdays */
 .ls-p2 {
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 0.42fr) minmax(0, 0.58fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.85fr);
+  /* left: the best device and today, half each; right: the best devices 2/3, birthdays 1/3 (Richard) */
+  grid-template-rows: repeat(12, minmax(0, 1fr));
+  grid-template-areas:
+    'best top'
+    'best top'
+    'best top'
+    'best top'
+    'best top'
+    'best top'
+    'day top'
+    'day top'
+    'day bday'
+    'day bday'
+    'day bday'
+    'day bday';
   gap: calc(var(--u) * 24);
 }
 .ls-p2.core {
   grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'day bday';
+}
+.ls-p2 > .ls-best {
+  grid-area: best;
+}
+.ls-p2 > .ls-dayp {
+  grid-area: day;
+}
+.ls-p2 > .ls-top5 {
+  grid-area: top;
+}
+.ls-p2 > .ls-bdays {
+  grid-area: bday;
+}
+.ls-top5 ol {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-auto-rows: calc(var(--u) * 78);
+  align-content: start;
+  overflow: hidden;
+}
+.ls-top5 li {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: calc(var(--u) * 130) minmax(0, 1fr);
+  align-items: center;
+  gap: calc(var(--u) * 16);
+  border-top: 1px solid var(--sep);
+}
+.ls-top5-v {
+  font-size: calc(var(--u) * 30);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ls-top5-who {
+  min-width: 0;
+  display: grid;
+  font-size: calc(var(--u) * 19);
+  color: var(--mut);
+}
+.ls-top5-who > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls-top5-who b {
+  font-size: calc(var(--u) * 22);
+  font-weight: 600;
+  color: var(--fg);
 }
 /* the big PCE with Voc, Jsc and FF under it, the J–V figure to its right */
 .ls-best-body {
@@ -10038,9 +10110,17 @@ input.mono {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: flex-start;
   gap: calc(var(--u) * 14);
+}
+.ls-best-head h2 {
+  margin-bottom: calc(var(--u) * 10);
+}
+.ls-best .ls-fig {
+  justify-content: flex-end;
+  /* the J–V figure takes the panel's whole height, into its padding (Richard: bigger) */
+  margin: calc(var(--u) * -14) calc(var(--u) * -18) calc(var(--u) * -18) 0;
 }
 .ls-pce {
   margin: 0;
@@ -10138,8 +10218,7 @@ input.mono {
   grid-auto-rows: minmax(0, 1fr);
   gap: calc(var(--u) * 18);
 }
-.ls-atmo-list.grid {
-  grid-template-columns: 1fr 1fr;
+.ls-atmo-list {
   column-gap: calc(var(--u) * 36);
 }
 .ls-lim {
@@ -10172,11 +10251,15 @@ input.mono {
   align-items: end;
 }
 .ls-day-head .ls-eq-name {
-  font-size: calc(var(--u) * 20);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: calc(var(--u) * 19);
+  line-height: 1.15;
   max-width: 100%;
+  /* two lines before an ellipsis: the columns are narrower beside the best devices (0.60.2) */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .ls-day-hours {
   position: relative;
@@ -10257,14 +10340,10 @@ input.mono {
   z-index: 1;
 }
 
-/* screen 3: O₂ and H₂O, with the birthdays beside (0.60.1) */
+/* screen 3: O₂ and H₂O, the whole screen (0.60.2: the birthdays moved to the second) */
 .ls-p3 {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
-  gap: calc(var(--u) * 24);
-}
-.ls-p3.no-atmo {
   grid-template-columns: minmax(0, 1fr);
 }
 .ls-atmo-one {
@@ -10275,19 +10354,29 @@ input.mono {
   gap: calc(var(--u) * 10);
 }
 .ls-atmo-one figcaption {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: calc(var(--u) * 8) calc(var(--u) * 20);
+  display: grid;
+  justify-items: start;
+  gap: calc(var(--u) * 8);
   font-size: calc(var(--u) * 24);
 }
+/* one line under the name, the same height on every chart, so the frames line up (0.60.2) */
 .ls-atmo-now {
+  min-height: calc(var(--u) * 30);
   display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--u) * 6) calc(var(--u) * 24);
+  align-items: baseline;
+  gap: calc(var(--u) * 24);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: calc(var(--u) * 20);
   color: var(--mut);
+}
+.ls-legend rect {
+  fill: var(--card);
+  fill-opacity: 0.9;
+}
+.ls-legend-t {
+  fill: var(--fg);
 }
 .ls-atmo-now b {
   font-size: calc(var(--u) * 28);
@@ -10381,4 +10470,54 @@ input.mono {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 14px;
+}
+
+/* the O₂ and H₂O window switch on the lab screen (0.60.2): the app's own switch, sized for the TV */
+.ls-atmo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--u) * 20);
+  margin-bottom: calc(var(--u) * 16);
+}
+.ls-atmo-head h2 {
+  margin: 0;
+}
+.ls-atmo-head .seg {
+  padding: calc(var(--u) * 4);
+  border-radius: calc(var(--u) * 12);
+}
+.ls-span span {
+  padding: calc(var(--u) * 8) calc(var(--u) * 20);
+  border-radius: calc(var(--u) * 9);
+  font-size: calc(var(--u) * 21);
+  white-space: nowrap;
+  transition:
+    background 0.3s var(--ease),
+    box-shadow 0.3s var(--ease);
+}
+.ls-span span.on {
+  background: var(--raise);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  font-weight: 600;
+}
+
+/* the birthdays in a third of the right column (0.60.2): tighter rows, two columns past four */
+.ls-p2 .ls-bdays ul {
+  min-height: 0;
+  overflow: hidden;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(4, auto);
+}
+.ls-p2 .ls-bdays ul:not(.two) {
+  grid-auto-flow: row;
+  grid-template-rows: none;
+}
+.ls-p2 .ls-bdays li {
+  padding: calc(var(--u) * 4) 0;
+  font-size: calc(var(--u) * 22);
+}
+.ls-bday-more {
+  margin: calc(var(--u) * 6) 0 0;
+  font-size: calc(var(--u) * 19);
 }

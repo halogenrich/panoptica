@@ -2064,9 +2064,14 @@ console.log('The lab screen (0.59)');
     box = d.j?.atmosphere?.find((e) => e.id === eq.j.id);
   ok(d.s === 200 && Array.isArray(d.j.hours) && d.j.hours.length === 7, 'the TV reads the screen with its cookie');
   ok(mine?.state === 'use' && mine.by === anaName && !!mine.until, 'equipment in use says who and until when');
+  const week = (box?.readings ?? []).filter((r) => new Date(r.at).getTime() >= Date.now() - 7 * 864e5);
   ok(
-    box?.readings.length === 1 && box.readings[0].o2 === 0.4 && box.limits.o2 === 1 && box.limits.h2o === null,
-    'the glovebox shows the readings of the last 7 days only, with its limits',
+    week.length === 1 && week[0].o2 === 0.4 && box.limits.o2 === 1 && box.limits.h2o === null,
+    'the glovebox shows the readings of the last 7 days, with its limits',
+  );
+  ok(
+    box.readings.length === 2 && box.readings[0].o2 === 9,
+    'and the one before them, so the line comes in from the left (0.60.2)',
   );
   ok(
     !d.j.week.some((k) => k.id === Number(canceled)) && !mine.next,
@@ -2121,6 +2126,17 @@ console.log('The lab screen (0.59)');
     ok(
       b.curves.length === 2 && b.curves.every((c) => c.pixel === '2' && c.V.length === 116),
       'with both scans of its pixel for the J–V figure',
+    );
+    const top = (await asTv('GET', '/api/screen')).j.modules.devices.top;
+    ok(
+      top.length >= 1 &&
+        top.length <= 5 &&
+        top[0].set === 'smoke screen' &&
+        Math.abs(top[0].pce - b.pce) < 1e-9 &&
+        top.filter((t) => t.set === 'smoke screen').length === 1 &&
+        !top.some((t) => t.set === 'smoke screen private') &&
+        top.every((t, i) => !i || top[i - 1].pce >= t.pce),
+      'the week’s best devices: one per device at its best pixel, shared measurements only (0.60.2)',
     );
   }
   const n = (await call('GET', '/api/screen/settings')).j.screens;

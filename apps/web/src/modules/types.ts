@@ -129,6 +129,8 @@ export type WebModule = {
   Overlay?: FC;
   /** its part of the lab screen's second page (0.59), from what its server part sent (`m`); `logo`: the lab logo's address, or '' */
   screen?: FC<{ m: any; logo: string }>;
+  /** the second page's top right (0.60.2): the week's best devices */
+  screenTop?: FC<{ m: any }>;
   /** its place in the phone layout (0.55): a tab in the bottom bar, its part of Today, where its notifications open */
   phone?: { tab?: PhoneTab; Today?: FC<PhoneProps>; views?: Record<string, string> };
 };
