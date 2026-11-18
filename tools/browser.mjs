@@ -1428,11 +1428,22 @@ try {
     ph.setDefaultTimeout(10_000);
     ph.on('pageerror', (e) => errors.push(`${device}: ${e.message}`));
     const bar = (name) => ph.locator('nav.ph-bar').getByRole('button', { name, exact: true });
-    const fits = async (what) =>
-      expect(
-        await ph.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
-        `${what} is wider than the phone (${device})`,
-      );
+    // on failure it names what reaches past the screen's edge, as CI's WebKit cannot be run here
+    const fits = async (what) => {
+      const r = await ph.evaluate(() => ({
+        ok: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        w: `${document.documentElement.scrollWidth} > ${window.innerWidth}`,
+        past: [...document.querySelectorAll('body *')]
+          .filter((n) => n.getBoundingClientRect().right > window.innerWidth + 1)
+          .slice(0, 6)
+          .map(
+            (n) =>
+              `${n.tagName.toLowerCase()}.${[...n.classList].join('.')} ${Math.round(n.getBoundingClientRect().right)}`,
+          )
+          .join(', '),
+      }));
+      expect(r.ok, `${what} is wider than the phone (${device}): ${r.w}; ${r.past}`);
+    };
     const shot = async (name) => {
       if (!process.env.SHOTS) return;
       await ph.waitForTimeout(300);
