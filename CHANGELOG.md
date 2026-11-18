@@ -2,6 +2,16 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.57.0 (2026-11-18)
+
+- **B-site in the composition**: Pb, Sn and Ge chips beside the A-site and X-site, with fractions for a mixed B-site, such as FA(Pb<sub>0.5</sub>Sn<sub>0.5</sub>)I<sub>3</sub>. The salts follow (SnI₂, SnBr₂, GeI₂…), each halide shared among the B-site salts by their fractions, and the molarity counts the B-site metals together. Layered perovskites work the same way. Recipes made before keep Pb.
+- **A new perovskite solution starts as FAPbI₃**: FA, Pb and I are chosen when it opens.
+- **Structures from SMILES**: a substance has a SMILES field (from ChemDraw: Edit › Copy As › SMILES), and its structure is drawn at the top of its page as a skeletal formula, with heteroatoms in colour and double bonds as two lines. Common organic compounds get their SMILES from their CAS number: solvents, the organic cations, tBP, Li-TFSI, Spiro-OMeTAD, BCP and the PACz SAMs. The inventory template has a SMILES column. With no formula yet, the page offers the one the SMILES holds.
+- **The SAM's structure in the stack builder**: on a spin-coated layer whose solution is not a perovskite, the solute's structure is drawn under the solution. Run sheets do not show structures.
+- **Formulas with subscripts** in recipe outputs, on screen and on printed run sheets: PbI₂, SnO₂, C₆₀, FAPbI₃, N₂. Names that are not formulas, such as 2PACz, MeO-2PACz or PC71BM, stay as written.
+- **C60's 3D model** in the organic evaporation recipe shows its double bonds.
+- **Long names** of substances wrap in their window on a phone, and its buttons move to a second line, instead of making the window wider than the screen.
+
 ## 0.56.0 (2026-11-18)
 
 - **Phone, Schedule › Week**: a third choice beside My bookings and By equipment. Each working day of the lab is a row, with a bar over the working hours and every booking as a block in its equipment's colour, so a busy day shows at a glance. Days the lab is off do not show. Bookings at the same time sit one above the other, and a booking that runs past the working hours is cut at the edge with a point. Use ‹ and › to move by week, or tap the dates to pick one. Tap a day to see its bookings.

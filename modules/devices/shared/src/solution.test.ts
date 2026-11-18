@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { solutionPlan, plan, formula, layered, nFromAmounts, SALTS, type Chem } from './index';
+import { solutionPlan, plan, formula, layered, nFromAmounts, solution, SALTS, type Chem } from './index';
 
 describe('solutionPlan', () => {
   it('bundles a PbI2 additive into the base PbI2 mass', () => {
@@ -131,5 +131,39 @@ describe('layered (2D) perovskites', () => {
     expect(layered({ A: { MA: 1 }, X: { I: 1 }, L, n: 4, s: 0.4 })).toBe('(BA)0.4(MA)0.6Pb0.8I2.6');
     // salt amounts per Pb do not depend on how the formula is written
     expect(plan({ A: { MA: 1 }, X: { I: 1 }, L, n: 4, s: 0.4 })).toEqual(plan({ A: { MA: 1 }, X: { I: 1 }, L, n: 4 }));
+  });
+  it('B-site (0.57): Sn, Ge and mixed Pb–Sn, the halides shared by fraction; no B-site is Pb', () => {
+    expect(plan({ A: { FA: 1 }, B: { Sn: 1 }, X: { I: 1 } })).toEqual({ SnI2: 1, FAI: 1 });
+    expect(plan({ A: { FA: 1 }, B: {}, X: { I: 1 } })).toEqual({ PbI2: 1, FAI: 1 });
+    const p = plan({ A: { FA: 0.7, MA: 0.3 }, B: { Pb: 0.5, Sn: 0.5 }, X: { I: 0.9, Br: 0.1 } });
+    expect(p.PbBr2).toBeCloseTo(0.075, 9);
+    expect(p.SnBr2).toBeCloseTo(0.075, 9);
+    expect(p.PbI2).toBeCloseTo(0.425, 9);
+    expect(p.SnI2).toBeCloseTo(0.425, 9);
+    expect(formula(p)).toBe('FA0.7MA0.3(Pb0.5Sn0.5)(I0.9Br0.1)3');
+    expect(formula(plan({ A: { Cs: 1 }, B: { Ge: 1 }, X: { I: 1 } }))).toBe('CsGeI3');
+    const r = solution({ A: { FA: 1 }, B: { Sn: 1 }, X: { I: 1 } }, SALTS, 1, 1);
+    expect(r.find((x) => x.salt === 'SnI2')!.mg).toBeCloseTo(372.52, 2);
+    expect(layered({ A: { FA: 1 }, B: { Pb: 0.5, Sn: 0.5 }, X: { I: 1 }, L: { ion: 'PEA', z: 1 }, n: 2 })).toBe(
+      '(PEA)2(FA)(Pb0.5Sn0.5)2I7',
+    );
+    const q = solutionPlan(
+      {
+        mode: 'Perovskite',
+        comp: { A: { FA: 1 }, B: { Pb: 0.6, Sn: 0.4 }, X: { I: 1 } },
+        M: 1.2,
+        V: 1,
+        sol: '',
+        c: 0,
+        u: 'mg/mL',
+        sv: [{ n: 'DMF', p: 1 }],
+        ad: [],
+        act: {},
+      },
+      SALTS,
+    );
+    expect(q.target).toBe('FA(Pb0.6Sn0.4)I3');
+    expect(q.actualM).toBeCloseTo(1.2, 9);
+    expect(q.ct.find((c) => c.ion === 'Sn')!.total).toBeCloseTo(0.4, 9);
   });
 });

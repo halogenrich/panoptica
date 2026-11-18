@@ -4,6 +4,8 @@ import { api } from '../api';
 import { refreshAll, showToast, useRefresh } from '../lib/trash';
 import { Dialog, ROLES, ROLE_LABEL, bottleText, type Chemical } from './common';
 import { Picker } from './Picker';
+import Structure from '../lib/Structure';
+import { formulaOf } from '../lib/structure';
 
 /**
  * Inventory › Substances (0.44): what the lab's containers are of. A substance is made when its first container is added or
@@ -173,12 +175,22 @@ function SubstanceForm({
     [aka, setAka] = useState(c.aka.join('; ')),
     [into, setInto] = useState<string | null>(null),
     [err, setErr] = useState(''),
+    [read, setRead] = useState(true),
+    [fromSmiles, setFromSmiles] = useState<string | null>(null),
     mergeRef = useRef<HTMLDivElement>(null);
   // the merge part opens at the bottom of the dialog: brought into view
   useEffect(() => {
     if (into === '') mergeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [into === '']);
   const set = (p: Partial<Chemical>) => setF((x) => ({ ...x, ...p }));
+  // the formula the SMILES holds, offered while the substance has none (0.57)
+  useEffect(() => {
+    let live = true;
+    formulaOf(f.smiles ?? '').then((x) => live && setFromSmiles(x));
+    return () => {
+      live = false;
+    };
+  }, [f.smiles]);
   const fromFormula = useMemo(() => (f.f ? molarMass(f.f) : null), [f.f]);
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const save = () =>
@@ -191,6 +203,7 @@ function SubstanceForm({
         .map((x) => x.trim())
         .filter(Boolean),
       f: f.f,
+      smiles: (f.smiles ?? '').trim(),
       M: f.M || 0,
       d: f.d,
       mp: f.mp,
@@ -241,6 +254,11 @@ function SubstanceForm({
           save();
         }}
       >
+        {f.smiles?.trim() && (
+          <figure className="mol-fig">
+            <Structure smiles={f.smiles} bond={30} maxH={240} label={f.s || f.name} onRead={setRead} />
+          </figure>
+        )}
         <fieldset disabled={!canEdit}>
           <div className="grid2">
             <label className="fld">
@@ -265,6 +283,27 @@ function SubstanceForm({
             <label className="fld">
               <span>Formula</span>
               <input value={f.f} placeholder="PbI2" onChange={(e) => set({ f: e.target.value })} />
+              {!f.f.trim() && fromSmiles && (
+                <button type="button" className="link small" onClick={() => set({ f: fromSmiles })}>
+                  Use {fromSmiles} from the SMILES
+                </button>
+              )}
+            </label>
+            <label className="fld span2">
+              <span>SMILES</span>
+              <input
+                className="mono"
+                value={f.smiles ?? ''}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(e) => set({ smiles: e.target.value })}
+              />
+              {read || !f.smiles?.trim() ? (
+                <span className="mut small">The structure, drawn above. From ChemDraw: Edit › Copy As › SMILES.</span>
+              ) : (
+                <span className="err small">This SMILES cannot be read. Copy it again from ChemDraw.</span>
+              )}
             </label>
             <label className="fld">
               <span>Molar mass</span>

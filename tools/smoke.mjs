@@ -1883,6 +1883,38 @@ if (!CORE) {
   );
 }
 
+console.log('Structures from SMILES (0.57)');
+{
+  const add = (b) => call('POST', '/api/inventory/containers', { amount: 1, size: 1, unit: 'g', ...b });
+  const get = async (id) => (await call('GET', '/api/chemicals')).j.find((c) => c.id === id);
+  const chemOf = (box) => db.prepare('SELECT chem_id FROM containers WHERE id=?').get(box).chem_id;
+  const bcp = chemOf((await add({ name: 'Smoke bathocuproine', cas: '4733-39-5' })).j.id);
+  ok(
+    (await get(bcp)).smiles === 'Cc1cc(-c2ccccc2)c2ccc3c(-c4ccccc4)cc(C)nc3c2n1',
+    'a common organic compound gets its SMILES from the reference list',
+  );
+  const lead = chemOf((await add({ name: 'Smoke lead iodide', cas: '10101-63-0' })).j.id);
+  ok((await get(lead)).smiles === '', 'a salt of a metal gets none');
+  const s = await get(bcp);
+  ok(
+    (await call('PUT', '/api/chemicals/' + bcp, { name: s.name, cas: s.cas, smiles: '  CCO  ' })).s === 200 &&
+      (await get(bcp)).smiles === 'CCO',
+    'a SMILES typed on the substance is kept, trimmed',
+  );
+  await add({ name: 'Smoke bathocuproine', cas: '4733-39-5', supplier: 'Again' });
+  ok((await get(bcp)).smiles === 'CCO', 'and a new container does not put the reference SMILES back');
+  ok(
+    (await call('PUT', '/api/chemicals/' + bcp, { name: s.name, smiles: 'C'.repeat(2001) })).s === 400,
+    'a SMILES longer than 2000 characters is refused',
+  );
+  await call('POST', '/api/inventory/import', {
+    substances: [{ key: 'z', name: 'Smoke imported SAM', smiles: 'OP(=O)(O)CCn1c2ccccc2c2ccccc21' }],
+    containers: [{ key: 'z', amount: 1, size: 1, unit: 'g' }],
+  });
+  const imp = (await call('GET', '/api/chemicals')).j.find((c) => c.name === 'Smoke imported SAM');
+  ok(imp?.smiles === 'OP(=O)(O)CCn1c2ccccc2c2ccccc21', 'the SMILES column of an import is kept');
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

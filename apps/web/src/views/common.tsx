@@ -31,6 +31,8 @@ export type Chemical = {
   /** other names search finds (0.54) */
   aka: string[];
   f: string;
+  /** the structure as SMILES (0.57) */
+  smiles: string;
   M: number;
   d: number | null;
   mp: number | null;

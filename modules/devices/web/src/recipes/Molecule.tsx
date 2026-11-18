@@ -98,25 +98,31 @@ export default function Molecule({
       mx = (a.x + b.x) / 2,
       my = (a.y + b.y) / 2,
       w = ((o >= 2 ? 0.17 : o > 1 ? 0.15 : 0.13) * k * (a.f + b.f)) / 2;
+    // a double bond (C60's, 0.57) is two thinner sticks side by side, across the bond as seen on screen
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1,
+      two = o === 2,
+      sx = two ? (-(b.y - a.y) / len) * w * 0.55 : 0,
+      sy = two ? ((b.x - a.x) / len) * w * 0.55 : 0;
     for (const [p, e, key] of [
       [a, mol.atoms[i][0], 'a'],
       [b, mol.atoms[j][0], 'b'],
     ] as const)
-      items.push({
-        z: (p.z + (a.z + b.z) / 2) / 2 - 0.01,
-        node: (
-          <line
-            key={`b${n}${key}`}
-            x1={p.x}
-            y1={p.y}
-            x2={mx}
-            y2={my}
-            stroke={el(e)[0]}
-            strokeWidth={w}
-            strokeLinecap="round"
-          />
-        ),
-      });
+      for (const side of two ? [-1, 1] : [0])
+        items.push({
+          z: (p.z + (a.z + b.z) / 2) / 2 - 0.01,
+          node: (
+            <line
+              key={`b${n}${key}${side}`}
+              x1={p.x + side * sx}
+              y1={p.y + side * sy}
+              x2={mx + side * sx}
+              y2={my + side * sy}
+              stroke={el(e)[0]}
+              strokeWidth={two ? w * 0.55 : w}
+              strokeLinecap="round"
+            />
+          ),
+        });
   });
   P.forEach((p, i) => {
     if (!keep[i]) return;

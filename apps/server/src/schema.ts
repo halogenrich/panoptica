@@ -540,6 +540,25 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       );
     },
   },
+  {
+    id: 43,
+    owner: 'core',
+    name: 'structures: common compounds get their SMILES from the reference list (0.57)',
+    up: (db) => {
+      // only added: a SMILES someone typed stays
+      for (const c of db.prepare("SELECT id, cas, data FROM chemicals WHERE cas<>''").all() as {
+        id: number;
+        cas: string;
+        data: string;
+      }[]) {
+        const r = chemRef(c.cas);
+        if (!r?.smiles) continue;
+        const d = JSON.parse(c.data || '{}');
+        if (d.smiles) continue;
+        db.prepare('UPDATE chemicals SET data=? WHERE id=?').run(JSON.stringify({ ...d, smiles: r.smiles }), c.id);
+      }
+    },
+  },
 ];
 
 /**

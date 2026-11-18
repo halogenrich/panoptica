@@ -12,6 +12,7 @@
     "emoji-picker-element": "^1.29.1",
     "emoji-picker-element-data": "^1.7.1",
     "fflate": "^0.8.2",
+    "openchemlib": "9.26.0",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
