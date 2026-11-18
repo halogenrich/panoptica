@@ -8,6 +8,7 @@ import { fmt, infoOfSnap, type Curve, type Link } from './iv/model';
  * below it. The screen is not signed in, so the server sends the device's frozen stack with it and the figure
  * is handed its layers and the logo's address.
  */
+type Top = { pce: number; owner: string; label: string; substrate: string; set: string };
 type Best = {
   pce: number;
   set: { id: number; name: string; date: string };
@@ -23,12 +24,45 @@ type Best = {
 
 const dmy = (d: string) => d.split('-').reverse().join('/');
 
+/** The week's five best devices, one per device at its best pixel (0.60.2, Richard: the second screen's top right). */
+export function ScreenTop({ m }: { m: { top?: Top[] } }) {
+  const top = m.top ?? [];
+  return (
+    <section className="ls-panel ls-top5" aria-label="Best devices this week">
+      <h2>Best devices this week</h2>
+      {!top.length ? (
+        <p className="ls-empty">No devices measured this week yet.</p>
+      ) : (
+        <ol>
+          {top.map((t, i) => (
+            <li key={i}>
+              <b className="ls-top5-v">{fmt(t.pce)} %</b>
+              <span className="ls-top5-who">
+                <b>{t.owner}</b>
+                <span>
+                  {t.label}, substrate {t.substrate}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 export default function ScreenBest({ m, logo }: { m: { best: Best | null }; logo: string }) {
   const b = m.best;
   return (
     <section className="ls-panel ls-best" aria-label="Best device this week">
-      <h2>Best device this week</h2>
-      {!b ? <p className="ls-empty">No devices measured this week yet.</p> : <Body b={b} logo={logo} />}
+      {!b ? (
+        <>
+          <h2>Best device this week</h2>
+          <p className="ls-empty">No devices measured this week yet.</p>
+        </>
+      ) : (
+        <Body b={b} logo={logo} />
+      )}
     </section>
   );
 }
@@ -39,7 +73,9 @@ function Body({ b, logo }: { b: Best; logo: string }) {
     label = b.link?.label ?? b.sample.replace(/_/g, ' ');
   return (
     <div className="ls-best-body">
+      {/* the heading sits in the left column, so the figure has the panel's whole height (0.60.2, Richard: bigger) */}
       <div className="ls-best-head">
+        <h2>Best device this week</h2>
         <p className="ls-pce">
           <span className="ls-pce-v">{fmt(b.pce)}</span>
           <span className="ls-pce-u">% PCE</span>

@@ -29,8 +29,8 @@ type S = {
 /** The screens, as the lab screen shows them (core alone: no best device). */
 const SCREENS: [1 | 2 | 3, string, string][] = [
   [1, 'Equipment and the week', 'Equipment and the week'],
-  [2, 'Best device and today', 'Today'],
-  [3, 'O₂, H₂O and birthdays', 'O₂, H₂O and birthdays'],
+  [2, 'Best devices, today and birthdays', 'Today and birthdays'],
+  [3, 'O₂ and H₂O', 'O₂ and H₂O'],
 ];
 type Lim = Record<string, { o2: string; h2o: string }>;
 

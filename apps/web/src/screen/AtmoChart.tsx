@@ -40,9 +40,11 @@ function niceTop(v: number) {
 const num = (v: number) =>
   (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)).replace(/\.?0+$/, '') || '0';
 
+// O₂ solid with round marks, H₂O dashed with square marks, as forward and backward on a J–V figure (0.60.2): the two stay
+// apart when they read the same
 const SERIES = [
-  { key: 'o2', label: 'O₂', color: 'var(--series-1)' },
-  { key: 'h2o', label: 'H₂O', color: 'var(--series-7)' },
+  { key: 'o2', label: 'O₂', color: 'var(--series-1)', dash: false },
+  { key: 'h2o', label: 'H₂O', color: 'var(--series-7)', dash: true },
 ] as const;
 
 export function AtmoChart({ g, now, span = 'week' }: { g: Glovebox; now: Date; span?: 'day' | 'week' }) {
@@ -61,9 +63,14 @@ export function AtmoChart({ g, now, span = 'week' }: { g: Glovebox; now: Date; s
   const t1 = now.getTime(),
     t0 = span === 'day' ? startOfDay(now).getTime() : t1 - 7 * 864e5,
     X = (t: number) => L + ((t - t0) / (t1 - t0)) * PW,
-    rs = g.readings.filter((r) => new Date(r.at).getTime() >= t0);
+    inWin = g.readings.filter((r) => new Date(r.at).getTime() >= t0),
+    before = g.readings.filter((r) => new Date(r.at).getTime() < t0).at(-1),
+    // one continuous line through every reading by its time (0.60.2, Richard): the window only cuts it, so the line comes in
+    // from the last reading before it; dots only for the readings inside
+    rs = before ? [before, ...inWin] : inWin;
   // the top: the next of 0.1, 0.2, 0.5, 1, 2, 5… above the highest reading shown
-  const top = niceTop(Math.max(...rs.flatMap((r) => [r.o2, r.h2o]), 0.05) * 1.1);
+  // with room above the readings for the legend (0.60.2): 0.1 ppm still gives 0–0.2, 0.5 gives 0–1
+  const top = niceTop(Math.max(...rs.flatMap((r) => [r.o2, r.h2o]), 0.05) * 1.5);
   const Y = (v: number) => T + PH - (Math.min(v, top) / top) * PH;
   const yt = [0, top / 2, top];
   // the week: midnights labelled with their weekday; today: every 3 hours
@@ -82,25 +89,31 @@ export function AtmoChart({ g, now, span = 'week' }: { g: Glovebox; now: Date; s
         <span className="ls-eq-name" style={{ '--c': g.color } as CSSProperties}>
           {g.name}
         </span>
-        {last ? (
-          <span className="ls-atmo-now">
-            <span>Latest</span>
-            {SERIES.map((s) => {
-              const v = last[s.key],
-                lim = g.limits[s.key],
-                over = lim !== null && v > lim;
-              return (
-                <span key={s.key} className={over ? 'over' : ''}>
-                  <i style={{ background: s.color }} aria-hidden="true" />
-                  {s.label} <b>{num(v)}</b> ppm{over ? ', above the limit' : ''}
-                  {lim !== null && !over && !drawn(lim) && <span className="ls-lim"> · limit {num(lim)}</span>}
-                </span>
-              );
-            })}
-          </span>
-        ) : null}
+        {/* the latest values on one line under the name, the same place on every chart (0.60.2) */}
+        <span className="ls-atmo-now">
+          {last ? (
+            <>
+              <span>Latest</span>
+              {SERIES.map((s) => {
+                const v = last[s.key],
+                  lim = g.limits[s.key],
+                  over = lim !== null && v > lim;
+                return (
+                  <span key={s.key} className={over ? 'over' : ''}>
+                    {s.label} <b>{num(v)}</b> ppm
+                    {over ? (
+                      ', above the limit'
+                    ) : lim !== null ? (
+                      <span className="ls-lim">, limit {num(lim)}</span>
+                    ) : null}
+                  </span>
+                );
+              })}
+            </>
+          ) : null}
+        </span>
       </figcaption>
-      {!rs.length ? (
+      {!inWin.length ? (
         <p className="ls-empty">{span === 'day' ? 'No readings today.' : 'No readings in the last 7 days.'}</p>
       ) : (
         <div className="ls-atmo-box" ref={ref}>
@@ -160,10 +173,18 @@ export function AtmoChart({ g, now, span = 'week' }: { g: Glovebox; now: Date; s
                           y2={Y(lim)}
                           stroke={s.color}
                           strokeWidth={2 * u}
-                          strokeDasharray={`${8 * u} ${6 * u}`}
+                          strokeDasharray={`${2 * u} ${5 * u}`}
+                          strokeLinecap="round"
                         />
                       )}
-                      <path d={d} fill="none" stroke={s.color} strokeWidth={4 * u} strokeLinejoin="round" />
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth={4 * u}
+                        strokeLinejoin="round"
+                        strokeDasharray={s.dash ? `${12 * u} ${7 * u}` : undefined}
+                      />
                       {/* the same line, red where it is above the limit */}
                       {drawn(lim) && (
                         <path
@@ -172,24 +193,70 @@ export function AtmoChart({ g, now, span = 'week' }: { g: Glovebox; now: Date; s
                           stroke="var(--err)"
                           strokeWidth={4 * u}
                           strokeLinejoin="round"
+                          strokeDasharray={s.dash ? `${12 * u} ${7 * u}` : undefined}
                           clipPath={`url(#over${s.key}${clip})`}
                         />
                       )}
-                      {rs.length <= 14 &&
-                        rs.map((r) => (
-                          <circle
-                            key={r.at}
-                            cx={X(new Date(r.at).getTime())}
-                            cy={Y(r[s.key])}
-                            r={5 * u}
-                            fill={lim !== null && r[s.key] > lim ? 'var(--err)' : s.color}
-                          />
-                        ))}
+                      {inWin.length <= 14 &&
+                        inWin.map((r) => {
+                          const fill = lim !== null && r[s.key] > lim ? 'var(--err)' : s.color,
+                            cx = X(new Date(r.at).getTime()),
+                            cy = Y(r[s.key]);
+                          return s.dash ? (
+                            <rect key={r.at} x={cx - 5 * u} y={cy - 5 * u} width={10 * u} height={10 * u} fill={fill} />
+                          ) : (
+                            <circle key={r.at} cx={cx} cy={cy} r={6 * u} fill={fill} />
+                          );
+                        })}
                     </g>
                   );
                 })}
               </g>
               <rect className="ls-ax-frame" x={L} y={T} width={PW} height={PH} />
+              {/* the legend inside the frame, top right, as on the J–V figures (0.60.2, Richard) */}
+              {(() => {
+                const rows = [
+                    ...SERIES.map((x) => ({
+                      label: x.label,
+                      color: x.color,
+                      dash: x.dash ? `${12 * u} ${7 * u}` : '',
+                    })),
+                    ...(SERIES.some((x) => drawn(g.limits[x.key]))
+                      ? [{ label: 'Limit', color: 'var(--mut)', dash: `${2 * u} ${5 * u}` }]
+                      : []),
+                  ],
+                  lh = fs * 1.35,
+                  lw = 34 * u,
+                  bw = lw + 12 * u + fs * 3.4,
+                  bx = L + PW - bw - 10 * u,
+                  by = T + 8 * u;
+                return (
+                  <g className="ls-legend">
+                    <rect
+                      x={bx - 8 * u}
+                      y={by - 4 * u}
+                      width={bw + 16 * u}
+                      height={rows.length * lh + 8 * u}
+                      rx={4 * u}
+                    />
+                    {rows.map((r, i) => (
+                      <g key={r.label} transform={`translate(${bx} ${by + i * lh + lh / 2})`}>
+                        <line
+                          x1={0}
+                          x2={lw}
+                          stroke={r.color}
+                          strokeWidth={r.label === 'Limit' ? 2 * u : 4 * u}
+                          strokeDasharray={r.dash || undefined}
+                          strokeLinecap={r.label === 'Limit' ? 'round' : undefined}
+                        />
+                        <text x={lw + 10 * u} dy="0.35em" className="ls-ax-t ls-legend-t">
+                          {r.label}
+                        </text>
+                      </g>
+                    ))}
+                  </g>
+                );
+              })()}
             </svg>
           )}
         </div>

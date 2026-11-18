@@ -1735,12 +1735,16 @@ try {
       await second();
       await t.getByRole('heading', { name: 'Today', exact: true }).waitFor();
       await t.locator('.ls-day-now').waitFor();
-      if (!CORE) await t.getByRole('heading', { name: 'Best device this week' }).waitFor();
-      else expect(!(await t.locator('.ls-best').count()), 'the core alone shows a best device');
+      // 0.60.2: two columns as the first screen; the birthdays here, the best devices of the week above them
+      await t.getByRole('heading', { name: /^Birthdays in [A-Z][a-z]+$/ }).waitFor();
+      if (!CORE) {
+        await t.getByRole('heading', { name: 'Best device this week' }).waitFor();
+        await t.getByRole('heading', { name: 'Best devices this week' }).waitFor();
+      } else expect(!(await t.locator('.ls-best').count()), 'the core alone shows a best device');
       await look('1920 × 1080, second screen');
       if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-2.png') });
       await screen(2);
-      await t.getByRole('heading', { name: /^Birthdays in [A-Z][a-z]+$/ }).waitFor();
+      await t.getByRole('heading', { name: /^O₂ and H₂O, today$/ }).waitFor();
       await look('1920 × 1080, third screen');
       if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-3.png') });
       // the password's click put the TV in full screen; the window is sized again outside it

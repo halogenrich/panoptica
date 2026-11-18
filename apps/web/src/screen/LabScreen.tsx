@@ -204,12 +204,19 @@ function Screen({ d, lost, onLeave }: { d: ScreenData; lost: boolean; onLeave?: 
   const now = useNow(),
     pages = d.pages?.length ? d.pages : [1, 2, 3],
     [at, setAt] = useState(0),
+    // counts every start of a screen's time, so the bar under the dots starts again with it (0.60.2: after the seconds were
+    // changed the bar kept its old run, out of step with the switch)
+    [run, setRun] = useState(0),
     page = pages[at % pages.length],
     [idle, setIdle] = useState(false);
   useEffect(() => {
     setAt(0);
+    setRun((n) => n + 1);
     if (pages.length < 2) return;
-    const t = setInterval(() => setAt((p) => (p + 1) % pages.length), d.interval * 1000);
+    const t = setInterval(() => {
+      setAt((p) => (p + 1) % pages.length);
+      setRun((n) => n + 1);
+    }, d.interval * 1000);
     return () => clearInterval(t);
   }, [d.interval, pages.join()]);
   // the pointer hides when nobody moves it; a double click turns full screen on and off
@@ -266,7 +273,7 @@ function Screen({ d, lost, onLeave }: { d: ScreenData; lost: boolean; onLeave?: 
               </span>
               {/* fills up until the next screen (Richard) */}
               <span className="ls-timer" aria-hidden="true">
-                <i key={at} style={{ animationDuration: `${d.interval}s` }} />
+                <i key={run} style={{ animationDuration: `${d.interval}s` }} />
               </span>
             </span>
           )}
@@ -337,7 +344,8 @@ function when(s: string, now: Date) {
 }
 
 function PageOne({ d, now }: { d: ScreenData; now: Date }) {
-  const many = d.equipment.length > 7;
+  // the rows share the panel's height (0.60.2: the seventh was cut off on the TV); two columns past eight
+  const many = d.equipment.length > 8;
   return (
     <div className="ls-p1">
       <section className="ls-panel ls-eqs" aria-label="Equipment">
@@ -448,10 +456,16 @@ function TvWeek({ d, now }: { d: ScreenData; now: Date }) {
   );
 }
 
-// ---------------------------------------------------------------- screen 2: best device, and today
+// ---------------------------------------------------------------- screen 2: best device and today; best devices and birthdays
 
+/**
+ * The second screen (0.60.2, Richard): laid out as the first, two columns. Left, as wide as This week: the best device of the
+ * week above Today. Right, as wide as Equipment: the week's five best devices above the month's birthdays. The core alone has
+ * Today and the birthdays.
+ */
 function PageTwo({ d, now, logo }: { d: ScreenData; now: Date; logo: string }) {
-  const parts = MODULES.filter((m) => m.screen && d.modules[m.id]);
+  const parts = MODULES.filter((m) => m.screen && d.modules[m.id]),
+    tops = MODULES.filter((m) => m.screenTop && d.modules[m.id]);
   return (
     <div className={'ls-p2' + (parts.length ? '' : ' core')}>
       {parts.map((m) => {
@@ -462,7 +476,45 @@ function PageTwo({ d, now, logo }: { d: ScreenData; now: Date; logo: string }) {
         <h2>Today</h2>
         <TvDay d={d} now={now} />
       </section>
+      {tops.map((m) => {
+        const Top = m.screenTop!;
+        return <Top key={m.id} m={d.modules[m.id]} />;
+      })}
+      <Birthdays d={d} now={now} />
     </div>
+  );
+}
+
+/**
+ * The month's birthdays, a third of the right column (0.60.2, Richard): two columns past four, today and the days to come first;
+ * past eight, the rest is counted.
+ */
+function Birthdays({ d, now }: { d: ScreenData; now: Date }) {
+  const month = now.toLocaleDateString('en-GB', { month: 'long' }),
+    today = now.getDate(),
+    order = [...d.birthdays.filter((b) => b.day >= today), ...d.birthdays.filter((b) => b.day < today)],
+    shown = order.slice(0, 8),
+    more = order.length - shown.length;
+  return (
+    <section className="ls-panel ls-bdays" aria-label="Birthdays">
+      <h2>Birthdays in {month}</h2>
+      {!d.birthdays.length ? (
+        <p className="ls-empty">No birthdays this month.</p>
+      ) : (
+        <>
+          <ul className={shown.length > 4 ? 'two' : ''}>
+            {shown.map((b) => (
+              <li key={b.name + b.day} className={b.day === today ? 'today' : b.day < today ? 'past' : ''}>
+                <span className="ls-bday-d">{String(b.day).padStart(2, '0')}</span>
+                <span>{b.name}</span>
+                {b.day === today && <span className="ls-bday-t">Today</span>}
+              </li>
+            ))}
+          </ul>
+          {more > 0 && <p className="ls-mut ls-bday-more">and {more} more</p>}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -543,8 +595,9 @@ function TvDay({ d, now }: { d: ScreenData; now: Date }) {
                         } as CSSProperties
                       }
                     >
-                      {h >= 6 && <b>{firstName(b.k.user_name)}</b>}
-                      {h >= 12 && (
+                      {/* the name from about 40 minutes, the times from about 80 (the panel is shorter since 0.60.2) */}
+                      {h >= 11 && <b>{firstName(b.k.user_name)}</b>}
+                      {h >= 22 && (
                         <span>
                           {hm(new Date(b.a))}–{hm(new Date(b.z))}
                         </span>
@@ -562,12 +615,10 @@ function TvDay({ d, now }: { d: ScreenData; now: Date }) {
   );
 }
 
-// ---------------------------------------------------------------- screen 3: O₂ and H₂O, birthdays
+// ---------------------------------------------------------------- screen 3: O₂ and H₂O
 
 function PageThree({ d, now, shown }: { d: ScreenData; now: Date; shown: boolean }) {
-  const month = now.toLocaleDateString('en-GB', { month: 'long' }),
-    today = now.getDate(),
-    [span, setSpan] = useState<'day' | 'week'>('day');
+  const [span, setSpan] = useState<'day' | 'week'>('day');
   // today first, then the last 7 days after the seconds set in Display mode, and back (Richard)
   useEffect(() => {
     setSpan('day');
@@ -575,33 +626,28 @@ function PageThree({ d, now, shown }: { d: ScreenData; now: Date; shown: boolean
     const t = setInterval(() => setSpan((s) => (s === 'day' ? 'week' : 'day')), (d.atmoSwitch || 10) * 1000);
     return () => clearInterval(t);
   }, [shown, d.atmoSwitch]);
-  const n = d.atmosphere.length;
+  const n = d.atmosphere.length,
+    // the whole screen (0.60.2: the birthdays moved to the second): up to three charts a row
+    cols = n <= 3 ? Math.max(1, n) : n === 4 ? 2 : 3;
   return (
-    <div className={'ls-p3' + (n ? '' : ' no-atmo')}>
-      {n > 0 && (
-        <section className="ls-panel ls-atmo" aria-label="Glovebox atmosphere">
+    <div className="ls-p3">
+      <section className="ls-panel ls-atmo" aria-label="Glovebox atmosphere">
+        <div className="ls-atmo-head">
           <h2>O₂ and H₂O, {span === 'day' ? 'today' : 'last 7 days'}</h2>
-          <div className={'ls-atmo-list' + (n > 2 ? ' grid' : '')}>
+          {/* which window is showing, in the look of the app's switches; it follows the timer, nothing to click (0.60.2, Richard) */}
+          <span className="seg ls-span" aria-hidden="true">
+            <span className={span === 'day' ? 'on' : ''}>Today</span>
+            <span className={span === 'week' ? 'on' : ''}>Last 7 days</span>
+          </span>
+        </div>
+        {!n ? (
+          <p className="ls-empty">No equipment records O₂ and H₂O.</p>
+        ) : (
+          <div className="ls-atmo-list" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {d.atmosphere.map((g) => (
               <AtmoChart key={g.id} g={g} now={now} span={span} />
             ))}
           </div>
-        </section>
-      )}
-      <section className="ls-panel ls-bdays" aria-label="Birthdays">
-        <h2>Birthdays in {month}</h2>
-        {!d.birthdays.length ? (
-          <p className="ls-empty">No birthdays this month.</p>
-        ) : (
-          <ul className={d.birthdays.length > 12 ? 'two' : ''}>
-            {d.birthdays.map((b) => (
-              <li key={b.name + b.day} className={b.day === today ? 'today' : b.day < today ? 'past' : ''}>
-                <span className="ls-bday-d">{String(b.day).padStart(2, '0')}</span>
-                <span>{b.name}</span>
-                {b.day === today && <span className="ls-bday-t">Today</span>}
-              </li>
-            ))}
-          </ul>
         )}
       </section>
     </div>

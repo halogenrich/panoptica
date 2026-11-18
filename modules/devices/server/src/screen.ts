@@ -6,7 +6,7 @@ import { resolveStack } from './batches.js';
  * Electronic Devices' part of the lab screen (0.59): the best device of the calendar week (Monday 00:00 to now, Richard), the
  * highest PCE in the lab among shared measurements, counted as the Overview counts them (a working scan, not left out by hand,
  * not a check sweep unless ticked in). With it: the person, the batch or stack, the date, and the pixel's scans for the J–V
- * figure, with what the figure needs to state the stack's layers and p-i-n or n-i-p.
+ * figure, with what the figure needs to state the stack's layers and p-i-n or n-i-p. 0.60.2: also the week's five best devices.
  */
 type Row = {
   id: number;
@@ -47,6 +47,8 @@ export function screenPart() {
     return d >= from && d <= to;
   });
   let best: { row: Row; pce: number; set: any } | null = null;
+  // this week's best devices (0.60.1 → 0.60.2, Richard): each device (sample and substrate in a measurement) at its best pixel
+  const devs = new Map<string, { pce: number; set: any; sample: string; substrate: string }>();
   const q = db.prepare(
     'SELECT id,set_id,sample,substrate,scan,pixel,dir,area,pin,data,metrics,use,kind FROM iv_curves WHERE set_id=?',
   );
@@ -55,8 +57,25 @@ export function screenPart() {
       const m = JSON.parse(c.metrics);
       if (m.status !== 'ok' || c.use === 0 || (c.kind && c.use !== 1) || !Number.isFinite(m.pce)) continue;
       if (!best || m.pce > best.pce) best = { row: c, pce: m.pce, set: s };
+      const k = `${s.id}|${c.sample}|${c.substrate}`;
+      if (!devs.has(k) || devs.get(k)!.pce < m.pce)
+        devs.set(k, { pce: m.pce, set: s, sample: c.sample, substrate: c.substrate });
     }
-  if (!best) return { best: null };
+  const top = [...devs.values()]
+    .sort((a, b) => b.pce - a.pce)
+    .slice(0, 5)
+    .map((d) => {
+      const raw = (JSON.parse(d.set.links || '{}') as Record<string, any>)[d.sample] ?? null,
+        link = raw ? (linkNames({ [d.sample]: raw })[d.sample] ?? null) : null;
+      return {
+        pce: d.pce,
+        owner: d.set.owner,
+        label: link?.label ?? d.sample.replace(/_/g, ' '),
+        substrate: d.substrate,
+        set: d.set.name,
+      };
+    });
+  if (!best) return { best: null, top };
   const { row, set } = best;
   // the pixel's scans of the same sweep (backward and forward), for the figure
   const curves = (
@@ -103,6 +122,7 @@ export function screenPart() {
     }
   }
   return {
+    top,
     best: {
       pce: best.pce,
       set: { id: set.id, name: set.name, date: dayOf(set) },
