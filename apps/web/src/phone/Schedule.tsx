@@ -76,7 +76,7 @@ export default function Schedule({ me, view }: PhoneProps) {
                 at its own width, past the › button, and in its own format ("18 Nov 2026"). */}
             <label className="ph-day">
               <b>
-                {weekday(day)} {dmy(day)}
+                <span>{weekday(day)}</span> <span>{dmy(day)}</span>
               </b>
               {/^(Today|Tomorrow|Yesterday)$/.test(dayName(day)) && <span>{dayName(day)}</span>}
               <input
