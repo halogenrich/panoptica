@@ -437,6 +437,16 @@ export const ScreenIn = z.object({
   interval: z.number().int().min(10, 'at least 10 seconds a page').max(120, 'at most 120 seconds a page').optional(),
   theme: z.enum(['system', 'light', 'dark']).optional(),
   limits: z.record(z.string().regex(/^\d+$/), z.object({ o2: Limit, h2o: Limit })).optional(),
+  /** Display mode (0.60.1): seconds before O₂ and H₂O switch from today to the week, the screens shown, the top left */
+  atmoSwitch: z.number().int().min(5, 'at least 5 seconds').max(120, 'at most 120 seconds').optional(),
+  pages: z
+    .array(z.union([z.literal(1), z.literal(2), z.literal(3)]))
+    .min(1, 'show at least one screen')
+    .max(3)
+    .optional(),
+  labShow: z.enum(['logo', 'name', 'both']).optional(),
+  labName: z.enum(['name', 'acronym']).optional(),
+  inst: z.enum(['none', 'logo', 'name', 'both']).optional(),
 });
 export const ScreenOpenIn = z.object({ password: z.string().min(1).max(200) });
 /** Outcome of a booking once it has ended; postponing or canceling needs a reason. */

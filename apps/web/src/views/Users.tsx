@@ -111,7 +111,7 @@ export default function AdminSettings({ meId }: { meId: number }) {
     ['users', 'Users'],
     ['requests', waiting ? `Access requests (${waiting})` : 'Access requests'],
     ['lab', 'Lab setup'],
-    ['screen', 'Lab screen'],
+    ['screen', 'Display mode'],
     ['network', 'Network'],
     ['backups', 'Backups'],
     ['inventory', 'Inventory'],

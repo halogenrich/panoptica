@@ -2,6 +2,17 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.60.1 (2026-11-18)
+
+- **People at the same time**: equipment several people use at once, such as two substrate cleaners booked as one, takes that many overlapping bookings. Set it in Lab › Equipment (1 unless set); one more is refused, naming the number.
+- **Lab screen, first screen**: equipment in use shows in a light shade of its colour, with "In use" in red and everyone using it, each with "until".
+- **Second screen**: the best device of the week is smaller, with Voc, Jsc and FF under the PCE and its J–V curve beside it. Under it, **Today**: a column per equipment with today's bookings, the red now line kept in the middle as time passes, so nothing needs scrolling.
+- **Third screen**: the O₂ and H₂O of each glovebox, larger, with the month's birthdays. The charts show today, then the last 7 days, and back. Their axis fits the readings (0.1 ppm readings show up to 0.2; 0.5 up to 1), and a limit above the axis is written beside the latest value.
+- **A bar under the dots** fills up until the next screen.
+- **The now line is red everywhere**, as in the Calendar: the lab screen's week and today, and the phone's Week.
+- **Admin settings › Display mode** (was Lab screen): the sign-in screen's button, the password, which screens show and for how long, how long O₂ and H₂O show today before the week (10 seconds by default), the theme, and the top left: the lab as logo, name or both, its full name or acronym, and the institution as logo, name, both or none.
+- **Display mode in the side menu**: the lab screen as on the TV, for everyone signed in. **Back to PANOPTICA** or Escape returns.
+
 ## 0.60.0 (2026-11-18)
 
 - **Overview is a section of the side menu**, with Lab, Students, My progress, Equipment use and Lab screen. Each person sees only what they may.

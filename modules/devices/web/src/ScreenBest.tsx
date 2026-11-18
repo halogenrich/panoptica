@@ -4,7 +4,8 @@ import { fmt, infoOfSnap, type Curve, type Link } from './iv/model';
 
 /**
  * Electronic Devices on the lab screen (0.59): the best device of the calendar week (Monday to now, Richard), with its J–V curve
- * in the house figure style. The screen is not signed in, so the server sends the device's frozen stack with it and the figure
+ * in the house figure style. 0.60.1: smaller, Voc, Jsc and FF under the PCE and the figure to its right, so today's bookings fit
+ * below it. The screen is not signed in, so the server sends the device's frozen stack with it and the figure
  * is handed its layers and the logo's address.
  */
 type Best = {
@@ -59,8 +60,9 @@ function Body({ b, logo }: { b: Best; logo: string }) {
         </dl>
         <p className="ls-who">
           <b>{b.owner}</b>
-          <span>{label}</span>
-          <span className="ls-mut">Measured {dmy(b.set.date)}</span>
+          <span>
+            {label} <span className="ls-mut">· measured {dmy(b.set.date)}</span>
+          </span>
         </p>
       </div>
       <div className="ls-fig">

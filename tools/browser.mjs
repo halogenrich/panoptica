@@ -460,7 +460,7 @@ try {
         const items = await page.locator('nav.side .navitem').allTextContents();
         expect(
           items.map((x) => x.trim()).join(',') ===
-            'Lab,Students,My progress,Equipment use,Lab screen,Calendar,Inventory,Equipment,Trash',
+            'Lab,Students,My progress,Equipment use,Display mode,Calendar,Inventory,Equipment,Trash',
           'core menu: ' + items.join(', '),
         );
         return;
@@ -1115,8 +1115,11 @@ try {
       await yours.waitFor();
       await nav('Equipment use');
       await page.locator('.eq-use-row').filter({ hasText: 'Spin coater A' }).waitFor();
-      await nav('Lab screen');
-      await page.getByText('Show the lab screen').first().waitFor();
+      // Display mode: the screen as on the TV, in this window, and back (0.60.1)
+      await nav('Display mode');
+      await page.locator('.ls-time').waitFor();
+      await page.getByRole('button', { name: 'Back to PANOPTICA' }).click();
+      await page.locator('nav.side').waitFor();
     },
   );
 
@@ -1659,11 +1662,11 @@ try {
   );
 
   await step(
-    'the lab screen: set in Admin settings, opened on a TV from the sign-in screen; the clock at the top middle, both pages fit 1080p and 720p (0.59)',
+    'the lab screen: set in Admin settings › Display mode, opened on a TV from the sign-in screen; the clock at the top middle, the three screens fit 1080p and 720p (0.59, 0.60.1)',
     async () => {
       await page.evaluate(() => (window.location.hash = '#/users'));
-      await page.getByRole('tab', { name: 'Lab screen', exact: true }).click();
-      const on = page.getByLabel('Show the lab screen');
+      await page.getByRole('tab', { name: 'Display mode', exact: true }).click();
+      const on = page.getByLabel('Show “Open the lab screen” on the sign-in screen');
       expect(await on.isDisabled(), 'it can be turned on before it has a password');
       await page.getByLabel('New screen password').fill('Lab-screen-2026');
       await page.getByLabel('Type it again').fill('Lab-screen-2026');
@@ -1714,18 +1717,32 @@ try {
         expect(r.centre < 2 && r.top < 60, `the clock is not at the top middle at ${size}`);
         expect(r.fits && !r.out, `the lab screen does not fit ${size}: ${r.out}`);
       };
-      const second = () =>
-        t.evaluate(() => document.querySelectorAll('.ls-page').forEach((p, i) => (p.hidden = i === 0)));
+      // shows one screen of the three (the timer is in code; the flow does not wait for it)
+      const screen = (n) =>
+        t.evaluate((n) => document.querySelectorAll('.ls-page').forEach((p, i) => (p.hidden = i !== n)), n);
+      const second = () => screen(1);
       await t.getByRole('heading', { name: 'This week' }).waitFor();
       await t.getByRole('heading', { name: 'Equipment' }).waitFor();
       await look('1920 × 1080');
       if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-1.png') });
+      // in use: the row in a light shade of its colour, "In use" in red (0.60.1)
+      const use = t.locator('.ls-eq.use').first();
+      if (await use.count()) {
+        const bg = await use.evaluate((n) => getComputedStyle(n).backgroundColor);
+        expect(bg !== 'rgba(0, 0, 0, 0)', 'equipment in use has no background');
+      }
+      await t.locator('.ls-timer i').waitFor();
       await second();
-      await t.getByRole('heading', { name: /^Birthdays in [A-Z][a-z]+$/ }).waitFor();
+      await t.getByRole('heading', { name: 'Today', exact: true }).waitFor();
+      await t.locator('.ls-day-now').waitFor();
       if (!CORE) await t.getByRole('heading', { name: 'Best device this week' }).waitFor();
       else expect(!(await t.locator('.ls-best').count()), 'the core alone shows a best device');
-      await look('1920 × 1080, second page');
+      await look('1920 × 1080, second screen');
       if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-2.png') });
+      await screen(2);
+      await t.getByRole('heading', { name: /^Birthdays in [A-Z][a-z]+$/ }).waitFor();
+      await look('1920 × 1080, third screen');
+      if (process.env.SHOTS) await t.screenshot({ path: join(root, 'out', 'screen-3.png') });
       // the password's click put the TV in full screen; the window is sized again outside it
       await t.evaluate(() => document.fullscreenElement && document.exitFullscreen());
       await t.setViewportSize({ width: 1280, height: 720 });
@@ -1733,12 +1750,14 @@ try {
       await t.locator('.ls-time').waitFor();
       await look('1280 × 720');
       await second();
-      await look('1280 × 720, second page');
+      await look('1280 × 720, second screen');
+      await screen(2);
+      await look('1280 × 720, third screen');
       // Admin settings counts it; turned off, the TV says so
       await page.getByRole('tab', { name: 'Lab setup', exact: true }).click();
-      await page.getByRole('tab', { name: 'Lab screen', exact: true }).click();
+      await page.getByRole('tab', { name: 'Display mode', exact: true }).click();
       await page.getByText(/^Open on 1 screen/).waitFor();
-      await page.getByLabel('Show the lab screen').uncheck();
+      await page.getByLabel('Show “Open the lab screen” on the sign-in screen').uncheck();
       await page.getByText('Off. Every screen was signed out.').waitFor();
       await t.reload();
       await t.getByText('The lab screen is off.', { exact: false }).waitFor();

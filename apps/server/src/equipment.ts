@@ -74,6 +74,8 @@ const EqPatch = z.object({
   booked: z.boolean().optional(),
   atmosphere: z.boolean().optional(),
   cleanup: z.number().int().min(0).max(240).optional(),
+  /** people at the same time (0.60.1): bookings that may overlap */
+  capacity: z.number().int().min(1, 'at least 1 person').max(20, 'at most 20 people at the same time').optional(),
   min_booking: z
     .number()
     .int()
@@ -222,8 +224,8 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
       const id = Number(
         db
           .prepare(
-            `INSERT INTO equipment(name,color,role,cleanup,art,steps,booked,min_booking,atmosphere,place_id,parent_id,pos)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))`,
+            `INSERT INTO equipment(name,color,role,cleanup,art,steps,booked,min_booking,atmosphere,place_id,parent_id,capacity,pos)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(pos),0)+1 FROM equipment))`,
           )
           .run(
             d.name,
@@ -237,6 +239,7 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
             d.atmosphere ? 1 : 0,
             d.parent_id ? null : (d.place_id ?? null),
             d.parent_id ?? null,
+            d.capacity ?? 1,
           ).lastInsertRowid,
       );
       return { id };
@@ -252,7 +255,7 @@ export function registerEquipment(app: FastifyInstance, auth: (need?: any) => an
     const d = p.data;
     try {
       tx(() => {
-        for (const k of ['name', 'color', 'art', 'cleanup', 'min_booking'] as const)
+        for (const k of ['name', 'color', 'art', 'cleanup', 'min_booking', 'capacity'] as const)
           if (d[k] !== undefined) db.prepare(`UPDATE equipment SET ${k}=? WHERE id=?`).run(d[k]!, id);
         for (const k of ['active', 'booked', 'atmosphere'] as const)
           if (d[k] !== undefined) db.prepare(`UPDATE equipment SET ${k}=? WHERE id=?`).run(d[k] ? 1 : 0, id);

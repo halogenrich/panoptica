@@ -12,7 +12,6 @@ import { Bell, Logout, Menu, Search, Trash as TrashIcon } from './Icons';
 import Palette, { type Cmd } from './views/Palette';
 import Inventory from './views/Inventory';
 import Calendar from './views/Calendar';
-import AdminScreen from './views/AdminScreen';
 import { EquipmentUse, LabOverview, Progress, Students, seesAll } from './views/Overview';
 import Users from './views/Users';
 import Help from './views/Help';
@@ -63,7 +62,7 @@ const SPECIAL: Record<string, string> = {
   students: 'Students',
   progress: 'My progress',
   equse: 'Equipment use',
-  labscreen: 'Lab screen',
+  labscreen: 'Display mode',
   users: 'Admin settings',
   trash: 'Trash',
   help: 'Help',
@@ -118,7 +117,8 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
     ...(seesAll(me) || (me.supervises ?? 0) > 0 ? [{ key: 'students', label: 'Students' }] : []),
     { key: 'progress', label: 'My progress' },
     ...(seesAll(me) ? [{ key: 'equse', label: 'Equipment use' }] : []),
-    ...(me.role === 'admin' ? [{ key: 'labscreen', label: 'Lab screen' }] : []),
+    // the view itself, as on the TV (0.60.1, Richard); its settings are Admin settings › Display mode
+    { key: 'labscreen', label: 'Display mode' },
   ];
   // the address (#/batches/12) says what to open, also on the first load: a link sent by someone else
   const start = (() => {
@@ -193,6 +193,11 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
 
   /** Opens a page and an item on it (search results, notifications, links between pages). */
   const go = (k: string, id: number | null = null, extra: Record<string, unknown> = {}) => {
+    // Display mode is the lab screen's own page (#/screen), the whole window as on the TV
+    if (k === 'labscreen') {
+      window.location.hash = '#/screen';
+      return;
+    }
     setView(k);
     setIds((x) => ({ ...x, [k]: id }));
     setExtras((x) => ({ ...x, [k]: extra }));
@@ -268,8 +273,6 @@ export default function Shell({ me, onLogout, onPhone }: { me: Me; onLogout: () 
       }
       case 'equse':
         return <EquipmentUse />;
-      case 'labscreen':
-        return <AdminScreen />;
       case 'users':
         return <Users meId={me.id} />;
       case 'help':
