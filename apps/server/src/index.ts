@@ -580,7 +580,8 @@ const VERSION = JSON.parse(
 /** The version, and the modules installed (the app shows only their pages). */
 app.get('/api/version', async () => ({ version: VERSION, modules: modules().map((m) => m.id) }));
 /** The lab screen on a TV (0.59): its own password and cookie; admins can look at it while signed in. */
-registerScreen(app, auth, bad, (req) => userOf(req)?.role === 'admin', VERSION);
+// signed in, anyone sees the screen in the app (0.60.1: Display mode in the side menu); the TV uses its own cookie
+registerScreen(app, auth, bad, (req) => !!userOf(req), VERSION);
 /** Who can open it, the lab's address, the port and HTTPS (0.51), and where other devices reach it (the phone invitation). */
 registerNetwork(app, auth, bad, setupNeeded);
 registerTray(app, VERSION);

@@ -138,22 +138,45 @@ function offHours(
   return out;
 }
 
+export const capacityOf = (eq: number) =>
+  (db.prepare('SELECT capacity FROM equipment WHERE id=?').get(eq) as { capacity: number } | undefined)?.capacity ?? 1;
+
 /**
- * Bookings of the same equipment that overlap [start, end), other than `except`. The cleanup time after each booking counts as
- * taken: a booking cannot start during the cleanup of the one before, nor end so late that its own cleanup runs into the next.
+ * The bookings a new one from start to end would be one too many with, other than `except` (empty: it fits). The cleanup time
+ * after each booking counts as taken: a booking cannot start during the cleanup of the one before, nor end so late that its own
+ * cleanup runs into the next. Equipment several people use at once (0.60.1, "people at the same time") takes that many
+ * overlapping bookings: it clashes only where that many already overlap one another and the new one.
  */
 export const clashes = (eq: number, start: string, end: string, except = 0) => {
-  const cl = cleanupOf(eq);
-  return withSubjects(
+  const cl = cleanupOf(eq),
+    cap = capacityOf(eq);
+  const near = withSubjects(
     db
       .prepare(ROW + ' WHERE k.equipment_id=? AND k.end > ? AND k.start < ? AND k.id<>?')
       .all(eq, before(start, cl), after(end, cl), except) as any[],
   );
+  if (near.length < cap) return [];
+  // each booking holds a place from its start to the end of its cleanup; find a moment in the new one's span where all are taken
+  const a = new Date(start).getTime(),
+    z = new Date(after(end, cl)).getTime(),
+    span = (k: any) => [new Date(k.start).getTime(), new Date(after(k.end, cl)).getTime()] as const;
+  const moments = [a, ...near.map((k) => span(k)[0]).filter((t) => t > a && t < z)];
+  for (const t of moments) {
+    const at = near.filter((k) => {
+      const [s0, s1] = span(k);
+      return s0 <= t && s1 > t;
+    });
+    if (at.length >= cap) return at;
+  }
+  return [];
 };
-export const clashText = (x: any, start: string, end: string) =>
-  x.end > start && x.start < end
+export const clashText = (x: any, start: string, end: string) => {
+  const cap = capacityOf(x.equipment_id);
+  if (cap > 1) return `${x.equipment} already has ${cap} people booked at that time`;
+  return x.end > start && x.start < end
     ? `${x.equipment} is booked by ${x.user_name} for ${forWhat(x)} at that time`
     : `${x.equipment} needs ${cleanupOf(x.equipment_id)} min of cleanup between bookings, and this is too close to the booking of ${x.user_name} (${forWhat(x)})`;
+};
 /**
  * Why `u` cannot book equipment `eq` from start to end (null when they can): bookable and trained, in the future, longer than
  * the equipment's shortest booking, not while it is out of service. Overlaps are checked separately (clashes).

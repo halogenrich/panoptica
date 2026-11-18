@@ -66,6 +66,7 @@ export default function App() {
     return (
       <LabScreen
         lab={lab}
+        inApp={!!me}
         onLeave={() => {
           window.history.pushState(null, '', window.location.pathname);
           setScreen(false);

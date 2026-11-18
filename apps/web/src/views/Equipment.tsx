@@ -24,6 +24,8 @@ export type EqRow = {
   atmosphere: boolean;
   cleanup: number;
   min_booking: number;
+  /** people at the same time (0.60.1) */
+  capacity: number;
   steps: string[];
   parent_id: number | null;
   place_id: number | null;
@@ -528,6 +530,16 @@ function EquipmentSheet({ id, data, onClose }: { id: number; data: Data; onClose
                   {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => (
                     <option key={m} value={m}>
                       {hmin(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fld">
+                <span>People at the same time</span>
+                <select value={e.capacity ?? 1} disabled={!ed} onChange={(x) => patch({ capacity: +x.target.value })}>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 1 ? '1 (one booking at a time)' : `${n} (${n} bookings may overlap)`}
                     </option>
                   ))}
                 </select>

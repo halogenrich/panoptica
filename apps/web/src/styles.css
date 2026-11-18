@@ -9711,6 +9711,19 @@ input.mono {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the institution beside the lab (Display mode), set apart by a rule */
+.ls-inst {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 14);
+  padding-left: calc(var(--u) * 18);
+  border-left: 1px solid var(--sep);
+  font-weight: 500;
+  color: var(--mut);
+}
+.ls-inst img {
+  height: calc(var(--u) * 44);
+}
 /* the clock, fixed at the top middle on every page (Richard) */
 .ls-clock {
   display: grid;
@@ -9739,9 +9752,37 @@ input.mono {
   font-size: calc(var(--u) * 20);
   color: var(--warn);
 }
+.ls-dots-wrap {
+  display: grid;
+  justify-items: stretch;
+  gap: calc(var(--u) * 8);
+}
 .ls-dots {
   display: flex;
+  justify-content: center;
   gap: calc(var(--u) * 10);
+}
+/* fills up until the next screen (0.60.1, Richard) */
+.ls-timer {
+  height: calc(var(--u) * 4);
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+.ls-timer i {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+  transform-origin: left;
+  animation: ls-fill linear forwards;
+}
+@keyframes ls-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 .ls-dots i {
   width: calc(var(--u) * 12);
@@ -9844,7 +9885,22 @@ input.mono {
   font-weight: 600;
 }
 .ls-eq.use .ls-eq-state b {
-  color: var(--ac);
+  color: var(--err);
+}
+/* in use (0.60.1, Richard): the row in a light shade of the equipment's colour */
+.ls-eq.use {
+  margin: 0 calc(var(--u) * -14);
+  padding-left: calc(var(--u) * 14);
+  padding-right: calc(var(--u) * 14);
+  border-radius: calc(var(--u) * 10);
+  border-top-color: transparent;
+  background: color-mix(in srgb, var(--c) 22%, var(--card));
+}
+.ls-eq.use + .ls-eq {
+  border-top-color: transparent;
+}
+.ls-eq.use .ls-eq-state {
+  color: var(--fg);
 }
 .ls-eq.free .ls-eq-state b {
   color: var(--ok);
@@ -9957,38 +10013,32 @@ input.mono {
   background: var(--fg);
 }
 
-/* page 2: best device, birthdays, gloveboxes */
+/* screen 2: the best device above, today below (0.60.1, Richard) */
 .ls-p2 {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 0.42fr) minmax(0, 0.58fr);
   gap: calc(var(--u) * 24);
 }
 .ls-p2.core {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
-.ls-side {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: calc(var(--u) * 24);
-}
-.ls-p2.core .ls-side {
-  grid-template-rows: none;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-}
+/* the big PCE with Voc, Jsc and FF under it, the J–V figure to its right */
 .ls-best-body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: calc(var(--u) * 18);
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: calc(var(--u) * 40);
 }
 .ls-best-head {
+  min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: calc(var(--u) * 16) calc(var(--u) * 44);
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: calc(var(--u) * 14);
 }
 .ls-pce {
   margin: 0;
@@ -9998,7 +10048,7 @@ input.mono {
   line-height: 0.9;
 }
 .ls-pce-v {
-  font-size: calc(var(--u) * 112);
+  font-size: calc(var(--u) * 96);
   font-weight: 700;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -10034,7 +10084,7 @@ input.mono {
 .ls-fig {
   min-height: 0;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .ls-fig svg {
   width: auto;
@@ -10085,6 +10135,135 @@ input.mono {
   display: grid;
   grid-auto-rows: minmax(0, 1fr);
   gap: calc(var(--u) * 18);
+}
+.ls-atmo-list.grid {
+  grid-template-columns: 1fr 1fr;
+  column-gap: calc(var(--u) * 36);
+}
+.ls-lim {
+  color: var(--mut);
+}
+.ls-lim,
+.ls-atmo-now .ls-lim {
+  font-size: calc(var(--u) * 20);
+}
+
+/* today, as the Calendar's Day view: a column per equipment, the now line fixed in the middle (0.60.1, Richard) */
+.ls-dayp {
+  overflow: hidden;
+}
+.ls-day {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: calc(var(--u) * 10);
+}
+.ls-day-head,
+.ls-day-body {
+  display: grid;
+  grid-template-columns: calc(var(--u) * 70) minmax(0, 1fr);
+}
+.ls-day-head {
+  grid-template-columns: calc(var(--u) * 70) repeat(var(--cols), minmax(0, 1fr));
+  column-gap: calc(var(--u) * 8);
+  align-items: end;
+}
+.ls-day-head .ls-eq-name {
+  font-size: calc(var(--u) * 20);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.ls-day-hours {
+  position: relative;
+}
+.ls-day-hours span {
+  position: absolute;
+  right: calc(var(--u) * 12);
+  transform: translateY(-50%);
+  font-size: calc(var(--u) * 18);
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+.ls-day-cols {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  column-gap: calc(var(--u) * 8);
+  border-radius: calc(var(--u) * 8);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  overflow: hidden;
+}
+.ls-day-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--sep);
+}
+/* the hours gone by, faintly darker */
+.ls-day-past {
+  position: absolute;
+  inset: 0 0 auto 0;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.ls-day-col {
+  position: relative;
+  grid-row: 1;
+  min-width: 0;
+}
+.ls-day-b {
+  position: absolute;
+  display: grid;
+  align-content: start;
+  gap: calc(var(--u) * 2);
+  padding: calc(var(--u) * 4) calc(var(--u) * 8);
+  border: calc(var(--u) * 2) solid var(--card);
+  border-radius: calc(var(--u) * 8);
+  background: var(--c);
+  color: var(--ink);
+  overflow: hidden;
+  font-size: calc(var(--u) * 18);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.ls-day-b b,
+.ls-day-b span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls-day-b b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls-day-b.done {
+  opacity: 0.55;
+}
+.ls-day-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: calc(var(--u) * 3);
+  margin-top: calc(var(--u) * -1.5);
+  background: var(--err);
+  z-index: 1;
+}
+
+/* screen 3: O₂ and H₂O, with the birthdays beside (0.60.1) */
+.ls-p3 {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
+  gap: calc(var(--u) * 24);
+}
+.ls-p3.no-atmo {
+  grid-template-columns: minmax(0, 1fr);
 }
 .ls-atmo-one {
   margin: 0;
@@ -10147,7 +10326,7 @@ input.mono {
   stroke-width: 1.5;
 }
 
-/* Admin settings › Lab screen */
+/* Admin settings › Display mode */
 .admin-screen .box-form {
   max-width: 420px;
 }

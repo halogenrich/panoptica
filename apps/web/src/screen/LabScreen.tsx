@@ -9,11 +9,13 @@ import type { Booking } from '../views/Calendar';
 import { AtmoChart, type Glovebox } from './AtmoChart';
 
 /**
- * The lab screen (0.59): a TV in the lab, opened from the sign-in screen with the screen password an admin sets. Two pages take
- * turns: the equipment and the week's bookings; then the best device of the week (from Electronic Devices), the month's
- * birthdays and the gloveboxes' O₂ and H₂O. The time and date stay at the top middle on every page (Richard). Everything is sized
- * from the window (a 1920 × 1080 TV, scaled for 720p and 4K), the theme follows Admin settings › Lab screen (Light by default),
- * and it reads the server again on every change and every minute, so it never needs touching.
+ * The lab screen (0.59): a TV in the lab, opened from the sign-in screen with the screen password an admin sets. Its screens take
+ * turns (0.60.1, Richard, from photos of the TV): the equipment (in use in a light shade of its colour) and the week's bookings;
+ * the best device of the week (from Electronic Devices) above today's bookings, one column per equipment with the now line kept
+ * in the middle; and the gloveboxes' O₂ and H₂O (today, then the last 7 days) with the month's birthdays. Which screens show,
+ * for how long, the theme and the top left are set in Admin settings › Display mode; a bar under the dots fills up until the next
+ * screen. The time and date stay at the top middle on every screen. Everything is sized from the window (a 1920 × 1080 TV,
+ * scaled for 720p and 4K), and it reads the server again on every change and every minute, so it never needs touching.
  */
 type Eq = {
   id: number;
@@ -22,6 +24,8 @@ type Eq = {
   state: 'use' | 'free' | 'off';
   until?: string;
   by?: string;
+  /** everyone using it now (equipment several people use at once, 0.60.1) */
+  users?: { by: string; end: string }[];
   reason?: string;
   next: { start: string; end: string; by: string } | null;
 };
@@ -33,6 +37,10 @@ export type ScreenData = {
   bgV: number;
   interval: number;
   theme: 'system' | 'light' | 'dark';
+  atmoSwitch: number;
+  pages: (1 | 2 | 3)[];
+  labShow: 'logo' | 'name' | 'both';
+  inst: { show: 'none' | 'logo' | 'name' | 'both'; name: string; hasLogo: boolean };
   hours: WorkDay[];
   weekFrom: string;
   equipment: Eq[];
@@ -50,7 +58,16 @@ async function get(): Promise<{ data?: ScreenData; on?: boolean }> {
   return { data: d };
 }
 
-export default function LabScreen({ lab, onLeave }: { lab: LabPublic; onLeave: () => void }) {
+export default function LabScreen({
+  lab,
+  onLeave,
+  inApp = false,
+}: {
+  lab: LabPublic;
+  onLeave: () => void;
+  /** opened from the app's side menu (Display mode, 0.60.1): a way back while the pointer moves */
+  inApp?: boolean;
+}) {
   const [data, setData] = useState<ScreenData | null>(null),
     [need, setNeed] = useState<'password' | 'off' | null>(null),
     [lost, setLost] = useState(false);
@@ -111,7 +128,7 @@ export default function LabScreen({ lab, onLeave }: { lab: LabPublic; onLeave: (
         {need === 'off' ? (
           <>
             <h1>Lab screen</h1>
-            <p>The lab screen is off. An admin turns it on in Admin settings › Lab screen.</p>
+            <p>The lab screen is off. An admin turns it on in Admin settings › Display mode.</p>
             <button type="button" className="link" onClick={onLeave}>
               Back to sign in
             </button>
@@ -122,7 +139,7 @@ export default function LabScreen({ lab, onLeave }: { lab: LabPublic; onLeave: (
       </SignInFrame>
     );
   if (!data) return null;
-  return <Screen d={data} lost={lost} />;
+  return <Screen d={data} lost={lost} onLeave={inApp ? onLeave : undefined} />;
 }
 
 function Password({ onOpen, onLeave }: { onOpen: () => void; onLeave: () => void }) {
@@ -183,14 +200,18 @@ function useNow() {
   return now;
 }
 
-function Screen({ d, lost }: { d: ScreenData; lost: boolean }) {
+function Screen({ d, lost, onLeave }: { d: ScreenData; lost: boolean; onLeave?: () => void }) {
   const now = useNow(),
-    [page, setPage] = useState(0),
+    pages = d.pages?.length ? d.pages : [1, 2, 3],
+    [at, setAt] = useState(0),
+    page = pages[at % pages.length],
     [idle, setIdle] = useState(false);
   useEffect(() => {
-    const t = setInterval(() => setPage((p) => (p + 1) % 2), d.interval * 1000);
+    setAt(0);
+    if (pages.length < 2) return;
+    const t = setInterval(() => setAt((p) => (p + 1) % pages.length), d.interval * 1000);
     return () => clearInterval(t);
-  }, [d.interval]);
+  }, [d.interval, pages.join()]);
   // the pointer hides when nobody moves it; a double click turns full screen on and off
   useEffect(() => {
     let t = setTimeout(() => setIdle(true), 3000);
@@ -203,22 +224,24 @@ function Screen({ d, lost }: { d: ScreenData; lost: boolean }) {
       document.fullscreenElement
         ? document.exitFullscreen().catch(() => {})
         : document.documentElement.requestFullscreen?.().catch(() => {});
+    // in the app, Escape goes back to it
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onLeave?.();
     window.addEventListener('pointermove', move);
     window.addEventListener('dblclick', dbl);
+    window.addEventListener('keydown', key);
     return () => {
       clearTimeout(t);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('dblclick', dbl);
+      window.removeEventListener('keydown', key);
     };
-  }, []);
+  }, [onLeave]);
   const logo = d.hasLogo ? `/api/lab/logo?v=${d.bgV}` : '';
+  const at1 = at % pages.length;
   return (
-    <main className={'ls' + (idle ? ' idle' : '')} data-page={page + 1}>
+    <main className={'ls' + (idle ? ' idle' : '')} data-page={page}>
       <header className="ls-top">
-        <span className="ls-lab">
-          {logo ? <img src={logo} alt="" /> : null}
-          <span>{d.name}</span>
-        </span>
+        <TopLeft d={d} logo={logo} />
         <div className="ls-clock">
           <time className="ls-time" dateTime={now.toISOString()}>
             {hm(now)}
@@ -228,25 +251,70 @@ function Screen({ d, lost }: { d: ScreenData; lost: boolean }) {
           </span>
         </div>
         <div className="ls-pages">
+          {onLeave && !idle && (
+            <button type="button" className="btn secondary ls-back" onClick={onLeave}>
+              Back to PANOPTICA
+            </button>
+          )}
           {lost && <span className="ls-lost">PANOPTICA cannot be reached. Trying again.</span>}
-          <span className="ls-dots" aria-label={`Page ${page + 1} of 2`}>
-            {[0, 1].map((i) => (
-              <i key={i} className={i === page ? 'on' : ''} />
-            ))}
-          </span>
+          {pages.length > 1 && (
+            <span className="ls-dots-wrap">
+              <span className="ls-dots" aria-label={`Screen ${at1 + 1} of ${pages.length}`}>
+                {pages.map((p, i) => (
+                  <i key={p} className={i === at1 ? 'on' : ''} />
+                ))}
+              </span>
+              {/* fills up until the next screen (Richard) */}
+              <span className="ls-timer" aria-hidden="true">
+                <i key={at} style={{ animationDuration: `${d.interval}s` }} />
+              </span>
+            </span>
+          )}
         </div>
       </header>
-      <div className="ls-page" hidden={page !== 0} aria-hidden={page !== 0}>
-        <PageOne d={d} now={now} />
-      </div>
-      <div className="ls-page" hidden={page !== 1} aria-hidden={page !== 1}>
-        <PageTwo d={d} now={now} logo={logo} />
-      </div>
+      {pages.includes(1) && (
+        <div className="ls-page" hidden={page !== 1} aria-hidden={page !== 1}>
+          <PageOne d={d} now={now} />
+        </div>
+      )}
+      {pages.includes(2) && (
+        <div className="ls-page" hidden={page !== 2} aria-hidden={page !== 2}>
+          <PageTwo d={d} now={now} logo={logo} />
+        </div>
+      )}
+      {pages.includes(3) && (
+        <div className="ls-page" hidden={page !== 3} aria-hidden={page !== 3}>
+          <PageThree d={d} now={now} shown={page === 3} />
+        </div>
+      )}
     </main>
   );
 }
 
-// ---------------------------------------------------------------- page 1: equipment and the week
+/** The top left (Display mode, 0.60.1): the lab as logo, name or both, then the institution as logo, name, both or nothing. */
+function TopLeft({ d, logo }: { d: ScreenData; logo: string }) {
+  const show = d.labShow ?? 'both',
+    lab = show !== 'name' && logo,
+    // no logo yet: the name, so the corner is never empty
+    labName = show !== 'logo' || !logo,
+    inst = d.inst ?? { show: 'none', name: '', hasLogo: false },
+    instLogo = (inst.show === 'logo' || inst.show === 'both') && inst.hasLogo,
+    instName = (inst.show === 'name' || inst.show === 'both') && inst.name;
+  return (
+    <span className="ls-lab">
+      {lab ? <img src={logo} alt={labName ? '' : d.name} /> : null}
+      {labName && <span>{d.name}</span>}
+      {(instLogo || instName) && (
+        <span className="ls-inst">
+          {instLogo && <img src={`/api/lab/institution-logo?v=${d.bgV}`} alt={instName ? '' : inst.name} />}
+          {instName && <span>{inst.name}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------- screen 1: equipment and the week
 
 const firstName = (n: string) => n.split(/\s+/)[0];
 /** Black or white, whichever reads better on an equipment's colour (a name written on its block). */
@@ -279,15 +347,16 @@ function PageOne({ d, now }: { d: ScreenData; now: Date }) {
         ) : (
           <ul className={many ? 'two' : ''}>
             {d.equipment.map((e) => (
-              <li key={e.id} className={'ls-eq ' + e.state}>
-                <span className="ls-eq-name" style={{ '--c': e.color } as CSSProperties}>
-                  {e.name}
-                </span>
+              // in use: the row in a light shade of the equipment's colour (Richard, 0.60.1)
+              <li key={e.id} className={'ls-eq ' + e.state} style={{ '--c': e.color } as CSSProperties}>
+                <span className="ls-eq-name">{e.name}</span>
                 <span className="ls-eq-state">
                   <b>{e.state === 'use' ? 'In use' : e.state === 'off' ? 'Out of service' : 'Free'}</b>
                   <span>
                     {e.state === 'use'
-                      ? `${e.by}, until ${when(e.until!, now)}`
+                      ? (e.users?.length ? e.users : [{ by: e.by!, end: e.until! }])
+                          .map((u) => `${u.by}, until ${when(u.end, now)}`)
+                          .join(' · ')
                       : e.state === 'off'
                         ? `Until ${when(e.until!, now).replace(/^t/, 'T')}`
                         : e.next
@@ -379,46 +448,162 @@ function TvWeek({ d, now }: { d: ScreenData; now: Date }) {
   );
 }
 
-// ---------------------------------------------------------------- page 2: best device, birthdays, gloveboxes
+// ---------------------------------------------------------------- screen 2: best device, and today
 
 function PageTwo({ d, now, logo }: { d: ScreenData; now: Date; logo: string }) {
   const parts = MODULES.filter((m) => m.screen && d.modules[m.id]);
-  const month = now.toLocaleDateString('en-GB', { month: 'long' }),
-    today = now.getDate();
   return (
     <div className={'ls-p2' + (parts.length ? '' : ' core')}>
       {parts.map((m) => {
         const Part = m.screen!;
         return <Part key={m.id} m={d.modules[m.id]} logo={logo} />;
       })}
-      <div className="ls-side">
-        <section className="ls-panel ls-bdays" aria-label="Birthdays">
-          <h2>Birthdays in {month}</h2>
-          {!d.birthdays.length ? (
-            <p className="ls-empty">No birthdays this month.</p>
-          ) : (
-            <ul className={d.birthdays.length > 6 ? 'two' : ''}>
-              {d.birthdays.map((b) => (
-                <li key={b.name + b.day} className={b.day === today ? 'today' : b.day < today ? 'past' : ''}>
-                  <span className="ls-bday-d">{String(b.day).padStart(2, '0')}</span>
-                  <span>{b.name}</span>
-                  {b.day === today && <span className="ls-bday-t">Today</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-        {d.atmosphere.length > 0 && (
-          <section className="ls-panel ls-atmo" aria-label="Glovebox atmosphere">
-            <h2>O₂ and H₂O, last 7 days</h2>
-            <div className="ls-atmo-list">
-              {d.atmosphere.map((g) => (
-                <AtmoChart key={g.id} g={g} now={now} />
-              ))}
-            </div>
-          </section>
-        )}
+      <section className="ls-panel ls-dayp" aria-label="Today">
+        <h2>Today</h2>
+        <TvDay d={d} now={now} />
+      </section>
+    </div>
+  );
+}
+
+/** Hours the Today view spans: the now line stays in the middle and the bookings move up as time passes (Richard). */
+const SPAN_H = 6;
+
+/**
+ * Today as the Calendar's Day view (0.60.1, Richard: "just like we have in the app"): one column per equipment, time going down,
+ * the red now line fixed in the middle, so a TV never needs scrolling. Overlapping bookings (equipment several people use) share
+ * their column side by side.
+ */
+function TvDay({ d, now }: { d: ScreenData; now: Date }) {
+  const t = now.getTime(),
+    w0 = t - (SPAN_H / 2) * 36e5,
+    w1 = t + (SPAN_H / 2) * 36e5,
+    y = (ms: number) => ((Math.min(Math.max(ms, w0), w1) - w0) / (w1 - w0)) * 100;
+  // the hours inside the window
+  const hours: number[] = [];
+  for (let h = Math.ceil(w0 / 36e5) * 36e5; h < w1; h += 36e5) hours.push(h);
+  if (!d.equipment.length) return <p className="ls-empty">No equipment is booked in PANOPTICA yet.</p>;
+  return (
+    <div className="ls-day" style={{ '--cols': d.equipment.length } as CSSProperties}>
+      <div className="ls-day-head">
+        <span />
+        {d.equipment.map((e) => (
+          <span key={e.id} className="ls-eq-name" style={{ '--c': e.color } as CSSProperties}>
+            {e.name}
+          </span>
+        ))}
       </div>
+      <div className="ls-day-body">
+        <div className="ls-day-hours" aria-hidden="true">
+          {hours.map((h) => (
+            <span key={h} style={{ top: `${y(h)}%` }}>
+              {hm(new Date(h))}
+            </span>
+          ))}
+        </div>
+        <div className="ls-day-cols">
+          {hours.map((h) => (
+            <i key={h} className="ls-day-rule" style={{ top: `${y(h)}%` }} />
+          ))}
+          <i className="ls-day-past" style={{ height: '50%' }} />
+          {d.equipment.map((e, ci) => {
+            const mine = d.week
+              .filter((k) => k.equipment_id === e.id)
+              .map((k) => ({ k, a: new Date(k.start).getTime(), z: new Date(k.end).getTime() }))
+              .filter((b) => b.z > w0 && b.a < w1)
+              .sort((p, q) => p.a - q.a);
+            // side by side where bookings overlap
+            const ends: number[] = [],
+              lane = new Map<number, number>();
+            for (const b of mine) {
+              let l = ends.findIndex((z) => z <= b.a);
+              if (l < 0) l = ends.push(b.z) - 1;
+              else ends[l] = b.z;
+              lane.set(b.k.id, l);
+            }
+            const lanes = Math.max(1, ends.length);
+            return (
+              <div key={e.id} className="ls-day-col" style={{ gridColumn: ci + 1 }}>
+                {mine.map((b) => {
+                  const top = y(b.a),
+                    h = y(b.z) - top,
+                    l = lane.get(b.k.id)!;
+                  return (
+                    <span
+                      key={b.k.id}
+                      className={'ls-day-b' + (b.z <= t ? ' done' : '')}
+                      style={
+                        {
+                          top: `${top}%`,
+                          height: `${h}%`,
+                          left: `${(l / lanes) * 100}%`,
+                          width: `${100 / lanes}%`,
+                          '--c': e.color,
+                          '--ink': inkOn(e.color),
+                        } as CSSProperties
+                      }
+                    >
+                      {h >= 6 && <b>{firstName(b.k.user_name)}</b>}
+                      {h >= 12 && (
+                        <span>
+                          {hm(new Date(b.a))}–{hm(new Date(b.z))}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })}
+          <i className="ls-day-now" aria-hidden="true" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- screen 3: O₂ and H₂O, birthdays
+
+function PageThree({ d, now, shown }: { d: ScreenData; now: Date; shown: boolean }) {
+  const month = now.toLocaleDateString('en-GB', { month: 'long' }),
+    today = now.getDate(),
+    [span, setSpan] = useState<'day' | 'week'>('day');
+  // today first, then the last 7 days after the seconds set in Display mode, and back (Richard)
+  useEffect(() => {
+    setSpan('day');
+    if (!shown) return;
+    const t = setInterval(() => setSpan((s) => (s === 'day' ? 'week' : 'day')), (d.atmoSwitch || 10) * 1000);
+    return () => clearInterval(t);
+  }, [shown, d.atmoSwitch]);
+  const n = d.atmosphere.length;
+  return (
+    <div className={'ls-p3' + (n ? '' : ' no-atmo')}>
+      {n > 0 && (
+        <section className="ls-panel ls-atmo" aria-label="Glovebox atmosphere">
+          <h2>O₂ and H₂O, {span === 'day' ? 'today' : 'last 7 days'}</h2>
+          <div className={'ls-atmo-list' + (n > 2 ? ' grid' : '')}>
+            {d.atmosphere.map((g) => (
+              <AtmoChart key={g.id} g={g} now={now} span={span} />
+            ))}
+          </div>
+        </section>
+      )}
+      <section className="ls-panel ls-bdays" aria-label="Birthdays">
+        <h2>Birthdays in {month}</h2>
+        {!d.birthdays.length ? (
+          <p className="ls-empty">No birthdays this month.</p>
+        ) : (
+          <ul className={d.birthdays.length > 12 ? 'two' : ''}>
+            {d.birthdays.map((b) => (
+              <li key={b.name + b.day} className={b.day === today ? 'today' : b.day < today ? 'past' : ''}>
+                <span className="ls-bday-d">{String(b.day).padStart(2, '0')}</span>
+                <span>{b.name}</span>
+                {b.day === today && <span className="ls-bday-t">Today</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

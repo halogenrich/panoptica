@@ -2,11 +2,13 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import { Seg, fmtDateTime } from '../lib/ui';
 import { PasswordRules, passwordOk } from '../start/parts';
+import { MODULES } from '../modules/installed';
 
 /**
- * Admin settings › Lab screen (0.59): turn the TV screen on or off, its password, the seconds each page shows, its theme (the
- * app's own System / Light / Dark switch; Light by default, Richard), and the O₂ and H₂O limits of the equipment that records
- * its atmosphere. A new password, or turning it off, signs every screen out.
+ * Admin settings › Display mode (0.59 as Lab screen; renamed and extended in 0.60.1, Richard): the sign-in screen's button for the
+ * TV (on or off), its password, the screens it shows and for how long, how long O₂ and H₂O show today before the week, the
+ * theme (the app's own System / Light / Dark switch; Light by default), what the top left shows (the lab and the institution,
+ * logo, name or both; full name or acronym), and the O₂ and H₂O limits. A new password, or turning it off, signs every screen out.
  */
 type S = {
   on: boolean;
@@ -14,10 +16,22 @@ type S = {
   interval: number;
   theme: 'system' | 'light' | 'dark';
   limits: Record<string, { o2: number | null; h2o: number | null }>;
+  atmoSwitch: number;
+  pages: (1 | 2 | 3)[];
+  labShow: 'logo' | 'name' | 'both';
+  labName: 'name' | 'acronym';
+  inst: 'none' | 'logo' | 'name' | 'both';
+  has: { acronym: boolean; institution: boolean; instLogo: boolean; logo: boolean };
   screens: number;
   seen: string | null;
   gloveboxes: { id: number; name: string; color: string }[];
 };
+/** The screens, as the lab screen shows them (core alone: no best device). */
+const SCREENS: [1 | 2 | 3, string, string][] = [
+  [1, 'Equipment and the week', 'Equipment and the week'],
+  [2, 'Best device and today', 'Today'],
+  [3, 'O₂, H₂O and birthdays', 'O₂, H₂O and birthdays'],
+];
 type Lim = Record<string, { o2: string; h2o: string }>;
 
 const toText = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v));
@@ -27,7 +41,10 @@ const toNum = (t: string) => {
 };
 
 export default function AdminScreen() {
+  // the second screen's best device comes from a module (Electronic Devices); without one it is today alone
+  const module = MODULES.some((m) => m.screen);
   const [s, setS] = useState<S | null>(null),
+    [atmoSecs, setAtmoSecs] = useState(''),
     [pw, setPw] = useState(''),
     [again, setAgain] = useState(''),
     [secs, setSecs] = useState(''),
@@ -36,6 +53,7 @@ export default function AdminScreen() {
   const take = (d: S) => {
     setS(d);
     setSecs(String(d.interval));
+    setAtmoSecs(String(d.atmoSwitch));
     setLim(
       Object.fromEntries(
         d.gloveboxes.map((g) => [g.id, { o2: toText(d.limits[g.id]?.o2), h2o: toText(d.limits[g.id]?.h2o) }]),
@@ -57,7 +75,9 @@ export default function AdminScreen() {
         api<S>('/screen/settings').then(take); // a switch shown changed goes back to what is saved
       });
   const n = Number(secs),
-    secsOk = Number.isInteger(n) && n >= 10 && n <= 120;
+    secsOk = Number.isInteger(n) && n >= 10 && n <= 120,
+    an = Number(atmoSecs),
+    atmoOk = Number.isInteger(an) && an >= 5 && an <= 120;
   const limBad = Object.values(lim).some((l) => [l.o2, l.h2o].some((t) => t.trim() && !(toNum(t)! >= 0)));
   const limSame = s.gloveboxes.every(
     (g) => lim[g.id]?.o2 === toText(s.limits[g.id]?.o2) && lim[g.id]?.h2o === toText(s.limits[g.id]?.h2o),
@@ -66,12 +86,12 @@ export default function AdminScreen() {
     msg[k] ? <span className={'small ' + (msg[k].ok ? 'mut' : 'err')}>{msg[k].text}</span> : null;
   return (
     <div className="admin-screen">
-      <h3 className="sub">Lab screen</h3>
+      <h3 className="sub">Display mode</h3>
       <section className="group">
         <p className="small">
-          A TV in the lab shows the equipment, the week’s bookings, the best device of the week, the month’s birthdays
-          and the gloveboxes’ O₂ and H₂O. It opens from the sign-in screen with its own password. Names show on it
-          without anyone signing in.
+          A TV in the lab shows the equipment, the week’s bookings, the best device of the week, today’s bookings, the
+          gloveboxes’ O₂ and H₂O and the month’s birthdays. It opens from the sign-in screen with its own password.
+          Names show on it without anyone signing in.
         </p>
         <label className="inline">
           <input
@@ -88,7 +108,7 @@ export default function AdminScreen() {
               );
             }}
           />
-          Show the lab screen
+          Show “Open the lab screen” on the sign-in screen
         </label>
         <p className="mut small" data-screen-state>
           {!s.hasPassword
@@ -164,8 +184,78 @@ export default function AdminScreen() {
         </form>
       </section>
 
-      <h3 className="sub">Pages</h3>
+      <h3 className="sub">Screens</h3>
       <section className="group">
+        <div className="inline">
+          <span>Show</span>
+          <div className="chips" role="group" aria-label="Screens to show">
+            {SCREENS.map(([k, withModule, core]) => {
+              const on = s.pages.includes(k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  className={'chip' + (on ? ' on' : '')}
+                  aria-pressed={on}
+                  disabled={on && s.pages.length === 1}
+                  title={on && s.pages.length === 1 ? 'At least one screen shows' : undefined}
+                  onClick={() => {
+                    const pages = on ? s.pages.filter((x) => x !== k) : [...s.pages, k].sort();
+                    setS({ ...s, pages });
+                    save('pages', { pages }, 'Saved');
+                  }}
+                >
+                  {module ? withModule : core}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <form
+          className="screen-secs"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save('secs', { interval: n, atmoSwitch: an }, 'Saved');
+          }}
+        >
+          <label className="inline">
+            Each screen shows for
+            <input
+              className="num-in"
+              inputMode="numeric"
+              value={secs}
+              aria-label="Seconds each screen shows"
+              onChange={(e) => setSecs(e.target.value.replace(/\D/g, ''))}
+            />
+            seconds
+          </label>
+          <label className="inline">
+            O₂ and H₂O show today for
+            <input
+              className="num-in"
+              inputMode="numeric"
+              value={atmoSecs}
+              aria-label="Seconds O₂ and H₂O show today before the last 7 days"
+              onChange={(e) => setAtmoSecs(e.target.value.replace(/\D/g, ''))}
+            />
+            seconds, then the last 7 days
+          </label>
+          <div className="inline">
+            <button
+              className="btn secondary"
+              disabled={!secsOk || !atmoOk || (n === s.interval && an === s.atmoSwitch)}
+            >
+              Save
+            </button>
+            {!secsOk && secs !== '' ? (
+              <span className="err small">A screen shows from 10 to 120 seconds.</span>
+            ) : !atmoOk && atmoSecs !== '' ? (
+              <span className="err small">Today shows from 5 to 120 seconds.</span>
+            ) : (
+              <Msg k="secs" />
+            )}
+          </div>
+        </form>
         <div className="inline">
           <span>Theme</span>
           <Seg<S['theme']>
@@ -181,27 +271,64 @@ export default function AdminScreen() {
             }}
           />
         </div>
+        <Msg k="pages" />
+      </section>
+
+      <h3 className="sub">Top left</h3>
+      <section className="group screen-top">
         <div className="inline">
-          <label className="inline">
-            Each page shows for
-            <input
-              className="num-in"
-              inputMode="numeric"
-              value={secs}
-              aria-label="Seconds each page shows"
-              onChange={(e) => setSecs(e.target.value.replace(/\D/g, ''))}
-            />
-            seconds
-          </label>
-          <button
-            className="btn secondary"
-            disabled={!secsOk || n === s.interval}
-            onClick={() => save('pages', { interval: n }, 'Saved')}
-          >
-            Save
-          </button>
-          {!secsOk && secs !== '' ? <span className="err small">From 10 to 120 seconds.</span> : <Msg k="pages" />}
+          <span>Lab</span>
+          <Seg<S['labShow']>
+            value={s.labShow}
+            opts={[
+              ['logo', 'Logo'],
+              ['name', 'Name'],
+              ['both', 'Both'],
+            ]}
+            on={(v) => {
+              setS({ ...s, labShow: v });
+              save('top', { labShow: v }, 'Saved');
+            }}
+          />
         </div>
+        {s.has.acronym && s.labShow !== 'logo' && (
+          <div className="inline">
+            <span>Lab name</span>
+            <Seg<S['labName']>
+              value={s.labName}
+              opts={[
+                ['name', 'Full name'],
+                ['acronym', 'Acronym'],
+              ]}
+              on={(v) => {
+                setS({ ...s, labName: v });
+                save('top', { labName: v }, 'Saved');
+              }}
+            />
+          </div>
+        )}
+        {(s.has.institution || s.has.instLogo) && (
+          <div className="inline">
+            <span>Institution</span>
+            <Seg<S['inst']>
+              value={s.inst}
+              opts={[
+                ['none', 'None'],
+                ...(s.has.instLogo ? [['logo', 'Logo'] as [S['inst'], string]] : []),
+                ...(s.has.institution ? [['name', 'Name'] as [S['inst'], string]] : []),
+                ...(s.has.instLogo && s.has.institution ? [['both', 'Both'] as [S['inst'], string]] : []),
+              ]}
+              on={(v) => {
+                setS({ ...s, inst: v });
+                save('top', { inst: v }, 'Saved');
+              }}
+            />
+          </div>
+        )}
+        {!s.has.logo && s.labShow !== 'name' && (
+          <p className="mut small">The lab has no logo yet: add one under Lab setup. Until then the name shows.</p>
+        )}
+        <Msg k="top" />
       </section>
 
       <h3 className="sub">O₂ and H₂O limits</h3>

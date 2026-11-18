@@ -6,16 +6,17 @@ import { db } from './db.js';
 import { hash, verify } from './auth.js';
 import { audit, ipOf } from './audit.js';
 import { eventStream } from './events.js';
-import { hasLogo, lab, shownName } from './lab.js';
+import { hasLogo, lab } from './lab.js';
 import { modules } from './modules.js';
 import { Limiter, tokenHash, weakPassword } from './security.js';
 
 /**
  * The lab screen (0.59): a TV in the lab shows the equipment, the week's bookings, the best device of the week, the month's
  * birthdays and the gloveboxes' O₂ and H₂O, two pages taking turns. It is opened from the sign-in screen with a password an admin
- * sets in Admin settings › Lab screen; names show without anyone signing in (Richard accepted that, 17 Nov). The TV gets a
+ * sets in Admin settings › Display mode; names show without anyone signing in (Richard accepted that, 17 Nov). The TV gets a
  * cookie of its own that only reads the screen (no account, no app), kept until an admin changes the password or turns the
- * screen off. Admins can also open it while signed in, to see it before putting it on the TV.
+ * screen off. Anyone signed in also sees it in the app (0.60.1, Richard: "Display mode" in the side menu, the view as on the TV;
+ * admins only in 0.59). Its settings are Admin settings › Display mode.
  */
 
 export type ScreenSettings = {
@@ -28,6 +29,14 @@ export type ScreenSettings = {
   theme: 'system' | 'light' | 'dark';
   /** O₂ and H₂O limits in ppm by equipment id; null: no limit */
   limits: Record<string, { o2: number | null; h2o: number | null }>;
+  /** Display mode (0.60.1): seconds O₂ and H₂O show today before the last 7 days (and back); 10 by default (Richard) */
+  atmoSwitch: number;
+  /** the screens shown, in order: 1 equipment and the week, 2 best device and today, 3 O₂ and H₂O and birthdays */
+  pages: (1 | 2 | 3)[];
+  /** the top left: the lab's logo, name or both; its full name or acronym; the institution's logo, name, both or nothing */
+  labShow: 'logo' | 'name' | 'both';
+  labName: 'name' | 'acronym';
+  inst: 'none' | 'logo' | 'name' | 'both';
 };
 
 const COOKIE = 'screen',
@@ -43,6 +52,12 @@ export function screenSettings(): ScreenSettings {
     interval: Number.isInteger(d.interval) ? d.interval : 20,
     theme: ['system', 'light', 'dark'].includes(d.theme) ? d.theme : 'light',
     limits: d.limits ?? {},
+    atmoSwitch: Number.isInteger(d.atmoSwitch) ? d.atmoSwitch : 10,
+    pages: Array.isArray(d.pages) && d.pages.length ? d.pages : [1, 2, 3],
+    labShow: ['logo', 'name', 'both'].includes(d.labShow) ? d.labShow : 'both',
+    // the lab's own choice (Lab setup) until Display mode says otherwise
+    labName: d.labName === 'acronym' || d.labName === 'name' ? d.labName : lab().show,
+    inst: ['none', 'logo', 'name', 'both'].includes(d.inst) ? d.inst : 'none',
   };
 }
 const save = (s: ScreenSettings) =>
@@ -73,9 +88,10 @@ export function screenData(version: string) {
     .prepare('SELECT id,name,color,atmosphere FROM equipment WHERE active=1 AND booked=1 ORDER BY pos, id')
     .all() as { id: number; name: string; color: string; atmosphere: number }[];
   const live = `outcome IS NULL OR outcome<>'canceled'`;
+  // everyone using it now (0.60.1: equipment several people use at once), the one ending last first
   const nowOf = db.prepare(
     `SELECT k.end, u.name AS by FROM bookings k JOIN users u ON u.id=k.user_id
-     WHERE k.equipment_id=? AND k.start<=? AND k.end>? AND (${live}) ORDER BY k.end DESC LIMIT 1`,
+     WHERE k.equipment_id=? AND k.start<=? AND k.end>? AND (${live}) ORDER BY k.end DESC`,
   );
   const nextOf = db.prepare(
     `SELECT k.start, k.end, u.name AS by FROM bookings k JOIN users u ON u.id=k.user_id
@@ -84,14 +100,15 @@ export function screenData(version: string) {
   const offOf = db.prepare('SELECT end, reason FROM equipment_off WHERE equipment_id=? AND start<=? AND end>? LIMIT 1');
   const equipment = eqs.map((e) => {
     const off = offOf.get(e.id, iso, iso) as { end: string; reason: string } | undefined,
-      use = nowOf.get(e.id, iso, iso) as { end: string; by: string } | undefined,
+      users = nowOf.all(e.id, iso, iso) as { end: string; by: string }[],
+      use = users[0],
       nx = nextOf.get(e.id, iso) as { start: string; end: string; by: string } | undefined;
     return {
       id: e.id,
       name: e.name,
       color: e.color,
       state: off ? 'off' : use ? 'use' : 'free',
-      ...(off ? { until: off.end, reason: off.reason } : use ? { until: use.end, by: use.by } : {}),
+      ...(off ? { until: off.end, reason: off.reason } : use ? { until: use.end, by: use.by, users } : {}),
       next: nx ?? null,
     };
   });
@@ -149,11 +166,15 @@ export function screenData(version: string) {
   return {
     version,
     now: iso,
-    name: shownName(l),
+    name: s.labName === 'acronym' && l.acronym ? l.acronym : l.name,
     hasLogo: hasLogo(),
     bgV: l.bgV,
     interval: s.interval,
     theme: s.theme,
+    atmoSwitch: s.atmoSwitch,
+    pages: s.pages,
+    labShow: s.labShow,
+    inst: { show: s.inst, name: l.institution, hasLogo: !!l.instLogo },
     hours: l.hours,
     weekFrom: mon.toISOString(),
     equipment,
@@ -168,7 +189,7 @@ export function registerScreen(
   app: FastifyInstance,
   auth: (need?: any) => any,
   bad: (reply: any, p: any) => any,
-  adminOf: (req: any) => boolean,
+  signedIn: (req: any) => boolean,
   version: string,
 ) {
   const tries = new Limiter(10, 10 * 60e3);
@@ -186,7 +207,7 @@ export function registerScreen(
       secure: req.protocol === 'https',
       maxAge: KEEP / 1000,
     });
-  /** The screen itself, or an admin looking at it. */
+  /** The screen itself, or someone signed in looking at it (0.60.1: Display mode in the side menu; admins only before). */
   const viewer = async (req: any, reply: any) => {
     const sc = screenOf(req);
     if (sc) {
@@ -196,7 +217,7 @@ export function registerScreen(
       keep(req, reply, req.cookies[COOKIE]);
       return;
     }
-    if (adminOf(req)) return;
+    if (signedIn(req)) return;
     return reply.code(401).send({
       error: screenSettings().on ? 'type the lab screen password' : 'the lab screen is off',
       on: screenSettings().on,
@@ -230,7 +251,7 @@ export function registerScreen(
     return { ok: true };
   });
 
-  // ---- Admin settings › Lab screen ----
+  // ---- Admin settings › Display mode ----
   const out = () => {
     const s = screenSettings();
     const open = db.prepare('SELECT COUNT(*) AS n, MAX(seen) AS seen FROM screen_sessions').get() as {
@@ -243,6 +264,13 @@ export function registerScreen(
       interval: s.interval,
       theme: s.theme,
       limits: s.limits,
+      atmoSwitch: s.atmoSwitch,
+      pages: s.pages,
+      labShow: s.labShow,
+      labName: s.labName,
+      inst: s.inst,
+      // what the choices can show: an acronym, an institution's name and logo (Lab setup)
+      has: { acronym: !!lab().acronym, institution: !!lab().institution, instLogo: !!lab().instLogo, logo: hasLogo() },
       screens: s.on ? open.n : 0,
       seen: s.on ? open.seen : null,
       gloveboxes: db
@@ -270,6 +298,11 @@ export function registerScreen(
     }
     if (d.interval !== undefined) s.interval = d.interval;
     if (d.theme !== undefined) s.theme = d.theme;
+    if (d.atmoSwitch !== undefined) s.atmoSwitch = d.atmoSwitch;
+    if (d.pages !== undefined) s.pages = [...new Set(d.pages)].sort() as (1 | 2 | 3)[];
+    if (d.labShow !== undefined) s.labShow = d.labShow;
+    if (d.labName !== undefined) s.labName = d.labName;
+    if (d.inst !== undefined) s.inst = d.inst;
     if (d.limits) {
       const lim = { ...s.limits };
       for (const [id, v] of Object.entries(d.limits))

@@ -591,6 +591,15 @@ CREATE TABLE IF NOT EXISTS equipment_off(id INTEGER PRIMARY KEY, equipment_id IN
       db.exec('CREATE TABLE IF NOT EXISTS screen_sessions(token TEXT PRIMARY KEY, made TEXT NOT NULL, seen TEXT)');
     },
   },
+  {
+    id: 47,
+    owner: 'core',
+    name: 'equipment: people at the same time (0.60.1)',
+    up: (db) => {
+      // how many bookings may overlap (Richard: the lab has two substrate cleaners, booked as one); 1 keeps what was
+      add(db, 'equipment', 'capacity', 'INTEGER NOT NULL DEFAULT 1');
+    },
+  },
 ];
 
 /**

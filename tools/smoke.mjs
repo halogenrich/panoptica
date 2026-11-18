@@ -2078,8 +2078,8 @@ console.log('The lab screen (0.59)');
   );
   ok((await call('GET', '/api/screen')).s === 200, 'an admin signed in opens it too');
   ok(
-    (await fetch(base + '/api/screen', { headers: { cookie: anaCookie } })).status === 401,
-    'a member needs the password',
+    (await fetch(base + '/api/screen', { headers: { cookie: anaCookie } })).status === 200,
+    'a member signed in sees it too (Display mode in the side menu, 0.60.1)',
   );
   ok(DEV ? 'devices' in d.j.modules : !('devices' in d.j.modules), 'the best device comes from Electronic Devices');
   if (DEV) {
@@ -2133,6 +2133,58 @@ console.log('The lab screen (0.59)');
   await call('PUT', '/api/screen/settings', { on: false });
   ok((await asTv('GET', '/api/screen')).s === 401, 'and so does turning it off');
   db.prepare("DELETE FROM bookings WHERE purpose='smoke'").run();
+}
+
+console.log('People at the same time; Display mode (0.60.1)');
+{
+  const eq = await call('POST', '/api/equipment', { name: 'Smoke substrate cleaner' });
+  const lone = await call('POST', '/api/equipment', { name: 'Smoke lone cleaner' });
+  const at = (h, m = 0) => new Date(2031, 2, 3, h, m).toISOString();
+  const book = (id, a, z) =>
+    call('POST', '/api/bookings', { equipment_id: id, subject: '', purpose: 'smoke capacity', start: a, end: z });
+  ok((await call('PATCH', '/api/equipment/' + eq.j.id, { capacity: 2 })).s === 200, 'people at the same time set to 2');
+  ok((await call('PATCH', '/api/equipment/' + eq.j.id, { capacity: 0 })).s === 400, 'and never under 1');
+  ok((await call('GET', '/api/equipment/' + eq.j.id)).j.capacity === 2, 'the equipment says it');
+  const b1 = await book(eq.j.id, at(9), at(11));
+  const b2 = await book(eq.j.id, at(10), at(12));
+  ok(b1.s === 200 && b2.s === 200, 'two people book it at overlapping times');
+  const b3 = await book(eq.j.id, at(10, 30), at(11, 30));
+  ok(
+    b3.s === 409 && /already has 2 people booked/.test(b3.j.error),
+    'a third at a time both hold is refused, naming the number',
+  );
+  ok((await book(eq.j.id, at(11), at(12))).s === 200, 'once the first has ended, another fits beside the second');
+  ok(
+    (await book(lone.j.id, at(9), at(11))).s === 200 && (await book(lone.j.id, at(10), at(12))).s === 409,
+    'equipment for one person still takes one booking at a time',
+  );
+  db.prepare("DELETE FROM bookings WHERE purpose='smoke capacity'").run();
+
+  // Display mode: the screens, their timing and the top left
+  const s0 = (await call('GET', '/api/screen/settings')).j;
+  ok(
+    s0.atmoSwitch === 10 && s0.pages.join() === '1,2,3' && s0.labShow === 'both' && s0.inst === 'none',
+    'by default: today for 10 s, all three screens, the lab’s logo and name, no institution',
+  );
+  ok((await call('PUT', '/api/screen/settings', { pages: [] })).s === 400, 'at least one screen shows');
+  ok((await call('PUT', '/api/screen/settings', { atmoSwitch: 3 })).s === 400, 'today shows at least 5 seconds');
+  const s1 = (
+    await call('PUT', '/api/screen/settings', { pages: [3, 1], atmoSwitch: 15, labShow: 'logo', inst: 'name' })
+  ).j;
+  ok(
+    s1.pages.join() === '1,3' && s1.atmoSwitch === 15 && s1.labShow === 'logo' && s1.inst === 'name',
+    'are saved, screens in order',
+  );
+  const d = (await call('GET', '/api/screen')).j;
+  ok(
+    d.pages.join() === '1,3' &&
+      d.atmoSwitch === 15 &&
+      d.labShow === 'logo' &&
+      d.inst.show === 'name' &&
+      'hasLogo' in d.inst,
+    'and the screen reads them',
+  );
+  await call('PUT', '/api/screen/settings', { pages: [1, 2, 3], atmoSwitch: 10, labShow: 'both', inst: 'none' });
 }
 
 console.log('The Overview section (0.60)');
