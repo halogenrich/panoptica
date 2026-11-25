@@ -200,25 +200,42 @@ function useNow() {
   return now;
 }
 
+/**
+ * Which screen shows, and the bar under the dots, from one clock (0.61). Before, a timer switched the screens and a CSS animation
+ * filled the bar: two clocks that could drift apart (Richard, 25 Nov: the bar still went wrong after the seconds were changed, on
+ * the lab's TV). Now each frame reads how long the current run has lasted and derives both from it. The clock is the browser's
+ * monotonic one, so a change of the computer's time does not move the screens; a change of the seconds starts a new run.
+ */
+function useRotation(count: number, seconds: number, which: string) {
+  const [at, setAt] = useState(0),
+    bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    setAt(0);
+    const ms = Math.max(1, seconds) * 1000,
+      t0 = performance.now();
+    let shown = 0,
+      frame = 0;
+    const tick = () => {
+      const run = performance.now() - t0,
+        i = count > 1 ? Math.floor(run / ms) % count : 0;
+      if (i !== shown) setAt((shown = i));
+      if (bar.current) bar.current.style.transform = `scaleX(${((run % ms) / ms).toFixed(4)})`;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    // a hidden tab gets no frames: the next frame catches up from the clock
+    return () => cancelAnimationFrame(frame);
+  }, [count, seconds, which]);
+  return { at, bar };
+}
+
 function Screen({ d, lost, onLeave }: { d: ScreenData; lost: boolean; onLeave?: () => void }) {
   const now = useNow(),
     pages = d.pages?.length ? d.pages : [1, 2, 3],
-    [at, setAt] = useState(0),
-    // counts every start of a screen's time, so the bar under the dots starts again with it (0.60.2: after the seconds were
-    // changed the bar kept its old run, out of step with the switch)
-    [run, setRun] = useState(0),
+    // a new set of screens starts the rotation again, as a new number of seconds does
+    { at, bar } = useRotation(pages.length, d.interval, pages.join()),
     page = pages[at % pages.length],
     [idle, setIdle] = useState(false);
-  useEffect(() => {
-    setAt(0);
-    setRun((n) => n + 1);
-    if (pages.length < 2) return;
-    const t = setInterval(() => {
-      setAt((p) => (p + 1) % pages.length);
-      setRun((n) => n + 1);
-    }, d.interval * 1000);
-    return () => clearInterval(t);
-  }, [d.interval, pages.join()]);
   // the pointer hides when nobody moves it; a double click turns full screen on and off
   useEffect(() => {
     let t = setTimeout(() => setIdle(true), 3000);
@@ -273,7 +290,7 @@ function Screen({ d, lost, onLeave }: { d: ScreenData; lost: boolean; onLeave?: 
               </span>
               {/* fills up until the next screen (Richard) */}
               <span className="ls-timer" aria-hidden="true">
-                <i key={run} style={{ animationDuration: `${d.interval}s` }} />
+                <i ref={bar} />
               </span>
             </span>
           )}

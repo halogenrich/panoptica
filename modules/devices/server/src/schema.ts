@@ -250,6 +250,20 @@ CREATE TABLE IF NOT EXISTS comparisons(
       d.exec("UPDATE presets SET visibility='shared' WHERE segment IN ('sub','mask') AND visibility<>'shared'");
     },
   },
+  {
+    id: 48,
+    owner: 'devices',
+    name: 'lines of research (0.61): which stack continues a line, a line’s own name and colour, the lines each person shows',
+    up: (d) => {
+      // set on the stack where it branches, by its owner; empty: the oldest stack made from it continues
+      add(d, 'presets', 'line_next', 'INTEGER REFERENCES presets(id) ON DELETE SET NULL');
+      d.exec(`
+CREATE TABLE IF NOT EXISTS stack_lines(
+  stack_id INTEGER PRIMARY KEY REFERENCES presets(id) ON DELETE CASCADE, name TEXT, color TEXT);
+CREATE TABLE IF NOT EXISTS line_picks(
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, ids TEXT NOT NULL DEFAULT '[]');`);
+    },
+  },
 ];
 migrate(db, MIGRATIONS);
 // 0.55.3: how many stored curves migration 42 corrected, once, in the activity log

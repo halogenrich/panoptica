@@ -4,6 +4,7 @@ import { retakeForBatch } from './takes.js';
 import { PresetIn, RunIn } from '@psc/devices/schema';
 import { DESIGN_SEGMENTS } from '@psc/devices';
 import { notifyFork } from './notices.js';
+import { stackLines } from './lines.js';
 import { canSee, db } from '@psc/server/api';
 
 type Row = {
@@ -172,11 +173,25 @@ export function registerPresets(
     const r = db.prepare(SELECT + ' WHERE p.id=? AND p.deleted_at IS NULL').get(+req.params.id) as Row | undefined;
     if (!r || !canSee(req.user, r)) return reply.code(404).send({ error: 'not found' });
     const use = usageMap();
+    // stacks (0.61): which stack made from each one continues its line, and whether the viewer may choose it (its owner)
+    const lines = r.segment === 'stk' ? stackLines() : null,
+      line = (f: Row) =>
+        lines
+          ? (() => {
+              const l = lines.meta(lines.tree.lineOf.get(f.id) ?? f.id, req.user);
+              return {
+                next: lines.tree.next(f.id),
+                mayChoose: f.owner_id === req.user.id,
+                line: l,
+              };
+            })()
+          : {};
     return {
       ...r,
       data: JSON.parse(r.data),
       mine: r.owner_id === req.user.id ? 1 : 0,
       usage: use(r.id),
+      ...(lines ? { line: lines.meta(lines.tree.lineOf.get(r.id) ?? r.id, req.user) } : {}),
       family: family(r.id).map((f) =>
         canSee(req.user, f)
           ? {
@@ -186,6 +201,7 @@ export function registerPresets(
               owner: f.owner,
               updated_at: f.updated_at,
               data: JSON.parse(f.data),
+              ...line(f),
             }
           : {
               id: f.id,
@@ -194,6 +210,7 @@ export function registerPresets(
               owner: f.owner,
               updated_at: f.updated_at,
               hidden: true,
+              ...line(f),
             },
       ),
     };

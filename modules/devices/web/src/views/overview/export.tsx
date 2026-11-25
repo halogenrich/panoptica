@@ -6,97 +6,9 @@ import { Modal, Seg } from '@web/lib/ui';
 import { BFH, BFW, BoxFigure, OutlierToggle, TITLES, useOutliers } from '../../iv/BoxFigure';
 import { boxes, dirsOf } from '../../iv/boxes';
 import { METRICS, fmt, inStats, statRows, type Curve, type IvSetFull, type MetricKey } from '../../iv/model';
-import { BLUE, INK, MUT, ORANGE, RULE, SF, SlideFrame } from '@web/views/overview/slides';
+import { INK, MUT, SF, SlideFrame } from '@web/views/overview/slides';
+import { SlideLines, type LineMeta, type LinePt } from './lines';
 
-/** Electronic Devices' slides: devices over time, and "Export for a presentation" on My progress (devices over time, the best
- * device's J–V curve, the box plot of its batch). */
-export function SlideTrend({
-  points,
-  x,
-  y,
-  w,
-  h,
-  tickOf,
-}: {
-  points: { x: string; best: number | null; median: number | null }[];
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  tickOf: (s: string) => string;
-}) {
-  const vals = points.flatMap((p) => [p.best, p.median]).filter((v): v is number => v != null);
-  if (!vals.length)
-    return (
-      <text x={x} y={y + 60} fontSize={30} fill={MUT}>
-        No working devices measured in this time.
-      </text>
-    );
-  const lo = Math.max(0, Math.floor((Math.min(...vals) - 2) / 5) * 5),
-    hi = Math.ceil((Math.max(...vals) + 1) / 5) * 5,
-    L = 70,
-    B = 50,
-    PW = w - L - 250, // room on the right for the "Typical 21.2 %" labels
-    PH = h - B;
-  const X = (i: number) => x + L + (points.length === 1 ? PW / 2 : (i / (points.length - 1)) * PW),
-    Y = (v: number) => y + PH - ((v - lo) / (hi - lo || 1)) * PH;
-  const path = (k: 'best' | 'median') =>
-    points
-      .map((p, i) => (p[k] == null ? '' : `${i && points[i - 1][k] != null ? 'L' : 'M'}${X(i)},${Y(p[k]!)}`))
-      .join('');
-  const lastI = (k: 'best' | 'median') => {
-    for (let i = points.length - 1; i >= 0; i--) if (points[i][k] != null) return i;
-    return -1;
-  };
-  // end labels apart when the lines end together (one device: best = median)
-  const endY = (k: 'best' | 'median') => {
-    const b = lastI('best'),
-      m = lastI('median'),
-      y = Y(points[lastI(k)][k]!);
-    if (b < 0 || m < 0 || b !== m) return y;
-    const gap = Y(points[m].median!) - Y(points[b].best!);
-    return gap >= 34 ? y : k === 'best' ? y - (34 - gap) / 2 : y + (34 - gap) / 2;
-  };
-  return (
-    <g fontFamily={SF}>
-      {Array.from({ length: Math.round((hi - lo) / 5) + 1 }, (_, i) => lo + i * 5).map((v) => (
-        <g key={v}>
-          <line x1={x + L} x2={x + L + PW} y1={Y(v)} y2={Y(v)} stroke={RULE} strokeWidth={2} />
-          <text x={x + L - 16} y={Y(v)} fontSize={24} fill={MUT} textAnchor="end" dominantBaseline="central">
-            {v} %
-          </text>
-        </g>
-      ))}
-      {points.map(
-        (p, i) =>
-          (i % Math.ceil(points.length / 8) === 0 || i === points.length - 1) && (
-            <text key={i} x={X(i)} y={y + PH + 40} fontSize={24} fill={MUT} textAnchor="middle">
-              {tickOf(p.x)}
-            </text>
-          ),
-      )}
-      {(
-        [
-          ['median', ORANGE],
-          ['best', BLUE],
-        ] as const
-      ).map(([k, c]) => (
-        <g key={k}>
-          <path d={path(k)} fill="none" stroke={c} strokeWidth={5} strokeLinejoin="round" />
-          {points.map(
-            (p, i) =>
-              p[k] != null && <circle key={i} cx={X(i)} cy={Y(p[k]!)} r={9} fill={c} stroke="#fff" strokeWidth={3} />,
-          )}
-          {lastI(k) >= 0 && (
-            <text x={X(lastI(k)) + 20} y={endY(k)} fontSize={28} fill={INK} dominantBaseline="central">
-              {k === 'best' ? 'Best' : 'Typical'} {points[lastI(k)][k]!.toFixed(1)} %
-            </text>
-          )}
-        </g>
-      ))}
-    </g>
-  );
-}
 // ------------------------------------------------------------------ export for a presentation
 /** A device: the measurement and the sample and substrate in it; with the batch its sample is linked to, when there is one. */
 export type TopCell = {
@@ -109,7 +21,6 @@ export type TopCell = {
   batchId?: number | null;
   batch?: string;
 };
-type Pt = { x: string; best: number | null; median: number | null };
 type Rows = ReturnType<typeof statRows>;
 export type BestCell = { set: IvSetFull; curves: Curve[]; best: Curve; batch: Rows; group: string };
 
@@ -159,16 +70,16 @@ export function useBestCell(top: TopCell | undefined | null) {
   return st;
 }
 
-/** Efficiency over time on its own, for a custom slide. */
+/** The lines of research on their own, for a custom slide (0.61). */
 function TrendFigure({
+  lines,
   points,
-  tickOf,
   svgRef,
   title,
   note,
 }: {
-  points: Pt[];
-  tickOf: (s: string) => string;
+  lines: LineMeta[];
+  points: LinePt[];
   svgRef?: React.Ref<SVGSVGElement>;
   title: string;
   note: string;
@@ -189,7 +100,7 @@ function TrendFigure({
       <text x={40} y={92} fontSize={20} fill={MUT}>
         {note}
       </text>
-      <SlideTrend points={points} x={40} y={140} w={1140} h={440} tickOf={tickOf} />
+      <SlideLines lines={lines} points={points} x={40} y={120} w={1140} h={480} />
     </svg>
   );
 }
@@ -212,8 +123,8 @@ const PICKED = 'psc-slide-box';
 export function PresentationExport({
   title,
   sub,
+  lines,
   points,
-  tickOf,
   trendTitle,
   trendNote,
   top,
@@ -222,8 +133,8 @@ export function PresentationExport({
 }: {
   title: string;
   sub: string;
-  points: Pt[];
-  tickOf: (s: string) => string;
+  lines: LineMeta[];
+  points: LinePt[];
   trendTitle: string;
   trendNote: string;
   top: TopCell | null | undefined;
@@ -293,7 +204,7 @@ export function PresentationExport({
       <text x={110} y={240} fontSize={28} fontWeight={600} fill={INK}>
         {trendTitle}
       </text>
-      <SlideTrend points={points} x={80} y={270} w={900} h={300} tickOf={tickOf} />
+      <SlideLines lines={lines} points={points} x={80} y={255} w={900} h={330} />
       {ok ? (
         <>
           <text x={110} y={660} fontSize={28} fontWeight={600} fill={INK}>
@@ -385,7 +296,7 @@ export function PresentationExport({
             true,
             2,
           )}
-          {row('trend', trendTitle, 'Best and typical device of each', `devices-over-time-${file}`)}
+          {row('trend', trendTitle, 'Each batch at its best device, by line', `lines-of-research-${file}`)}
           {row('jv', 'Best device: J–V curve', ok ? jvTitle : 'No working device yet', `best-device-jv-${file}`, !!ok)}
           {row(
             'box',
@@ -401,7 +312,7 @@ export function PresentationExport({
       </div>
       {/* the single figures, drawn off screen at full size for export */}
       <div className="slide-holder" aria-hidden>
-        <TrendFigure svgRef={refs.trend} points={points} tickOf={tickOf} title={trendTitle} note={trendNote} />
+        <TrendFigure svgRef={refs.trend} lines={lines} points={points} title={trendTitle} note={trendNote} />
         {ok && (
           <JvFigure
             svgRef={refs.jv}

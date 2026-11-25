@@ -1048,7 +1048,7 @@ try {
       await page.locator('.ov-person h2').waitFor();
       if (!CORE) {
         await page.locator('.ov-stat').filter({ hasText: 'Best device so far' }).waitFor();
-        await page.getByRole('heading', { name: 'Best device of each batch' }).waitFor();
+        await page.getByRole('heading', { name: 'Lines of research' }).waitFor();
         await shot('overview-progress.png');
         await page.getByRole('button', { name: 'Export for a presentation' }).click();
         const dlg = page.locator('.pe');
@@ -1122,6 +1122,124 @@ try {
       await page.locator('nav.side').waitFor();
     },
   );
+
+  if (!CORE)
+    await step(
+      'lines of research on My progress and the Lab page; the owner names a line, picks its colour and the branch that continues it (0.61)',
+      async () => {
+        const shot = async (name) => {
+          if (process.env.SHOTS) await page.screenshot({ path: join(root, 'out', name), fullPage: true });
+        };
+        const stk = async (name, parent_id) =>
+          (
+            await api('POST', '/presets', {
+              segment: 'stk',
+              name,
+              visibility: 'shared',
+              data: { arch: 'p-i-n', sl: [{ n: 'Perovskite', m: 'Manual', a: '', b: '', t: name }] },
+              ...(parent_id ? { parent_id } : {}),
+            })
+          ).j.id;
+        const A = await stk('Line A'),
+          A2 = await stk('Line A v2', A),
+          B = await stk('Line A branch', A);
+        const V = Array.from({ length: 116 }, (_, i) => +(i * 0.01).toFixed(2));
+        const batch = async (name, source, date, k) => {
+          const b = (
+            await api('POST', '/batches', { name, visibility: 'shared', source, stack: { arch: 'p-i-n', sl: [] } })
+          ).j;
+          const sample = 'Line_' + b.id;
+          await api('POST', '/iv', {
+            name: name + ' J–V',
+            date,
+            system: 'csv',
+            visibility: 'shared',
+            curves: [
+              {
+                file: sample,
+                sample,
+                substrate: '1',
+                scan: '01',
+                pixel: '1',
+                dir: 'rev',
+                area: 0.1,
+                pin: 100,
+                V: [...V].reverse(),
+                J: V.map((v) => 23 * k * (1 - Math.exp((v - 1.12) / 0.035))).reverse(),
+              },
+            ],
+            links: { [sample]: { kind: 'batch', id: b.id } },
+          });
+          return b.id;
+        };
+        await batch('Line batch 1', A, '2026-04-02', 0.9);
+        await batch('Line batch 2', A2, '2026-04-20', 1.0);
+        await batch('Line branch batch', B, '2026-04-25', 1.05);
+        // My progress: each line in the key, a dot per batch, what a batch changed on hover
+        await nav('My progress');
+        const keys = page.locator('.lines-keys');
+        await keys.getByText('Line A', { exact: true }).waitFor();
+        await keys.getByText('Line A branch', { exact: true }).waitFor();
+        const dots = page.locator('.lines-viz .line-dot');
+        expect((await dots.count()) >= 3, 'the batches have no dots');
+        await page.locator('.lines-viz').scrollIntoViewIfNeeded();
+        let tip = false;
+        for (let i = 0; i < (await dots.count()) && !tip; i++) {
+          const bx = await dots.nth(i).boundingBox();
+          await page.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2);
+          tip = await page
+            .locator('.line-tip')
+            .filter({ hasText: 'Line batch 2' })
+            .waitFor({ timeout: 800 })
+            .then(() => true)
+            .catch(() => false);
+        }
+        expect(tip, 'hovering the second batch shows nothing');
+        await page
+          .locator('.line-tip')
+          .getByText(/Against Line A:|Same recipes as Line A/)
+          .waitFor();
+        await shot('lines-progress.png');
+        await page.mouse.move(5, 5);
+        // the owner names the line and picks its colour from its name in the key
+        await keys.getByRole('button', { name: 'Line A', exact: true }).click();
+        const dlg = page.getByRole('dialog', { name: 'Line of research' });
+        await dlg.getByLabel('Name').fill('Main line');
+        await dlg.getByLabel('Colour').fill('#112233');
+        await dlg.getByRole('button', { name: 'Save' }).click();
+        await keys.getByText('Main line', { exact: true }).waitFor();
+        const bar = await keys
+          .locator('.line-key', { hasText: 'Main line' })
+          .evaluate((n) => getComputedStyle(n).borderBottomColor);
+        expect(bar === 'rgb(17, 34, 51)', `the line's colour is ${bar}`);
+        // the Lab page: each person picks the lines it shows, and the pick is kept
+        await nav('Lab');
+        const pick = page.locator('.lines-pick');
+        await pick.locator('.chip', { hasText: 'Main line' }).waitFor();
+        const branch = pick.locator('.chip', { hasText: 'Line A branch' });
+        const was = await branch.getAttribute('aria-pressed');
+        await branch.click();
+        const shown = async () => (await api('GET', '/lines')).j.shown ?? [];
+        for (let i = 0; i < 20 && (await shown()).includes(B) === (was === 'true'); i++) await page.waitForTimeout(100);
+        expect((await shown()).includes(B) !== (was === 'true'), 'the pick was not kept');
+        await shot('lines-lab.png');
+        // the branch: the owner of the stack where it branches chooses which continues the line
+        await page.evaluate((id) => (location.hash = '#/stk/' + id), A);
+        await page.getByRole('tab', { name: 'History' }).click();
+        await page.locator('.tree-line').getByText('Starts the line “Line A branch”').waitFor();
+        await page.getByRole('button', { name: 'Continue the line here' }).click();
+        await page.locator('.tree-line').getByText('Continues the line “Main line”').waitFor();
+        await page.locator('.tree-line').getByText('Starts the line “Line A v2”').waitFor();
+        await shot('lines-history.png');
+        const L = (await api('GET', '/lines')).j;
+        expect(
+          L.points.find((p) => p.name === 'Line branch batch')?.line === A &&
+            L.points.find((p) => p.name === 'Line batch 2')?.line === A2,
+          'the branch chosen does not continue the line',
+        );
+        await page.keyboard.press('Escape');
+      },
+    );
 
   if (!CORE)
     await step('the trash names what each item is, and restores it', async () => {
@@ -1732,6 +1850,26 @@ try {
         expect(bg !== 'rgba(0, 0, 0, 0)', 'equipment in use has no background');
       }
       await t.locator('.ls-timer i').waitFor();
+      // the bar under the dots fills from the same clock that switches the screens, and starts again when the seconds change
+      // (0.61: Richard saw it go wrong after a change on the lab's TV)
+      const fill = () => t.locator('.ls-timer i').evaluate((n) => new DOMMatrix(getComputedStyle(n).transform).a);
+      expect((await api('PUT', '/screen/settings', { interval: 120 })).s === 200, 'the seconds were not changed');
+      // the TV reads the settings again a moment after the change (it waits 0.8 s for a burst of changes to end)
+      await t.waitForTimeout(2500);
+      const f1 = await fill();
+      expect(f1 < 0.08, `the bar did not start again with the new seconds: ${f1}`);
+      await t.waitForTimeout(1500);
+      const f2 = await fill();
+      expect(f2 > f1 && f2 - f1 < 0.05, `the bar did not fill with the time: ${f1} then ${f2}`);
+      expect((await api('PUT', '/screen/settings', { interval: 60 })).s === 200, 'the seconds were not changed again');
+      await t.waitForFunction((was) => {
+        const n = document.querySelector('.ls-timer i');
+        return n && new DOMMatrix(getComputedStyle(n).transform).a < was;
+      }, f2);
+      await t.waitForTimeout(1500);
+      const f3 = await fill();
+      expect(f3 > 0.01 && f3 < 0.2, `after the change the bar is at ${f3} (1.5 s of 60)`);
+      await api('PUT', '/screen/settings', { interval: 20 });
       await second();
       await t.getByRole('heading', { name: 'Today', exact: true }).waitFor();
       await t.locator('.ls-day-now').waitFor();

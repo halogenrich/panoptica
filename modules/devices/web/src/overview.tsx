@@ -4,7 +4,7 @@ import { PresentationExport, useBestCell } from './views/overview/export';
 import type { OverviewPart, PersonHead, PersonProps, SumProps } from '@web/modules/types';
 import { JvFigure } from './iv/JvFigure';
 import { fmt } from './iv/model';
-import LineChart from './LineChart';
+import { LabLines, LinesChart, type LineMeta, type LinePt } from './views/overview/lines';
 
 /**
  * Electronic Devices in the Overview (0.42; reworked in 0.60). Lab: the period's numbers, its best device with its J–V curve, the
@@ -46,6 +46,8 @@ type Point = {
   devices: number;
   best: number;
   median: number | null;
+  /** the batch's line of research (0.61); null: in no line, or a measurement linked to no batch */
+  line: number | null;
 };
 type PersonPage = {
   progress: {
@@ -59,6 +61,7 @@ type PersonPage = {
   }[];
   batches: { id: number; code: string; name: string; status: string; created_at: string; best: number | null }[];
   points: Point[];
+  lines: LineMeta[];
   best: {
     pce: number;
     setId: number;
@@ -123,6 +126,7 @@ function LabPart({ m, d, open }: SumProps<Dev>) {
           </div>
         )}
       </section>
+      <LabLines open={open} />
       <More title="Best devices" count={m.top.length}>
         {m.top.length ? (
           <ol className="ov-list num">
@@ -196,16 +200,7 @@ function LabPart({ m, d, open }: SumProps<Dev>) {
   );
 }
 
-const tickDay = (x: string) =>
-  new Date(x + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
-const batchPoints = (p: PersonPage) =>
-  p.points.map((x) => ({
-    x: x.day,
-    best: x.best,
-    median: x.median,
-    n: x.devices,
-    title: `${x.name}${x.kind === 'set' ? ' (measurement)' : ''}, ${fmtDate(x.day)}`,
-  }));
+const linePoints = (p: PersonPage): LinePt[] => p.points.map((x) => ({ ...x, line: x.line ?? null }));
 const facts = (p: PersonPage) => ({
   devs: p.points.reduce((a, x) => a + x.devices, 0),
   done: p.batches.filter((b) => b.status === 'done').length,
@@ -235,16 +230,17 @@ function Person({ m: p, open }: PersonProps<PersonPage>) {
         ]}
       />
       <section className="group">
-        <h4 className="ov-h">Best device of each batch</h4>
-        <LineChart
-          h={220}
-          points={batchPoints(p)}
-          xLabel="Batch"
-          unitTick={tickDay}
+        <h4 className="ov-h">Lines of research</h4>
+        <LinesChart
+          h={240}
+          lines={p.lines ?? []}
+          points={linePoints(p)}
+          open={open}
           empty="No working devices measured yet."
         />
         <p className="mut small ov-foot">
-          Each point is a batch at its first measurement. Devices linked to no batch count with their measurement.
+          Each dot is a batch at its best device, on the day it was first measured. Grey: batches in no line, and
+          measurements linked to no batch.
         </p>
       </section>
       <div className="ov-two">
@@ -323,10 +319,10 @@ function PersonExport({ m: p, who, onClose }: { m: PersonPage; who: PersonHead; 
     <PresentationExport
       title={who.name}
       sub={sub}
-      points={p.points.map((x) => ({ x: x.day, best: x.best, median: x.median }))}
-      tickOf={tickDay}
-      trendTitle="Best device of each batch"
-      trendNote="Best and typical (median) device of each batch, at its first measurement"
+      lines={p.lines ?? []}
+      points={linePoints(p)}
+      trendTitle="Lines of research"
+      trendNote="Each dot is a batch at its best device, on the day it was first measured"
       top={top}
       file={who.username}
       onClose={onClose}

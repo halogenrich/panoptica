@@ -11,6 +11,7 @@ import { Badge, Empty, LayoutToggle, Modal, Seg, fmtDate, useLayout, useToast } 
 import { trashed, useRefresh } from '@web/lib/trash';
 import Comments, { useCommentCount } from '@web/lib/Comments';
 import { Picker } from '@web/views/Picker';
+import { LineEdit, type LineMeta } from '../views/overview/lines';
 const CommentsLabel = ({ id }: { id: number }) => {
   const n = useCommentCount('preset', id);
   return <>Comments{n ? ` (${n})` : ''}</>;
@@ -25,6 +26,10 @@ type FamNode = {
   updated_at: string;
   data?: any;
   hidden?: boolean;
+  /** stacks (0.61): which stack made from this one continues its line, whether the viewer may choose it, and its line */
+  next?: number | null;
+  mayChoose?: boolean;
+  line?: LineMeta;
 };
 type Detail = Row & {
   usage: {
@@ -639,7 +644,9 @@ export function PresetSheet({
           </div>
         )}
         {tab === 'runs' && <RunData kind={kind} ctx={ctx} id={p.id} d={d} />}
-        {tab === 'history' && <History kind={kind} ctx={ctx} det={p} onOpen={onOpen} />}
+        {tab === 'history' && (
+          <History kind={kind} ctx={ctx} det={p} onOpen={onOpen} onChanged={() => fetchDet(p.id)} />
+        )}
         {tab === 'comments' && <Comments kind="preset" id={p.id} />}
       </div>
     </Modal>
@@ -972,9 +979,23 @@ function RunData({ kind, ctx, id, d }: { kind: Kind; ctx: Ctx; id: number; d: an
   );
 }
 
-function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail; onOpen: (id: number) => void }) {
+function History({
+  kind,
+  ctx,
+  det,
+  onOpen,
+  onChanged,
+}: {
+  kind: Kind;
+  ctx: Ctx;
+  det: Detail;
+  onOpen: (id: number) => void;
+  onChanged: () => void;
+}) {
   const fam = det.family,
-    byId = new Map(fam.map((f) => [f.id, f]));
+    byId = new Map(fam.map((f) => [f.id, f])),
+    [err, setErr] = useState(''),
+    [edit, setEdit] = useState<LineMeta | null>(null);
   const root = fam.find((f) => !f.parent_id || !byId.has(f.parent_id)) ?? fam[0];
   const diff = (f: FamNode) => {
     const par = f.parent_id ? byId.get(f.parent_id) : undefined;
@@ -985,9 +1006,19 @@ function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail
       .filter((k) => a[k] !== b[k])
       .map((k) => `${k}: ${oneLine(a[k] ?? '—')} → ${oneLine(b[k] ?? '—')}`);
   };
+  // stacks (0.61): where a stack branches, its owner chooses which stack continues its line of research
+  const continueHere = (parent: FamNode, f: FamNode) =>
+    api(`/presets/${parent.id}/line`, 'PUT', { next: f.id })
+      .then(() => {
+        setErr('');
+        onChanged();
+      })
+      .catch((e) => setErr(e.message));
   const node = (f: FamNode, depth: number): React.ReactNode => {
     const kids = fam.filter((c) => c.parent_id === f.id).sort((x, y) => x.id - y.id),
-      ch = diff(f);
+      ch = diff(f),
+      par = f.parent_id ? byId.get(f.parent_id) : undefined,
+      branches = !!f.line && !!par && fam.filter((c) => c.parent_id === par.id).length > 1;
     return (
       <div key={f.id}>
         <button
@@ -996,7 +1027,7 @@ function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail
           disabled={f.hidden || f.id === det.id}
           onClick={() => onOpen(f.id)}
         >
-          <span className="dot" />
+          <span className="dot" style={f.line ? { background: f.line.color } : undefined} />
           <span>
             <b>{f.name}</b>{' '}
             <span className="mut">
@@ -1010,6 +1041,28 @@ function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail
             )}
           </span>
         </button>
+        {f.line && (branches || f === root) && (
+          <div className="tree-line" style={{ paddingLeft: 29 + depth * 24 }}>
+            {par && par.next === f.id ? (
+              <span>Continues the line “{f.line.name}”</span>
+            ) : (
+              <>
+                <span>Starts the line “{f.line.name}”</span>
+                {par?.mayChoose && (
+                  <button type="button" className="link small" onClick={() => continueHere(par, f)}>
+                    Continue the line here
+                  </button>
+                )}
+                {/* the owner of a line's starting stack names it and picks its colour (Richard, 25 Nov) */}
+                {f.mayChoose && f.line.id === f.id && (
+                  <button type="button" className="link small" onClick={() => setEdit(f.line!)}>
+                    Name and colour
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
         {kids.map((k) => node(k, depth + 1))}
       </div>
     );
@@ -1020,6 +1073,25 @@ function History({ kind, ctx, det, onOpen }: { kind: Kind; ctx: Ctx; det: Detail
       text="Editing this preset while it is used by a stack or batch, or duplicating it, creates a new version here."
     />
   ) : (
-    <div className="tree">{node(root, 0)}</div>
+    <>
+      {kind.segment === 'stk' && root.line && (
+        <p className="mut small tree-note">
+          Each colour is a line of research. Where a stack branches, its owner chooses which stack continues the line;
+          the others start lines of their own.
+        </p>
+      )}
+      {err && <p className="err small">{err}</p>}
+      <div className="tree">{node(root, 0)}</div>
+      {edit && (
+        <LineEdit
+          l={edit}
+          onClose={() => setEdit(null)}
+          onSaved={() => {
+            setEdit(null);
+            onChanged();
+          }}
+        />
+      )}
+    </>
   );
 }
