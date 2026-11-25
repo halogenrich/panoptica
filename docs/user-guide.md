@@ -120,15 +120,24 @@ A batch freezes the stack, its recipes and the substances (with the container ea
 
 | Page | Who sees it | What it shows |
 | --- | --- | --- |
-| **Lab** | Everyone | A week or a month (‹ › move between periods): the typical device (median), batches and equipment time; the period's best device with its J–V curve; folded below, the best devices, the batches started or finished and the measurements. Admins, professors and Lab managers see all the lab's work; everyone else sees shared work and their own. |
+| **Lab** | Everyone | A week or a month (‹ › move between periods): the typical device (median), batches and equipment time; the period's best device with its J–V curve; the lines of research you pick (below); folded below, the best devices, the batches started or finished and the measurements. Admins, professors and Lab managers see all the lab's work; everyone else sees shared work and their own. |
 | **Students** | Admins, professors, Lab managers, and anyone named as supervisor or co-supervisor on a student's account | A card per person with what they did in the last 30 days, your own students first. Open a card for their progress. |
-| **My progress** | Everyone, for themselves; and from Students | Best device so far, devices measured, batches; the best device of each batch over time (hover for values, or **Show numbers**); their batches and recent measurements; equipment time and postponed or canceled steps, folded below. |
+| **My progress** | Everyone, for themselves; and from Students | Best device so far, devices measured, batches; their lines of research (below);  their batches and recent measurements; equipment time and postponed or canceled steps, folded below. |
 | **Equipment use** | Admins, professors and Lab managers | Booked hours per equipment and how busy it was (share of the lab's working hours), who booked it, and the steps postponed or canceled. **Export slide** gives a 16:9 slide. |
 | **Display mode** | Everyone | The lab screen, as on the TV, in this window. **Back to PANOPTICA** (or Escape) returns. Its settings are in Admin settings › Display mode. |
 
 A professor is anyone whose tags give **Private comments**. A device counts with its best working pixel; on My progress it counts for the batch its sample is linked to, or for its measurement when it is linked to none.
 
-**Export for a presentation** (My progress) shows a preview of a 16:9 slide with the person's best device of each batch over time, the J–V curve of their best device and the box plot of that device's batch (all its linked measurements, by variant), with the lab logo. Choose the box plot above the preview: **PCE**, **Voc**, **Jsc**, **FF** or **All four**; the choice is remembered in this browser. Download the full slide, or each figure on its own to build your own slide, as PNG (PowerPoint, Google Slides) or SVG (sharp at any size, editable).
+### Lines of research
+
+A **line of research** is a stack and the stacks that came from it, by **Duplicate** or by a new version saved when the stack was in use. It is named after its first stack. Each batch belongs to the line of the stack it was started from, and shows as a dot at its best device, on the day it was first measured. Hover a dot for the batch, its best and median device, and what it changed against the line's first stack; click it to open the batch; **Show numbers** lists them all.
+
+- **Where a stack branches** (two or more stacks came from it), one continues the line and each other one starts a line of its own. Until its owner chooses, the oldest continues. The owner chooses in the stack's **History**: **Continue the line here** under the stack that should continue it.
+- **Name and colour**: the owner of a line's first stack renames it and picks its colour, from **Name and colour** in the stack's History or by clicking the line's name on My progress. Everyone sees them. An empty name gives back the stack's.
+- **My progress** shows the lines of your own batches, with your batches only. Grey dots, not joined, are **Not in a line**: batches started from no stack, and measurements linked to no batch.
+- **Lab** shows the lines you pick with the toggles above the chart; the pick is kept on your account. Until you pick, it shows the three lines measured most recently. People who do not see all the lab's work see shared batches and their own.
+
+**Export for a presentation** (My progress) shows a preview of a 16:9 slide with the person's lines of research, the J–V curve of their best device and the box plot of that device's batch (all its linked measurements, by variant), with the lab logo. Choose the box plot above the preview: **PCE**, **Voc**, **Jsc**, **FF** or **All four**; the choice is remembered in this browser. Download the full slide, or each figure on its own to build your own slide, as PNG (PowerPoint, Google Slides) or SVG (sharp at any size, editable).
 
 ## Comparing pixels
 

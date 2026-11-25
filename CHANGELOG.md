@@ -2,6 +2,15 @@
 
 Each section becomes the notes of its GitHub release (the release workflow takes the section whose heading starts with the version).
 
+## 0.61.0 (2026-11-25)
+
+- **Lines of research** on My progress and the Lab page. A line is a stack and the stacks that came from it, by Duplicate or by a new version; each batch is a dot at its best device, on the day it was first measured, in the line of the stack it was started from. Hover a dot for its best and median device and what it changed against the line's first stack; click it to open the batch.
+- **Where a stack branches**, one stack continues the line and the others start lines of their own. The owner of the stack chooses which continues, in its History (**Continue the line here**); until then the oldest does. When someone makes a stack from yours and it now branches, the notification says so.
+- **A line's name and colour** are chosen by the owner of its first stack, from the stack's History or by clicking the line's name on My progress. Everyone sees them.
+- **My progress** shows the lines of your own batches, replacing "Best device of each batch". Batches started from no stack, and measurements linked to no batch, are grey dots: Not in a line. The slide in Export for a presentation shows the lines too.
+- **The Lab page** shows the lines each person picks with the toggles above the chart, kept on their account; until they pick, the three lines measured most recently.
+- **Display mode**: the bar under the dots and the switch between screens now run from the same clock, so the bar stays in step after the seconds per screen are changed.
+
 ## 0.60.2 (2026-11-18)
 
 - **Lab screen, first screen**: the equipment rows share the panel's height, so every one shows its state (the last one was cut off on the TV with seven pieces of equipment). Two columns past eight.

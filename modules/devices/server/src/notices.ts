@@ -37,11 +37,22 @@ export function notifyFork(newId: number, parentId: number, by: U) {
     { owner_id: number; name: string; segment: string } | undefined;
   const n = db.prepare('SELECT name,segment FROM presets WHERE id=?').get(newId) as { name: string; segment: string };
   if (!p || p.owner_id === by.id) return;
+  // 0.61: a stack that now has two or more made from it branches; its owner chooses which continues the line
+  const branches =
+    p.segment === 'stk' &&
+    (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM presets WHERE parent_id=? AND segment='stk' AND deleted_at IS NULL")
+        .get(parentId) as {
+        n: number;
+      }
+    ).n > 1;
   notify(
     [p.owner_id],
     'fork',
-    `${by.name} made “${n.name}” based on your “${p.name}”`,
-    { view: n.segment, id: newId },
+    `${by.name} made “${n.name}” based on your “${p.name}”` +
+      (branches ? `. Your stack now branches: choose which continues its line in its History.` : ''),
+    branches ? { view: p.segment, id: parentId } : { view: n.segment, id: newId },
     by.name,
   );
 }

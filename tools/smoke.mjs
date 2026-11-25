@@ -2318,6 +2318,158 @@ console.log('The Overview section (0.60)');
   }
 }
 
+if (DEV) {
+  console.log('Lines of research (0.61)');
+  const asAna = async (method, path, body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: { cookie: anaCookie, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  const adminId = (await call('GET', '/api/me')).j.id;
+  const stk = async (name, parent_id, visibility = 'shared', as = call) =>
+    (
+      await as('POST', '/api/presets', {
+        segment: 'stk',
+        name,
+        visibility,
+        data: { arch: 'p-i-n', sl: [] },
+        ...(parent_id ? { parent_id } : {}),
+      })
+    ).j.id;
+  const S1 = await stk('Line smoke start'),
+    S2 = await stk('Line smoke v2', S1),
+    S3 = await stk('Line smoke branch', S1),
+    S4 = await stk('Line smoke v3', S2),
+    P = await stk('Line smoke private', null, 'private');
+  // synthetic J–V: one device per batch, its PCE set by the current
+  const V = Array.from({ length: 116 }, (_, i) => +(i * 0.01).toFixed(2));
+  const batch = async (name, source, date, k, visibility = 'shared') => {
+    const b = await call('POST', '/api/batches', {
+      name,
+      visibility,
+      ...(source ? { source } : {}),
+      stack: { arch: 'p-i-n', sl: [] },
+    });
+    const sample = 'Ln_' + b.j.id;
+    const set = await call('POST', '/api/iv', {
+      name: name + ' J–V',
+      date,
+      system: 'csv',
+      visibility,
+      curves: [
+        {
+          file: sample,
+          sample,
+          substrate: '1',
+          scan: '01',
+          pixel: '1',
+          dir: 'rev',
+          area: 0.1,
+          pin: 100,
+          V: [...V].reverse(),
+          J: V.map((v) => 23 * k * (1 - Math.exp((v - 1.12) / 0.035))).reverse(),
+        },
+      ],
+      links: { [sample]: { kind: 'batch', id: b.j.id } },
+    });
+    return { id: b.j.id, set: set.j.id };
+  };
+  const b1 = await batch('Line smoke 1', S1, '2026-01-05', 0.9),
+    b2 = await batch('Line smoke 2', S2, '2026-02-05', 1.0),
+    b4 = await batch('Line smoke 4', S4, '2026-03-05', 1.1),
+    b3 = await batch('Line smoke branch 1', S3, '2026-02-20', 1.05),
+    bp = await batch('Line smoke private 1', P, '2026-02-25', 1.0, 'private'),
+    bn = await batch('Line smoke no stack', null, '2026-03-01', 0.95);
+  const lines = async (as = call) => (await as('GET', '/api/lines')).j;
+  let L = await lines();
+  const pt = (d, id) => d.points.find((p) => p.batch === id);
+  ok(
+    pt(L, b1.id)?.line === S1 && pt(L, b2.id)?.line === S1 && pt(L, b4.id)?.line === S1,
+    'a stack and the stacks made from it, one after another, are one line',
+  );
+  ok(pt(L, b3.id)?.line === S3, 'where it branches, the oldest continues; the other starts a line of its own');
+  ok(!pt(L, bn.id), 'a batch started from no stack is in no line');
+  ok(
+    pt(L, b1.id).devices === 1 && pt(L, b1.id).best < pt(L, b2.id).best && pt(L, b1.id).day === '2026-01-05',
+    'each batch at its best device, on the day it was measured',
+  );
+  const l1 = L.lines.find((l) => l.id === S1);
+  ok(
+    l1?.name === 'Line smoke start' && /^#[0-9a-f]{6}$/.test(l1.color),
+    'named after its starting stack, with a colour',
+  );
+  ok(L.shown === null, 'nobody has picked lines yet');
+  const theirs = await lines(asAna);
+  ok(
+    !pt(theirs, bp.id) && !!pt(L, bp.id),
+    'a member’s Lab page has shared batches only; an admin’s the private one too',
+  );
+  ok(
+    L.lines.find((l) => l.id === P)?.name === 'Line smoke private' &&
+      !theirs.lines.some((l) => l.id === P) &&
+      (await asAna('GET', '/api/presets/' + S1)).j.family.find((f) => f.id === S3)?.line?.id === S3,
+    'the family of a stack tells each stack’s line',
+  );
+  // the branch: only the owner of the stack where it branches chooses
+  ok((await asAna('PUT', `/api/presets/${S1}/line`, { next: S3 })).s === 403, 'someone else cannot choose the branch');
+  ok((await call('PUT', `/api/presets/${S1}/line`, { next: S4 })).s === 400, 'only a stack made from it continues it');
+  ok((await call('PUT', `/api/presets/${S1}/line`, { next: S3 })).s === 200, 'the owner chooses which continues');
+  L = await lines();
+  ok(
+    pt(L, b3.id).line === S1 && pt(L, b2.id).line === S2 && pt(L, b4.id).line === S2,
+    'the chosen branch joins the line; the other one, and what came after it, start a line',
+  );
+  ok(
+    (await call('GET', '/api/presets/' + S1)).j.family.find((f) => f.id === S1)?.next === S3,
+    'and its History says so',
+  );
+  // name and colour, by the owner of the starting stack
+  ok((await asAna('PUT', '/api/lines/' + S1, { name: 'Ana’s name' })).s === 403, 'only its owner names a line');
+  ok((await call('PUT', '/api/lines/' + S1, { color: 'red' })).s === 400, 'a colour is #rrggbb');
+  const named = await call('PUT', '/api/lines/' + S1, { name: 'Smoke line', color: '#123ABC' });
+  ok(named.j.name === 'Smoke line' && named.j.color === '#123abc', 'the owner names it and picks its colour');
+  ok((await lines(asAna)).lines.find((l) => l.id === S1)?.name === 'Smoke line', 'everyone sees them');
+  ok(
+    (await call('PUT', '/api/lines/' + S1, { name: null })).j.name === 'Line smoke start',
+    'an empty name gives back the starting stack’s',
+  );
+  ok((await call('PUT', '/api/lines/' + bn.id + 9999, {})).s === 404, 'no such line');
+  // the lines a person shows on the Lab page
+  ok((await call('PUT', '/api/lines/shown', { ids: [S2, S2, S1] })).s === 200, 'lines picked for the Lab page');
+  ok(JSON.stringify((await lines()).shown) === JSON.stringify([S2, S1]), 'and kept for that person');
+  ok((await lines(asAna)).shown === null, 'each person picks their own');
+  // My progress: their batches with their lines; the rest is not in a line
+  const me = (await call('GET', '/api/dashboard/person/' + adminId)).j.m.devices;
+  const mp = (id) => me.points.find((x) => x.kind === 'batch' && x.id === id);
+  ok(mp(b3.id)?.line === S1 && mp(b2.id)?.line === S2 && mp(bn.id)?.line === null, 'My progress: each batch’s line');
+  ok(
+    me.lines.some((l) => l.id === S1 && l.color === '#123abc') && me.lines.some((l) => l.id === S2),
+    'with the lines’ names and colours',
+  );
+  // someone else's stack made from one that already has stacks made from it: its owner hears it now branches
+  const before = db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='fork' AND user_id=?").get(adminId).n;
+  const S5 = await stk('Line smoke Ana', S1, 'shared', asAna);
+  const told = db
+    .prepare("SELECT text FROM notifications WHERE kind='fork' AND user_id=? ORDER BY id DESC LIMIT 1")
+    .get(adminId);
+  ok(
+    db.prepare("SELECT COUNT(*) n FROM notifications WHERE kind='fork' AND user_id=?").get(adminId).n === before + 1 &&
+      /branches: choose which continues its line/.test(told?.text ?? ''),
+    'the owner of a stack that branches is told they can choose',
+  );
+  // clean up: batches, measurements and stacks made here
+  for (const b of [b1, b2, b3, b4, bp, bn]) {
+    await call('DELETE', '/api/iv/' + b.set);
+    db.prepare('DELETE FROM batches WHERE id=?').run(b.id);
+  }
+  db.prepare('DELETE FROM line_picks').run();
+  db.prepare('DELETE FROM stack_lines').run();
+  for (const id of [S5, S4, S3, S2, S1, P]) db.prepare('DELETE FROM presets WHERE id=?').run(id);
+}
+
 console.log('First setup (a fresh install)');
 {
   const port2 = await freePort(),

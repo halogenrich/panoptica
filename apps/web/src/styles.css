@@ -1709,6 +1709,18 @@ table.list td {
   margin-top: 6px;
   flex: none;
 }
+.tree-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin: -4px 0 4px;
+  font-size: 12px;
+  color: var(--mut);
+}
+.tree-note {
+  margin: 0 0 8px;
+}
 .tree-diff {
   display: block;
   color: var(--mut);
@@ -9775,15 +9787,7 @@ input.mono {
   height: 100%;
   background: var(--fg);
   transform-origin: left;
-  animation: ls-fill linear forwards;
-}
-@keyframes ls-fill {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
+  transform: scaleX(0); /* set every frame from the screen's clock (0.61) */
 }
 .ls-dots i {
   width: calc(var(--u) * 12);
@@ -10520,4 +10524,60 @@ input.mono {
 .ls-bday-more {
   margin: calc(var(--u) * 6) 0 0;
   font-size: calc(var(--u) * 19);
+}
+
+/* ============ lines of research (0.61) ============ */
+/* a line's name with its colour as a bar under it (the house rule for an item's colour) */
+.line-key {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  padding-bottom: 1px;
+  border-bottom: 3px solid var(--c);
+  line-height: 1.25;
+}
+.chip.on .line-key {
+  box-shadow: 0 2px 0 #fff;
+}
+.lines-keys {
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12.5px;
+}
+.lines-keys .line-edit {
+  color: var(--fg);
+  text-decoration: none;
+  font-size: inherit;
+}
+.lines-keys .line-edit:hover .line-key {
+  border-bottom-width: 4px;
+  padding-bottom: 0;
+}
+.lines-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 2px 0 10px;
+}
+.lines-viz .line-dot {
+  stroke: var(--card);
+  stroke-width: 2;
+}
+.lines-viz .line-dim {
+  opacity: 0.3;
+}
+.line-tip {
+  max-width: 300px;
+  font-size: 12.5px;
+}
+.line-change {
+  overflow-wrap: anywhere;
+}
+.line-edit-row {
+  align-items: flex-end;
+  gap: 12px;
 }

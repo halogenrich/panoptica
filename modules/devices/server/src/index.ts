@@ -10,6 +10,7 @@ import { registerBatches } from './batches.js';
 import { registerComparisons } from './comparisons.js';
 import { registerIv } from './iv.js';
 import { registerPresets } from './presets.js';
+import { registerLines } from './lines.js';
 import {
   addModule,
   canSee,
@@ -453,9 +454,13 @@ addModule({
       'POST /api/comparisons': 'Created a comparison',
       'PATCH /api/comparisons/:id': 'Edited a comparison',
       'DELETE /api/comparisons/:id': 'Moved a comparison to the trash',
+      'PUT /api/lines/shown': 'Chose the lines of research the Lab page shows',
+      'PUT /api/lines/:id': 'Named a line of research or changed its colour',
+      'PUT /api/presets/:id/line': 'Chose which stack continues a line of research',
     },
     names: [
       ['/api/presets/', 'SELECT name AS n FROM presets WHERE id=?'],
+      ['/api/lines/', 'SELECT name AS n FROM presets WHERE id=?'],
       ['/api/batches/', 'SELECT name AS n FROM batches WHERE id=?'],
       ['/api/comparisons/', 'SELECT name AS n FROM comparisons WHERE id=?'],
       ['/api/iv/:id', 'SELECT name AS n FROM iv_sets WHERE id=?'],
@@ -463,7 +468,8 @@ addModule({
   },
   topics: [
     [/^\/api\/batches/, ['batches', 'calendar']],
-    [/^\/api\/(presets|runs)/, ['presets', 'batches', 'inventory']],
+    [/^\/api\/(presets|runs)/, ['presets', 'batches', 'inventory', 'lines']],
+    [/^\/api\/lines\/\d/, ['lines']],
     [/^\/api\/iv/, ['iv', 'comparisons']],
     [/^\/api\/comparisons/, ['comparisons']],
   ],
@@ -471,6 +477,7 @@ addModule({
     `${(c.prepare('SELECT COUNT(*) AS n FROM presets').get() as { n: number }).n} recipes and designs`,
   register(app, auth, bad) {
     registerPresets(app, auth, bad);
+    registerLines(app, auth, bad);
     registerIv(app, auth, bad);
     registerComparisons(app, auth, bad);
     registerBatches(app, auth, bad);

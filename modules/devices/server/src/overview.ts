@@ -1,4 +1,5 @@
 import { db, type OverviewPart, type Period } from '@psc/server/api';
+import { dayOf, groupDevices, median, personLines } from './lines.js';
 
 /**
  * The Electronic Devices module's part of the Overview (0.42): batches started, finished and running, measurements and the cells
@@ -14,14 +15,6 @@ type Curve = {
   use: number | null;
   kind?: string | null;
 };
-const median = (a: number[]) => {
-  if (!a.length) return null;
-  const s = [...a].sort((x, y) => x - y),
-    m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-const dayOf = (s: { date: string; created_at: string }) =>
-  s.date && /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : s.created_at.slice(0, 10);
 const iso = (d: Date) => d.toISOString();
 
 /** Best working pixel of each device (sample + substrate) in a set: the "devices" counted and compared. */
@@ -172,7 +165,7 @@ function person(uid: number) {
       'SELECT id,name,date,created_at,system,links FROM iv_sets WHERE owner_id=? AND deleted_at IS NULL AND stability_of IS NULL',
     )
     .all(uid) as any[];
-  const dev = devicesOf(curvesOf(sets.map((s) => s.id)));
+  const { dev, groups } = groupDevices(sets);
   const progress = sets
     .map((s) => {
       const v = [...dev.entries()].filter(([k]) => k.startsWith(s.id + '|')).map(([, x]) => x);
@@ -192,32 +185,11 @@ function person(uid: number) {
       'SELECT id,code,name,status,created_at,updated_at FROM batches WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC',
     )
     .all(uid) as { id: number; code: string; name: string; status: string; created_at: string }[];
-  // ---- devices by the batch their sample is linked to (or by measurement)
-  type Top = { pce: number; setId: number; set: string; sample: string; substrate: string; day: string };
-  const groups = new Map<string, { kind: 'batch' | 'set'; id: number; day: string; pces: number[]; top: Top }>();
-  const setOf = new Map(sets.map((s) => [s.id, s]));
-  for (const [k, pce] of dev) {
-    const [sid, sample, substrate] = k.split('|'),
-      s = setOf.get(+sid)!,
-      link = (JSON.parse(s.links || '{}') as Record<string, { kind: string; id: number } | null>)[sample],
-      key = link?.kind === 'batch' ? 'b' + link.id : 's' + s.id,
-      day = dayOf(s),
-      top: Top = { pce, setId: s.id, set: s.name, sample, substrate, day };
-    const g = groups.get(key);
-    if (!g)
-      groups.set(key, {
-        kind: link?.kind === 'batch' ? 'batch' : 'set',
-        id: link?.kind === 'batch' ? link.id : s.id,
-        day,
-        pces: [pce],
-        top,
-      });
-    else {
-      g.pces.push(pce);
-      if (day < g.day) g.day = day;
-      if (pce > g.top.pce) g.top = top;
-    }
-  }
+  // 0.61: each batch's line of research; measurements linked to no batch, and batches in no line, are "Not in a line"
+  const { lineOfBatch, lines } = personLines(
+    uid,
+    [...groups.values()].filter((g) => g.kind === 'batch').map((g) => g.id),
+  );
   const batchName = (id: number) =>
     (db.prepare('SELECT name, code FROM batches WHERE id=? AND deleted_at IS NULL').get(id) as
       { name: string; code: string } | undefined) ?? null;
@@ -233,6 +205,7 @@ function person(uid: number) {
         best: Math.max(...g.pces),
         median: median(g.pces),
         top: { ...g.top, batchId: b ? g.id : null },
+        line: b ? (lineOfBatch.get(g.id) ?? null) : null,
       };
     })
     .sort((a, b) => a.day.localeCompare(b.day) || a.name.localeCompare(b.name));
@@ -244,6 +217,7 @@ function person(uid: number) {
       return { ...b, best: p?.best ?? null, devices: p?.devices ?? 0 };
     }),
     points,
+    lines,
     best: best ? best.top : null,
   };
 }
